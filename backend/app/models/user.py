@@ -12,6 +12,8 @@ class User(Base):
     password_hash = Column(String, nullable=True)
     reset_token = Column(String, nullable=True)
     reset_token_expires = Column(TIMESTAMP(timezone=True), nullable=True)
+    otp_code = Column(String, nullable=True)
+    otp_code_expires = Column(TIMESTAMP(timezone=True), nullable=True)
     age_bracket = Column(Integer, nullable=True)
     is_minor = Column(Boolean, default=False)
     locale = Column(String, default="en")

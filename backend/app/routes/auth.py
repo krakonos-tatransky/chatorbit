@@ -1,12 +1,18 @@
 from pydantic import BaseModel, EmailStr
 from fastapi import APIRouter, HTTPException, Response, Request
-from app.core.auth import create_access_token, set_session_cookie, clear_session_cookie, token_from_request
+from app.core.auth import (
+    create_access_token,
+    set_session_cookie,
+    clear_session_cookie,
+    token_from_request,
+)
 from app.core.db import SessionLocal
 from app.models.user import User
 from sqlalchemy import select
 from datetime import datetime, timedelta, timezone
 from app.core.security import hash_password, verify_password
-import uuid
+from app.core.email import send_email
+import uuid, secrets
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -19,19 +25,34 @@ class OTPVerify(BaseModel):
 
 @router.post("/otp/request")
 def otp_request(data: OTPRequest):
-    # TODO: actually send OTP via email
-    return {"ok": True, "note": "OTP sent (stub). Use code 000000 for dev."}
-
-@router.post("/otp/verify")
-def otp_verify(data: OTPVerify, response: Response):
-    if data.code != "000000":
-        raise HTTPException(status_code=400, detail="Invalid code")
+    code = f"{secrets.randbelow(1000000):06d}"
     db = SessionLocal()
     try:
         user = db.scalar(select(User).where(User.email == data.email))
         if not user:
             user = User(email=str(data.email), is_minor=False)
-            db.add(user); db.commit()
+            db.add(user)
+            db.flush()
+        user.otp_code = code
+        user.otp_code_expires = datetime.now(timezone.utc) + timedelta(minutes=10)
+        db.commit()
+        send_email(to=str(data.email), subject="Your OTP Code", body=f"Your code is {code}")
+        return {"ok": True, "note": "OTP sent", "dev_code": code}
+    finally:
+        db.close()
+
+@router.post("/otp/verify")
+def otp_verify(data: OTPVerify, response: Response):
+    db = SessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.email == data.email))
+        if not user or user.otp_code != data.code:
+            raise HTTPException(status_code=400, detail="Invalid code")
+        if not user.otp_code_expires or user.otp_code_expires < datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="Code expired")
+        user.otp_code = None
+        user.otp_code_expires = None
+        db.commit()
         token = create_access_token(str(user.id))
         set_session_cookie(response, token)
         return {"access_token": token, "token_type": "bearer", "user_id": str(user.id)}
@@ -92,7 +113,11 @@ def password_forgot(data: ForgotIn):
             user.reset_token = uuid.uuid4().hex
             user.reset_token_expires = datetime.now(timezone.utc) + timedelta(minutes=30)
             db.commit()
-            # TODO: email the token link; for dev return it:
+            send_email(
+                to=str(data.email),
+                subject="Password reset",
+                body=f"Your reset token is {user.reset_token}",
+            )
             return {"ok": True, "dev_token": user.reset_token}
         return {"ok": True}
     finally:
