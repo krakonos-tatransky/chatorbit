@@ -4,17 +4,37 @@ import { useState } from "react";
 export default function Onboarding() {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [token, setToken] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
   const backend = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
   async function requestOTP() {
-    await fetch(`${backend}/auth/otp/request`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
-    alert("OTP sent (use 000000 for dev)");
-  }
-  async function verifyOTP() {
-    const res = await fetch(`${backend}/auth/otp/verify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, code }) });
+    setMsg(null);
+    const res = await fetch(`${backend}/auth/otp/request`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email })
+    });
     const data = await res.json();
-    if (data.access_token) { localStorage.setItem("token", data.access_token); setToken(data.access_token); }
+    if (data.dev_code) {
+      setCode(data.dev_code);
+    }
+    setMsg(data.note || "OTP sent");
+  }
+
+  async function verifyOTP() {
+    setMsg(null);
+    const res = await fetch(`${backend}/auth/otp/verify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ email, code })
+    });
+    const data = await res.json();
+    if (res.ok) {
+      window.location.href = "/queue";
+    } else {
+      setMsg(data?.detail || "Could not verify code");
+    }
   }
 
   return (
@@ -27,7 +47,7 @@ export default function Onboarding() {
         <input value={code} onChange={(e)=>setCode(e.target.value)} placeholder="000000"/>
         <button onClick={verifyOTP}>Verify</button>
       </div>
-      <p>Token: {token ? token.slice(0,24)+"..." : "—"}</p>
+      {msg && <p>{msg}</p>}
     </main>
   );
 }
