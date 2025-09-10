@@ -23,7 +23,7 @@ def otp_request(data: OTPRequest):
     return {"ok": True, "note": "OTP sent (stub). Use code 000000 for dev."}
 
 @router.post("/otp/verify")
-def otp_verify(data: OTPVerify):
+def otp_verify(data: OTPVerify, response: Response):
     if data.code != "000000":
         raise HTTPException(status_code=400, detail="Invalid code")
     db = SessionLocal()
@@ -33,6 +33,7 @@ def otp_verify(data: OTPVerify):
             user = User(email=str(data.email), is_minor=False)
             db.add(user); db.commit()
         token = create_access_token(str(user.id))
+        set_session_cookie(response, token)
         return {"access_token": token, "token_type": "bearer", "user_id": str(user.id)}
     finally:
         db.close()
@@ -43,7 +44,7 @@ class RegisterIn(BaseModel):
     password: str
 
 @router.post("/register")
-def register(data: RegisterIn):
+def register(data: RegisterIn, response: Response):
     if len(data.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
     db = SessionLocal()
@@ -57,6 +58,7 @@ def register(data: RegisterIn):
         existing.password_hash = hash_password(data.password)
         db.commit()
         token = create_access_token(str(existing.id))
+        set_session_cookie(response, token)
         return {"access_token": token, "token_type": "bearer", "user_id": str(existing.id)}
     finally:
         db.close()
@@ -66,13 +68,14 @@ class LoginIn(BaseModel):
     password: str
 
 @router.post("/login")
-def login(data: LoginIn):
+def login(data: LoginIn, response: Response):
     db = SessionLocal()
     try:
         user = db.scalar(select(User).where(User.email == data.email))
         if not user or not verify_password(data.password, user.password_hash):
             raise HTTPException(status_code=401, detail="Invalid credentials.")
         token = create_access_token(str(user.id))
+        set_session_cookie(response, token)
         return {"access_token": token, "token_type": "bearer", "user_id": str(user.id)}
     finally:
         db.close()
@@ -118,27 +121,6 @@ def password_reset(data: ResetIn):
         return {"ok": True}
     finally:
         db.close()
-
-@router.post("/otp/verify")
-def otp_verify(data: OTPVerify, response: Response):
-    # ...existing code to get/create `user`
-    token = create_access_token(str(user.id))
-    set_session_cookie(response, token)
-    return {"access_token": token, "token_type": "bearer", "user_id": str(user.id)}
-
-@router.post("/register")
-def register(data: RegisterIn, response: Response):
-    # ...existing code to create user + hash pwd
-    token = create_access_token(str(existing.id))
-    set_session_cookie(response, token)
-    return {"access_token": token, "token_type": "bearer", "user_id": str(existing.id)}
-
-@router.post("/login")
-def login(data: LoginIn, response: Response):
-    # ...verify password
-    token = create_access_token(str(user.id))
-    set_session_cookie(response, token)
-    return {"access_token": token, "token_type": "bearer", "user_id": str(user.id)}
 
 @router.post("/logout")
 def logout(response: Response):
