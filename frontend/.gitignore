@@ -1,0 +1,15 @@
+# Next.js
+.next/
+out/
+.vercel/
+node_modules/
+.pnpm-store/
+.eslintcache
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Misc
+coverage/

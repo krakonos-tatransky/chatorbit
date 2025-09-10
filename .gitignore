@@ -1,0 +1,65 @@
+# --- OS / Editors ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*.orig
+
+# --- Logs ---
+*.log
+logs/
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+**/pnpm-debug.log*
+
+# --- Env files: keep only examples under version control ---
+**/.env
+**/.env.local
+**/.env.development.local
+**/.env.test.local
+**/.env.production.local
+!**/.env.example
+
+# --- Node / Next.js (monorepo-wide) ---
+**/node_modules/
+**/.pnpm-store/
+**/.next/
+**/.vercel/
+**/out/
+**/.turbo/
+**/.eslintcache
+**/.parcel-cache/
+**/.cache/
+
+# --- Build artifacts ---
+**/dist/
+**/build/
+**/coverage/
+**/.nyc_output/
+
+# --- Python ---
+**/__pycache__/
+**/*.py[cod]
+**/*.pyo
+**/.Python
+**/.venv/
+**/venv/
+**/.mypy_cache/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.coverage*
+**/htmlcov/
+**/.ipynb_checkpoints/
+
+# --- Docker / Compose local artifacts ---
+**/.docker/
+docker-compose.override.yml
+
+# --- Local data (if you bind-mount volumes) ---
+infra/pgdata/
+infra/miniostorage/
+infra/redisdata/
+tmp/

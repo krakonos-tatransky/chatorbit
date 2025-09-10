@@ -1,0 +1,12 @@
+.git
+node_modules
+.pnpm-store
+.next
+out
+.vercel
+coverage
+.eslintcache
+.env
+.env.*
+.vscode
+.idea
