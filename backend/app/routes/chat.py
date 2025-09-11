@@ -5,6 +5,8 @@ from app.core.auth import decode_token
 from typing import Dict, Set
 from http.cookies import SimpleCookie
 from app.core.config import settings
+from app.core.db import SessionLocal
+from app.models.user import User
 
 router = APIRouter(prefix="/rooms", tags=["chat"])
 
@@ -53,6 +55,14 @@ async def ws_chat(websocket: WebSocket, room_id: str):
         user_id = payload["sub"]
     except Exception:
         await websocket.close(code=4401); return
+
+    db = SessionLocal()
+    try:
+        user = db.get(User, user_id)
+        if not user or (user.is_minor and not user.consent_ok):
+            await websocket.close(code=4403); return
+    finally:
+        db.close()
 
     # await manager.connect(room_id, websocket)
     await websocket.accept()
