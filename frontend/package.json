@@ -5,7 +5,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "tsc lib/cn.ts lib/cn.test.ts --noEmit false --esModuleInterop --module CommonJS --target ES2017 --outDir build && node --test build/cn.test.js"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
