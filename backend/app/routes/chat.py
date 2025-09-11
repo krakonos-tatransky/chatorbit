@@ -5,6 +5,8 @@ from app.core.auth import decode_token
 from typing import Dict, Set
 from http.cookies import SimpleCookie
 from app.core.config import settings
+from app.core.db import SessionLocal
+from app.models.user import User
 
 router = APIRouter(prefix="/rooms", tags=["chat"])
 
@@ -27,6 +29,10 @@ manager = ConnectionManager()
 
 @router.websocket("/{room_id}/ws")
 async def ws_chat(websocket: WebSocket, room_id: str):
+    origin = websocket.headers.get("origin")
+    if origin not in {settings.frontend_url, "http://localhost:3000"}:
+        await websocket.close(code=4403); return
+    
     token = None
     # Cookie
     ck = SimpleCookie(websocket.headers.get("cookie", ""))
@@ -50,7 +56,16 @@ async def ws_chat(websocket: WebSocket, room_id: str):
     except Exception:
         await websocket.close(code=4401); return
 
-    await manager.connect(room_id, websocket)
+    db = SessionLocal()
+    try:
+        user = db.get(User, user_id)
+        if not user or (user.is_minor and not user.consent_ok):
+            await websocket.close(code=4403); return
+    finally:
+        db.close()
+
+    # await manager.connect(room_id, websocket)
+    await websocket.accept()
     try:
         while True:
             data = await websocket.receive_json()

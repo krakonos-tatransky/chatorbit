@@ -56,3 +56,173 @@ shared/         # shared schemas/types (JSON, TS types), if needed
 - Add WebRTC (audio captions) in `/chat/[roomId]` with a TURN server (coturn).
 - Enable Alembic migrations.
 ```
+# Docker Restart & Rebuild Guide (ChatOrbit / `infra`)
+
+This guide collects the most useful commands to restart, rebuild, and fully reset your local Docker stack for the ChatOrbit project.
+
+> **Project path used below:** `~/myDev/chatorbit_starter/chatorbit/infra`  
+> Replace it if your path differs.
+
+---
+
+## TL;DR Cheat Sheet
+
+```bash
+# go to compose folder
+cd ~/myDev/chatorbit_starter/chatorbit/infra
+
+# quick restart (no rebuild, no env reload)
+docker compose restart
+
+# recreate all containers (picks up .env changes; keeps volumes/data)
+docker compose down --remove-orphans
+docker compose up -d
+
+# rebuild images + recreate (picks up code & requirements)
+docker compose down --remove-orphans
+docker compose up -d --build
+
+# full reset (⚠️ deletes Postgres/MinIO/Redis data)
+docker compose down -v --remove-orphans
+docker compose up -d postgres redis minio
+docker compose up -d createbuckets
+docker compose up -d --build backend worker frontend
+```
+
+---
+
+## Common Scenarios
+
+### 1) Fast restart (containers only)
+Use when you only need to bounce processes (e.g., transient errors). No images rebuilt, no env reload.
+
+```bash
+cd ~/myDev/chatorbit_starter/chatorbit/infra
+docker compose restart
+```
+
+### 2) Recreate all containers (pick up env changes)
+Use after editing `.env` files. Recreates containers but **keeps volumes** (DB/MinIO data intact).
+
+```bash
+cd ~/myDev/chatorbit_starter/chatorbit/infra
+docker compose down --remove-orphans
+docker compose up -d
+```
+
+### 3) Rebuild images + recreate
+Use after changing **Dockerfiles**, **requirements.txt**, or when you need a clean image build.
+
+```bash
+cd ~/myDev/chatorbit_starter/chatorbit/infra
+docker compose down --remove-orphans
+docker compose up -d --build
+```
+
+### 4) Full reset (nuke volumes)
+Use as a last resort or when you want a fresh DB/object store. ⚠️ **This deletes data** in Postgres/MinIO/Redis volumes.
+
+```bash
+cd ~/myDev/chatorbit_starter/chatorbit/infra
+docker compose down -v --remove-orphans
+docker compose up -d postgres redis minio
+docker compose up -d createbuckets     # re-create buckets (media/quarantine)
+docker compose up -d --build backend worker frontend
+```
+
+---
+
+## Service-Specific Handy Commands
+
+### Backend
+```bash
+# hot restart (no rebuild)
+docker compose restart backend
+
+# rebuild backend image (picks up requirements / Dockerfile) + recreate
+docker compose up -d --build backend
+
+# tail logs
+docker compose logs -f backend
+```
+
+### Frontend
+```bash
+# hot restart
+docker compose restart frontend
+
+# rebuild + recreate
+docker compose up -d --build frontend
+
+# tail logs
+docker compose logs -f frontend
+```
+
+### Worker
+```bash
+docker compose restart worker
+docker compose up -d --build worker
+docker compose logs -f worker
+```
+
+### Datastores
+```bash
+# Postgres
+docker compose logs -f postgres
+docker compose exec postgres bash
+
+# MinIO
+docker compose logs -f minio
+# Console: http://localhost:9001 (minioadmin / minioadmin unless you changed it)
+
+# Redis
+docker compose logs -f redis
+```
+
+---
+
+## Status & Diagnostics
+
+```bash
+# status of all services
+docker compose ps
+
+# follow logs for all services
+docker compose logs -f
+
+# only the last N lines for a service
+docker compose logs -n 100 backend
+```
+
+---
+
+## Fix “network in use” / remove orphans
+
+```bash
+docker compose down -v --remove-orphans
+docker network prune -f   # caution: removes unused networks system-wide
+```
+
+---
+
+## Free space / clean dangling artifacts
+
+```bash
+# images, containers, networks not referenced by any container
+docker system prune -f
+
+# also remove dangling volumes (⚠️ potentially destructive)
+docker volume prune -f
+```
+
+---
+
+## Notes & Tips
+
+- **Env changes** require a **recreate** to take effect (`down --remove-orphans && up -d`).
+- **Code changes inside bind-mounted folders** (e.g., frontend Next.js, backend in dev with watch) often **do not** require rebuilds—just a service restart is enough.
+- **Rebuild** when changing Dockerfiles, base images, or dependency lockfiles (`requirements.txt` / `pnpm-lock.yaml`).
+
+---
+
+**Happy shipping!**

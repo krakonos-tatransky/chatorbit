@@ -16,6 +16,7 @@ class User(Base):
     otp_code_expires = Column(TIMESTAMP(timezone=True), nullable=True)
     age_bracket = Column(Integer, nullable=True)
     is_minor = Column(Boolean, default=False)
+    consent_ok = Column(Boolean, default=False)
     locale = Column(String, default="en")
     tz = Column(String, default="UTC")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
