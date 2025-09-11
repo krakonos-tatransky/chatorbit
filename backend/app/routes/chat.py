@@ -27,6 +27,10 @@ manager = ConnectionManager()
 
 @router.websocket("/{room_id}/ws")
 async def ws_chat(websocket: WebSocket, room_id: str):
+    origin = websocket.headers.get("origin")
+    if origin not in {settings.frontend_url, "http://localhost:3000"}:
+        await websocket.close(code=4403); return
+    
     token = None
     # Cookie
     ck = SimpleCookie(websocket.headers.get("cookie", ""))
@@ -50,7 +54,8 @@ async def ws_chat(websocket: WebSocket, room_id: str):
     except Exception:
         await websocket.close(code=4401); return
 
-    await manager.connect(room_id, websocket)
+    # await manager.connect(room_id, websocket)
+    await websocket.accept()
     try:
         while True:
             data = await websocket.receive_json()

@@ -4,7 +4,6 @@ from app.core.auth import (
     create_access_token,
     set_session_cookie,
     clear_session_cookie,
-    token_from_request,
 )
 from app.core.db import SessionLocal
 from app.models.user import User
@@ -13,6 +12,9 @@ from datetime import datetime, timedelta, timezone
 from app.core.security import hash_password, verify_password
 from app.core.email import send_email
 import uuid, secrets
+from app.core.csrf import issue_csrf_token
+from app.core.deps import get_current_user
+from fastapi_limiter.depends import RateLimiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -41,7 +43,7 @@ def otp_request(data: OTPRequest):
     finally:
         db.close()
 
-@router.post("/otp/verify")
+@router.post("/otp/verify", dependencies=[Depends(RateLimiter(times=5, seconds=60))])
 def otp_verify(data: OTPVerify, response: Response):
     db = SessionLocal()
     try:
@@ -151,3 +153,7 @@ def password_reset(data: ResetIn):
 def logout(response: Response):
     clear_session_cookie(response)
     return {"ok": True}
+
+@router.get("/csrf")
+def get_csrf(user=Depends(get_current_user)):
+    return {"csrf": issue_csrf_token(str(user.id))}
