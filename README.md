@@ -1,228 +1,95 @@
-# ChatOrbit – Starter Monorepo (FastAPI + Next.js + Redis + Postgres + MinIO)
+# ChatOrbit – Token-based two-person chat
 
-End-to-end scaffold for a multilingual, safety-first random chat app.
+A lightweight rebuild of ChatOrbit focused on issuing limited-use chat tokens and connecting exactly two devices in an
+end-to-end session. The backend only mints tokens, validates joins, and relays encrypted message bundles; the frontend provides
+an elegant control surface for the host and guest.
 
-## Stack
-- **Frontend**: Next.js (App Router), Tailwind
-- **Backend**: FastAPI (REST + WebSockets), SQLAlchemy
-- **Workers**: Celery (Redis broker) for moderation/translation/notifications
-- **DB**: Postgres
-- **Cache/Queues**: Redis
-- **Object Storage**: MinIO (S3-compatible) with presigned uploads
-- **Auth**: OTP/email magic-link (stub) + JWT
-- **Safety**: Rule-based prefilters + async moderation adapters (stubs)
-- **Minor Mode**: parental consent placeholders, strict policies
-- **Notifications**: Web Push (stub plumbing)
+## What’s inside
 
-## Quick start
-1. Create a `.env` from `.env.example` at the repo root and inside `backend/.env.example` and `frontend/.env.local.example`.
-2. Start infra and apps:
+| Layer     | Stack                                              | Highlights |
+|-----------|----------------------------------------------------|------------|
+| Frontend  | Next.js 14 (App Router), React, handcrafted CSS    | Landing page for issuing/redeeming tokens and a responsive chat workspace with countdown + connection state |
+| Backend   | FastAPI, SQLAlchemy ORM (SQLite)                   | Token issuance (10/hour rate limit), session lifecycle management, WebSocket bridge for message exchange & deletion |
+| Infra     | Docker Compose (frontend + backend)                | Hot reload for local development with a single `docker compose up` |
+
+## Local development
+
+1. **Install frontend dependencies**
    ```bash
-   docker compose up --build
+   corepack enable pnpm   # ensures pnpm is available
+   cd frontend
+   pnpm install
    ```
-3. Access:
-   - Frontend: http://localhost:3000
-   - Backend docs: http://localhost:8000/docs
-   - MinIO console: http://localhost:9001 (user/pass from .env)
-   - Postgres: localhost:5432 (user/pass from .env)
-   - Redis: localhost:6379
+2. **Create a Python virtual env** (optional but recommended) and install backend deps:
+   ```bash
+   cd ../backend
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
+3. **Run the backend**
+   ```bash
+   uvicorn app.main:app --reload
+   ```
+4. **Run the frontend**
+   ```bash
+   cd ../frontend
+   pnpm dev
+   ```
+5. Open http://localhost:3000 – the landing page lets you mint tokens and join sessions.
 
-## Dev notes
-- The backend auto-creates tables on start. Swap to Alembic for production.
-- Worker tasks are idempotent and safe to retry.
-- Adapters under `backend/app/adapters` are where you wire real providers
-  (translation, image moderation, email/SMS for OTP, push services).
-
-## Folder map
-```
-backend/        # FastAPI app + Celery worker
-frontend/       # Next.js (App Router)
-infra/          # docker-compose + Dockerfiles + scripts
-shared/         # shared schemas/types (JSON, TS types), if needed
-```
-
-## MVP scope included
-- Auth OTP flow (stub) and JWT session
-- Profiles & preferences
-- Queue join/leave and simple matcher
-- WebSocket chat with server-side translation stub + "show original"
-- Report/block and basic moderation pipeline sketch
-- Presigned media uploads to MinIO (quarantine → TODO: scan → publish)
-
-## Next steps
-- Replace stubs in `adapters/*` with real vendors (LLM moderation, translation).
-- Add CSAM hash matching + nudity classifier in `adapters/moderation.py`.
-- Implement verifiable parental consent in `routes/consent.py` (choose a provider).
-- Add WebRTC (audio captions) in `/chat/[roomId]` with a TURN server (coturn).
-- Enable Alembic migrations.
-```
-# Docker Restart & Rebuild Guide (ChatOrbit / `infra`)
-
-This guide collects the most useful commands to restart, rebuild, and fully reset your local Docker stack for the ChatOrbit project.
-
-> **Project path used below:** `~/myDev/chatorbit_starter/chatorbit/infra`  
-> Replace it if your path differs.
-
----
-
-## TL;DR Cheat Sheet
+### Dockerized workflow
 
 ```bash
-# go to compose folder
-cd ~/myDev/chatorbit_starter/chatorbit/infra
-
-# quick restart (no rebuild, no env reload)
-docker compose restart
-
-# recreate all containers (picks up .env changes; keeps volumes/data)
-docker compose down --remove-orphans
-docker compose up -d
-
-# rebuild images + recreate (picks up code & requirements)
-docker compose down --remove-orphans
-docker compose up -d --build
-
-# full reset (⚠️ deletes Postgres/MinIO/Redis data)
-docker compose down -v --remove-orphans
-docker compose up -d postgres redis minio
-docker compose up -d createbuckets
-docker compose up -d --build backend worker frontend
+cd infra
+docker compose up --build
 ```
 
----
+This spins up the FastAPI backend on port **8000** (with SQLite persistence under `backend/data/`) and the Next.js frontend on
+port **3000**.
 
-## Common Scenarios
+## Key concepts
 
-### 1) Fast restart (containers only)
-Use when you only need to bounce processes (e.g., transient errors). No images rebuilt, no env reload.
+- **Token minting** – Each device can request up to 10 tokens per hour. The requester picks the validity window (one day/week/
+  month/year), the active session TTL, and the per-message character cap (200–16,000).
+- **Joining & activation** – The first device to join reserves the host seat. The second activates the session, starts the
+  countdown, and locks the token to both participants.
+- **WebSocket messaging** – Messages are relayed as signed bundles. Either author can delete their own line, instantly removing
+  it from both histories. When the timer expires the backend closes the session and notifies both peers.
 
-```bash
-cd ~/myDev/chatorbit_starter/chatorbit/infra
-docker compose restart
+## Project structure
+
+```
+backend/
+    app/
+      config.py          # Settings & environment parsing
+      database.py        # SQLAlchemy engine + session helpers
+      main.py            # FastAPI routes + WebSocket gateway
+      models.py          # SQLAlchemy ORM models
+      schemas.py         # Pydantic request/response models
+  requirements.txt
+  tests/
+    test_sessions.py   # Token issuance & join flow tests
+frontend/
+  app/                 # Next.js routes (landing page + session UI)
+  components/          # Reusable client components
+  lib/                 # Frontend helpers (API endpoints)
+infra/
+  docker-compose.yml   # Backend + frontend services
 ```
 
-### 2) Recreate all containers (pick up env changes)
-Use after editing `.env` files. Recreates containers but **keeps volumes** (DB/MinIO data intact).
+## Testing
 
-```bash
-cd ~/myDev/chatorbit_starter/chatorbit/infra
-docker compose down --remove-orphans
-docker compose up -d
-```
+- **Backend**: `cd backend && pytest`
+- **Frontend**: rely on TypeScript + Next.js compilation (run `pnpm lint`/`pnpm test` when adding unit tests).
 
-### 3) Rebuild images + recreate
-Use after changing **Dockerfiles**, **requirements.txt**, or when you need a clean image build.
+## Environment variables
 
-```bash
-cd ~/myDev/chatorbit_starter/chatorbit/infra
-docker compose down --remove-orphans
-docker compose up -d --build
-```
+| Variable                  | Default                     | Purpose                                    |
+|---------------------------|-----------------------------|--------------------------------------------|
+| `CHAT_DATABASE_URL`       | `sqlite:///./data/chat_orbit.db` | Database location (SQLite file by default) |
+| `CHAT_TOKEN_RATE_LIMIT_PER_HOUR` | `10`                | Maximum token requests per IP each hour    |
+| `NEXT_PUBLIC_API_BASE_URL`| `http://localhost:8000`     | Frontend → backend HTTP base               |
+| `NEXT_PUBLIC_WS_BASE_URL` | `ws://localhost:8000`       | Frontend → backend WebSocket base          |
 
-### 4) Full reset (nuke volumes)
-Use as a last resort or when you want a fresh DB/object store. ⚠️ **This deletes data** in Postgres/MinIO/Redis volumes.
-
-```bash
-cd ~/myDev/chatorbit_starter/chatorbit/infra
-docker compose down -v --remove-orphans
-docker compose up -d postgres redis minio
-docker compose up -d createbuckets     # re-create buckets (media/quarantine)
-docker compose up -d --build backend worker frontend
-```
-
----
-
-## Service-Specific Handy Commands
-
-### Backend
-```bash
-# hot restart (no rebuild)
-docker compose restart backend
-
-# rebuild backend image (picks up requirements / Dockerfile) + recreate
-docker compose up -d --build backend
-
-# tail logs
-docker compose logs -f backend
-```
-
-### Frontend
-```bash
-# hot restart
-docker compose restart frontend
-
-# rebuild + recreate
-docker compose up -d --build frontend
-
-# tail logs
-docker compose logs -f frontend
-```
-
-### Worker
-```bash
-docker compose restart worker
-docker compose up -d --build worker
-docker compose logs -f worker
-```
-
-### Datastores
-```bash
-# Postgres
-docker compose logs -f postgres
-docker compose exec postgres bash
-
-# MinIO
-docker compose logs -f minio
-# Console: http://localhost:9001 (minioadmin / minioadmin unless you changed it)
-
-# Redis
-docker compose logs -f redis
-```
-
----
-
-## Status & Diagnostics
-
-```bash
-# status of all services
-docker compose ps
-
-# follow logs for all services
-docker compose logs -f
-
-# only the last N lines for a service
-docker compose logs -n 100 backend
-```
-
----
-
-## Fix “network in use” / remove orphans
-
-```bash
-docker compose down -v --remove-orphans
-docker network prune -f   # caution: removes unused networks system-wide
-```
-
----
-
-## Free space / clean dangling artifacts
-
-```bash
-# images, containers, networks not referenced by any container
-docker system prune -f
-
-# also remove dangling volumes (⚠️ potentially destructive)
-docker volume prune -f
-```
-
----
-
-## Notes & Tips
-
-- **Env changes** require a **recreate** to take effect (`down --remove-orphans && up -d`).
-- **Code changes inside bind-mounted folders** (e.g., frontend Next.js, backend in dev with watch) often **do not** require rebuilds—just a service restart is enough.
-- **Rebuild** when changing Dockerfiles, base images, or dependency lockfiles (`requirements.txt` / `pnpm-lock.yaml`).
-
----
-
-**Happy shipping!**
+Everything else ships with sensible defaults so you can get started immediately.
