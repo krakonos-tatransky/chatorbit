@@ -34,7 +34,6 @@ def _test_client(tmp_path, monkeypatch, **env) -> Generator[TestClient, None, No
     finally:
         database.Base.metadata.drop_all(database.engine)
 
-
 @pytest.fixture
 def client(tmp_path, monkeypatch) -> Generator[TestClient, None, None]:
     with _test_client(tmp_path, monkeypatch) as test_client:
@@ -137,6 +136,52 @@ def test_cors_specific_origin_allows_credentials(tmp_path, monkeypatch) -> None:
         )
     assert response.status_code == 200
     assert response.headers.get("access-control-allow-origin") == "http://example.com"
+    assert (
+        {
+            key.lower(): value for key, value in response.headers.items()
+        }.get("access-control-allow-credentials")
+        == "true"
+    )
+
+
+def test_cors_simple_string_env_format(tmp_path, monkeypatch) -> None:
+    with _test_client(
+        tmp_path,
+        monkeypatch,
+        CHAT_CORS_ALLOWED_ORIGINS="http://example.com",
+    ) as test_client:
+        response = test_client.options(
+            "/api/tokens",
+            headers={
+                "Origin": "http://example.com",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "http://example.com"
+    assert (
+        {
+            key.lower(): value for key, value in response.headers.items()
+        }.get("access-control-allow-credentials")
+        == "true"
+    )
+
+
+def test_cors_comma_separated_env_format(tmp_path, monkeypatch) -> None:
+    with _test_client(
+        tmp_path,
+        monkeypatch,
+        CHAT_CORS_ALLOWED_ORIGINS="http://example.com, https://example.org",
+    ) as test_client:
+        response = test_client.options(
+            "/api/tokens",
+            headers={
+                "Origin": "https://example.org",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "https://example.org"
     assert (
         {
             key.lower(): value for key, value in response.headers.items()

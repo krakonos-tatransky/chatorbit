@@ -94,7 +94,11 @@ infra/
 |---------------------------|-----------------------------|--------------------------------------------|
 | `CHAT_DATABASE_URL`       | `sqlite:///./data/chat_orbit.db` | Database location (SQLite file by default) |
 | `CHAT_TOKEN_RATE_LIMIT_PER_HOUR` | `10`                | Maximum token requests per IP each hour    |
+| `CHAT_CORS_ALLOWED_ORIGINS` | `*`                      | Comma-separated list, JSON array, or single string origin(s) allowed to call the API |
+| `CHAT_CORS_ALLOW_CREDENTIALS` | `true`                | Whether to send `Access-Control-Allow-Credentials`; automatically disabled when using a wildcard origin |
 | `NEXT_PUBLIC_API_BASE_URL`| `http://192.168.1.145:50001`  | Frontend → backend HTTP base (LAN-ready)   |
 | `NEXT_PUBLIC_WS_BASE_URL` | `ws://192.168.1.145:50001`    | Frontend → backend WebSocket base (LAN-ready) |
+
+> ℹ️  To allow multiple specific origins, set `CHAT_CORS_ALLOWED_ORIGINS` in your `.env` file to either a JSON list (e.g. `["http://localhost:3000", "https://app.example.com"]`), a comma-separated list (`http://localhost:3000,https://app.example.com`), or a single origin string. Leave it as `*` to accept requests from any origin, but note that credentials (cookies/authorization headers) will be suppressed for security when using the wildcard.
 
 Everything else ships with sensible defaults so you can get started immediately.
