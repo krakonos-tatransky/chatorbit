@@ -66,6 +66,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const pendingSignalsRef = useRef<any[]>([]);
   const hasSentOfferRef = useRef<boolean>(false);
   const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
   const encryptionKeyRef = useRef<CryptoKey | null>(null);
@@ -210,55 +211,64 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     [participantId],
   );
 
-  const handleSignal = useCallback(
-    async (payload: any) => {
-      const pc = peerConnectionRef.current;
-      if (!pc) {
-        return;
-      }
+  const processSignalPayload = useCallback(
+    async (pc: RTCPeerConnection, payload: any) => {
       const signalType = payload.signalType as string;
       const detail = payload.payload;
 
-      const flushPending = async () => {
+      const flushPendingCandidates = async () => {
         const queue = pendingCandidatesRef.current;
         while (queue.length > 0) {
           const candidate = queue.shift();
-          if (candidate) {
-            try {
-              await pc.addIceCandidate(candidate);
-            } catch (cause) {
-              console.error("Failed to apply queued ICE candidate", cause);
-            }
+          if (!candidate) {
+            continue;
+          }
+          try {
+            await pc.addIceCandidate(candidate);
+          } catch (cause) {
+            console.error("Failed to apply queued ICE candidate", cause);
           }
         }
       };
 
-      try {
-        if (signalType === "offer" && detail) {
-          await pc.setRemoteDescription(detail as RTCSessionDescriptionInit);
-          await flushPending();
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          sendSignal("answer", answer);
-        } else if (signalType === "answer" && detail) {
-          await pc.setRemoteDescription(detail as RTCSessionDescriptionInit);
-          await flushPending();
-        } else if (signalType === "iceCandidate") {
-          if (detail) {
-            if (pc.remoteDescription) {
-              await pc.addIceCandidate(detail as RTCIceCandidateInit);
-            } else {
-              pendingCandidatesRef.current.push(detail as RTCIceCandidateInit);
-            }
-          } else if (pc.remoteDescription) {
-            await pc.addIceCandidate(null);
+      if (signalType === "offer" && detail) {
+        await pc.setRemoteDescription(detail as RTCSessionDescriptionInit);
+        await flushPendingCandidates();
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        sendSignal("answer", answer);
+      } else if (signalType === "answer" && detail) {
+        await pc.setRemoteDescription(detail as RTCSessionDescriptionInit);
+        await flushPendingCandidates();
+      } else if (signalType === "iceCandidate") {
+        if (detail) {
+          if (pc.remoteDescription) {
+            await pc.addIceCandidate(detail as RTCIceCandidateInit);
+          } else {
+            pendingCandidatesRef.current.push(detail as RTCIceCandidateInit);
           }
+        } else if (pc.remoteDescription) {
+          await pc.addIceCandidate(null);
+        }
       }
+    },
+    [sendSignal],
+  );
+
+  const handleSignal = useCallback(
+    async (payload: any) => {
+      const pc = peerConnectionRef.current;
+      if (!pc) {
+        pendingSignalsRef.current.push(payload);
+        return;
+      }
+      try {
+        await processSignalPayload(pc, payload);
       } catch (cause) {
         console.error("Failed to process signaling payload", cause);
       }
     },
-    [sendSignal],
+    [processSignalPayload],
   );
 
   useEffect(() => {
@@ -301,8 +311,22 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       };
     }
 
+    const backlog = pendingSignalsRef.current.splice(0);
+    if (backlog.length > 0) {
+      void (async () => {
+        for (const item of backlog) {
+          try {
+            await processSignalPayload(peerConnection, item);
+          } catch (cause) {
+            console.error("Failed to process queued signaling payload", cause);
+          }
+        }
+      })();
+    }
+
     return () => {
       pendingCandidatesRef.current = [];
+      pendingSignalsRef.current = [];
       hasSentOfferRef.current = false;
       if (dataChannelRef.current) {
         dataChannelRef.current.close();
