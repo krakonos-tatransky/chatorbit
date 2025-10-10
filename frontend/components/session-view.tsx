@@ -1,11 +1,14 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Link from "next/link";
 
 import { apiUrl, wsUrl } from "@/lib/api";
+
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
 
 type Participant = {
   participantId: string;
@@ -33,6 +36,17 @@ type Message = {
   createdAt: string;
 };
 
+type EncryptedMessage = {
+  sessionId: string;
+  messageId: string;
+  participantId: string;
+  role: string;
+  createdAt: string;
+  encryptedContent: string;
+  hash: string;
+  deleted?: boolean;
+};
+
 type Props = {
   token: string;
   participantIdFromQuery?: string;
@@ -40,13 +54,265 @@ type Props = {
 
 export function SessionView({ token, participantIdFromQuery }: Props) {
   const [participantId, setParticipantId] = useState<string | null>(participantIdFromQuery ?? null);
+  const [participantRole, setParticipantRole] = useState<string | null>(null);
   const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [connected, setConnected] = useState<boolean>(false);
+  const [socketReady, setSocketReady] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<string>("");
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const hasSentOfferRef = useRef<boolean>(false);
+  const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
+  const encryptionKeyRef = useRef<CryptoKey | null>(null);
+  const encryptionPromiseRef = useRef<Promise<CryptoKey> | null>(null);
+
+  useEffect(() => {
+    hashedMessagesRef.current.clear();
+    setMessages([]);
+    encryptionKeyRef.current = null;
+    encryptionPromiseRef.current = null;
+  }, [token]);
+
+  const ensureEncryptionKey = useCallback(async () => {
+    if (encryptionKeyRef.current) {
+      return encryptionKeyRef.current;
+    }
+    if (!encryptionPromiseRef.current) {
+      encryptionPromiseRef.current = deriveKey(token)
+        .then((key) => {
+          encryptionKeyRef.current = key;
+          return key;
+        })
+        .finally(() => {
+          encryptionPromiseRef.current = null;
+        });
+    }
+    return encryptionPromiseRef.current;
+  }, [token]);
+
+  const handlePeerMessage = useCallback(
+    async (raw: string) => {
+      try {
+        const payload = JSON.parse(raw);
+        if (payload.type === "message") {
+          const incoming = payload.message as EncryptedMessage;
+          if (!incoming?.messageId || incoming.sessionId !== token) {
+            return;
+          }
+          try {
+            const key = await ensureEncryptionKey();
+            if (!key) {
+              throw new Error("Encryption key unavailable");
+            }
+            const content = await decryptText(key, incoming.encryptedContent);
+            const expectedHash = await computeMessageHash(
+              incoming.sessionId,
+              incoming.participantId,
+              incoming.messageId,
+              content,
+            );
+            if (expectedHash !== incoming.hash) {
+              console.warn("Hash mismatch for message", incoming.messageId);
+              setError("Ignored a message with mismatched hash.");
+              return;
+            }
+            hashedMessagesRef.current.set(incoming.messageId, { ...incoming, deleted: false });
+            setMessages((prev) =>
+              upsertMessage(prev, {
+                messageId: incoming.messageId,
+                participantId: incoming.participantId,
+                role: incoming.role,
+                content,
+                createdAt: incoming.createdAt,
+              }),
+            );
+            setError(null);
+          } catch (cause) {
+            console.error("Unable to decrypt incoming message", cause);
+            setError("Unable to decrypt incoming message.");
+          }
+        } else if (payload.type === "delete") {
+          const messageId = payload.messageId as string | undefined;
+          const sessionId = (payload.sessionId as string | undefined) ?? token;
+          if (!messageId || sessionId !== token) {
+            return;
+          }
+          const existing = hashedMessagesRef.current.get(messageId);
+          if (existing) {
+            hashedMessagesRef.current.set(messageId, { ...existing, deleted: true });
+          } else {
+            hashedMessagesRef.current.set(messageId, {
+              sessionId,
+              messageId,
+              participantId: payload.participantId ?? "",
+              role: payload.role ?? "",
+              createdAt: payload.createdAt ?? new Date().toISOString(),
+              encryptedContent: "",
+              hash: payload.hash ?? "",
+              deleted: true,
+            });
+          }
+          setMessages((prev) => prev.filter((item) => item.messageId !== messageId));
+        }
+      } catch (cause) {
+        console.error("Unable to parse data channel payload", cause);
+      }
+    },
+    [ensureEncryptionKey, token],
+  );
+
+  const attachDataChannel = useCallback(
+    (channel: RTCDataChannel) => {
+      dataChannelRef.current = channel;
+      channel.onopen = () => {
+        setConnected(true);
+        setError(null);
+      };
+      channel.onclose = () => {
+        setConnected(false);
+        dataChannelRef.current = null;
+        if (participantRole === "host") {
+          hasSentOfferRef.current = false;
+        }
+      };
+      channel.onerror = () => {
+        setConnected(false);
+      };
+      channel.onmessage = (event) => {
+        void handlePeerMessage(event.data);
+      };
+    },
+    [handlePeerMessage, participantRole],
+  );
+
+  const sendSignal = useCallback(
+    (signalType: string, payload: unknown) => {
+      if (!participantId) {
+        return;
+      }
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      socket.send(
+        JSON.stringify({
+          type: "signal",
+          signalType,
+          payload,
+        }),
+      );
+    },
+    [participantId],
+  );
+
+  const handleSignal = useCallback(
+    async (payload: any) => {
+      const pc = peerConnectionRef.current;
+      if (!pc) {
+        return;
+      }
+      const signalType = payload.signalType as string;
+      const detail = payload.payload;
+
+      const flushPending = async () => {
+        const queue = pendingCandidatesRef.current;
+        while (queue.length > 0) {
+          const candidate = queue.shift();
+          if (candidate) {
+            try {
+              await pc.addIceCandidate(candidate);
+            } catch (cause) {
+              console.error("Failed to apply queued ICE candidate", cause);
+            }
+          }
+        }
+      };
+
+      try {
+        if (signalType === "offer" && detail) {
+          await pc.setRemoteDescription(detail as RTCSessionDescriptionInit);
+          await flushPending();
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          sendSignal("answer", answer);
+        } else if (signalType === "answer" && detail) {
+          await pc.setRemoteDescription(detail as RTCSessionDescriptionInit);
+          await flushPending();
+        } else if (signalType === "iceCandidate") {
+          if (detail) {
+            if (pc.remoteDescription) {
+              await pc.addIceCandidate(detail as RTCIceCandidateInit);
+            } else {
+              pendingCandidatesRef.current.push(detail as RTCIceCandidateInit);
+            }
+          } else if (pc.remoteDescription) {
+            await pc.addIceCandidate(null);
+          }
+      }
+      } catch (cause) {
+        console.error("Failed to process signaling payload", cause);
+      }
+    },
+    [sendSignal],
+  );
+
+  useEffect(() => {
+    if (!participantId || !participantRole) {
+      return;
+    }
+    if (peerConnectionRef.current) {
+      return;
+    }
+
+    const peerConnection = new RTCPeerConnection({
+      iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }],
+    });
+    peerConnectionRef.current = peerConnection;
+
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        const candidate = typeof event.candidate.toJSON === "function" ? event.candidate.toJSON() : event.candidate;
+        sendSignal("iceCandidate", candidate);
+      } else {
+        sendSignal("iceCandidate", null);
+      }
+    };
+
+    peerConnection.onconnectionstatechange = () => {
+      if (peerConnection.connectionState === "failed" || peerConnection.connectionState === "disconnected") {
+        setConnected(false);
+        if (participantRole === "host") {
+          hasSentOfferRef.current = false;
+        }
+      }
+    };
+
+    if (participantRole === "host") {
+      const channel = peerConnection.createDataChannel("chat");
+      attachDataChannel(channel);
+    } else {
+      peerConnection.ondatachannel = (event) => {
+        attachDataChannel(event.channel);
+      };
+    }
+
+    return () => {
+      pendingCandidatesRef.current = [];
+      hasSentOfferRef.current = false;
+      if (dataChannelRef.current) {
+        dataChannelRef.current.close();
+        dataChannelRef.current = null;
+      }
+      peerConnection.close();
+      peerConnectionRef.current = null;
+      setConnected(false);
+    };
+  }, [attachDataChannel, participantId, participantRole, sendSignal]);
 
   useEffect(() => {
     if (participantId) {
@@ -59,6 +325,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     if (stored) {
       const payload = JSON.parse(stored);
       setParticipantId(payload.participantId);
+      setParticipantRole(payload.role ?? null);
       setSessionStatus((prev) =>
         prev ?? {
           token,
@@ -81,10 +348,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
 
     async function bootstrap() {
       try {
-        const [statusResponse, messagesResponse] = await Promise.all([
-          fetch(apiUrl(`/api/sessions/${token}/status`)),
-          fetch(apiUrl(`/api/sessions/${token}/messages`)),
-        ]);
+        const statusResponse = await fetch(apiUrl(`/api/sessions/${token}/status`));
 
         if (statusResponse.ok) {
           const statusPayload = await statusResponse.json();
@@ -94,19 +358,6 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           setError("Session not found or expired.");
           return;
         }
-
-        if (messagesResponse.ok) {
-          const list = await messagesResponse.json();
-          setMessages(
-            (list.items as any[]).map((item) => ({
-              messageId: item.message_id,
-              participantId: item.participant_id,
-              role: item.role,
-              content: item.content,
-              createdAt: item.created_at,
-            })),
-          );
-        }
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "Unable to load session state.");
       }
@@ -114,6 +365,16 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
 
     bootstrap();
   }, [participantId, token]);
+
+  useEffect(() => {
+    if (!participantId || !sessionStatus) {
+      return;
+    }
+    const record = sessionStatus.participants.find((participant) => participant.participantId === participantId);
+    if (record?.role && record.role !== participantRole) {
+      setParticipantRole(record.role);
+    }
+  }, [participantId, participantRole, sessionStatus]);
 
   useEffect(() => {
     if (!participantId) {
@@ -125,11 +386,12 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     socketRef.current = socket;
 
     socket.onopen = () => {
-      setConnected(true);
+      setSocketReady(true);
     };
 
     socket.onclose = () => {
-      setConnected(false);
+      setSocketReady(false);
+      socketRef.current = null;
     };
 
     socket.onmessage = (event) => {
@@ -138,32 +400,21 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         if (payload.type === "status") {
           setSessionStatus(mapStatus(payload));
           setRemainingSeconds(payload.remaining_seconds ?? null);
-        } else if (payload.type === "message") {
-          const message = payload.message;
-          setMessages((prev) => {
-            const exists = prev.some((item) => item.messageId === message.message_id);
-            if (exists) {
-              return prev;
-            }
-            return [
-              ...prev,
-              {
-                messageId: message.message_id,
-                participantId: message.participant_id,
-                role: message.role,
-                content: message.content,
-                createdAt: message.created_at,
-              },
-            ];
-          });
-        } else if (payload.type === "delete") {
-          const target = payload.messageId as string;
-          setMessages((prev) => prev.filter((item) => item.messageId !== target));
         } else if (payload.type === "error") {
           setError(payload.message);
         } else if (payload.type === "session_closed") {
           setSessionStatus((prev) => (prev ? { ...prev, status: "closed", remainingSeconds: 0 } : prev));
           setRemainingSeconds(0);
+          if (dataChannelRef.current) {
+            dataChannelRef.current.close();
+          }
+          if (peerConnectionRef.current) {
+            peerConnectionRef.current.close();
+            peerConnectionRef.current = null;
+          }
+          setConnected(false);
+        } else if (payload.type === "signal") {
+          void handleSignal(payload);
         }
       } catch (cause) {
         console.error("Failed to parse WebSocket payload", cause);
@@ -173,7 +424,37 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     return () => {
       socket.close();
     };
-  }, [participantId, token]);
+  }, [handleSignal, participantId, token]);
+
+  useEffect(() => {
+    if (
+      participantRole !== "host" ||
+      !socketReady ||
+      !participantId ||
+      !peerConnectionRef.current ||
+      hasSentOfferRef.current ||
+      sessionStatus?.status !== "active"
+    ) {
+      return;
+    }
+
+    async function createOffer() {
+      try {
+        const pc = peerConnectionRef.current;
+        if (!pc) {
+          return;
+        }
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        hasSentOfferRef.current = true;
+        sendSignal("offer", offer);
+      } catch (cause) {
+        console.error("Failed to create WebRTC offer", cause);
+      }
+    }
+
+    void createOffer();
+  }, [participantId, participantRole, sendSignal, sessionStatus?.status, socketReady]);
 
   useEffect(() => {
     if (remainingSeconds === null) {
@@ -201,11 +482,12 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
 
   async function handleSend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+    const channel = dataChannelRef.current;
+    if (!channel || channel.readyState !== "open") {
       setError("Connection is not ready yet.");
       return;
     }
-    if (!participantId) {
+    if (!participantId || !participantRole) {
       return;
     }
     const trimmed = draft.trim();
@@ -217,25 +499,79 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       return;
     }
 
-    socketRef.current.send(
-      JSON.stringify({
-        type: "message",
-        content: trimmed,
-      }),
-    );
-    setDraft("");
+    const messageId = generateMessageId();
+    const createdAt = new Date().toISOString();
+
+    try {
+      const key = await ensureEncryptionKey();
+      if (!key) {
+        throw new Error("Encryption key unavailable");
+      }
+      const encryptedContent = await encryptText(key, trimmed);
+      const hash = await computeMessageHash(token, participantId, messageId, trimmed);
+      const record: EncryptedMessage = {
+        sessionId: token,
+        messageId,
+        participantId,
+        role: participantRole,
+        createdAt,
+        encryptedContent,
+        hash,
+        deleted: false,
+      };
+      hashedMessagesRef.current.set(messageId, record);
+      channel.send(
+        JSON.stringify({
+          type: "message",
+          message: record,
+        }),
+      );
+      setMessages((prev) =>
+        upsertMessage(prev, {
+          messageId,
+          participantId,
+          role: participantRole,
+          content: trimmed,
+          createdAt,
+        }),
+      );
+      setDraft("");
+      setError(null);
+    } catch (cause) {
+      console.error("Failed to encrypt or send message", cause);
+      setError("Unable to encrypt or send your message.");
+    }
   }
 
   function handleDelete(messageId: string) {
-    if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+    const channel = dataChannelRef.current;
+    if (!channel || channel.readyState !== "open") {
       return;
     }
-    socketRef.current.send(
+    const existing = hashedMessagesRef.current.get(messageId);
+    if (existing) {
+      hashedMessagesRef.current.set(messageId, { ...existing, deleted: true });
+    } else {
+      hashedMessagesRef.current.set(messageId, {
+        sessionId: token,
+        messageId,
+        participantId: participantId ?? "",
+        role: participantRole ?? "",
+        createdAt: new Date().toISOString(),
+        encryptedContent: "",
+        hash: "",
+        deleted: true,
+      });
+    }
+    channel.send(
       JSON.stringify({
         type: "delete",
+        sessionId: token,
         messageId,
+        participantId,
       }),
     );
+    setMessages((prev) => prev.filter((item) => item.messageId !== messageId));
   }
 
   if (!participantId) {
@@ -351,4 +687,99 @@ function mapStatus(payload: any): SessionStatus {
     remainingSeconds: payload.remaining_seconds ?? payload.remainingSeconds ?? null,
     connectedParticipants: payload.connected_participants ?? payload.connectedParticipants ?? [],
   };
+}
+
+function generateMessageId(): string {
+  const globalCrypto: Crypto | undefined = typeof crypto !== "undefined" ? crypto : undefined;
+  if (globalCrypto?.randomUUID) {
+    return globalCrypto.randomUUID().replace(/-/g, "");
+  }
+  return `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 14)}`;
+}
+
+async function deriveKey(token: string): Promise<CryptoKey> {
+  if (typeof crypto === "undefined" || !crypto.subtle) {
+    throw new Error("Web Crypto API is not available.");
+  }
+  const digest = await crypto.subtle.digest("SHA-256", textEncoder.encode(token));
+  return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+}
+
+async function encryptText(key: CryptoKey, plaintext: string): Promise<string> {
+  if (typeof crypto === "undefined" || !crypto.getRandomValues) {
+    throw new Error("Web Crypto API is not available.");
+  }
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoded = textEncoder.encode(plaintext);
+  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(encrypted), iv.length);
+  return toBase64(combined);
+}
+
+async function decryptText(key: CryptoKey, payload: string): Promise<string> {
+  if (typeof crypto === "undefined" || !crypto.subtle) {
+    throw new Error("Web Crypto API is not available.");
+  }
+  const bytes = fromBase64(payload);
+  if (bytes.length < 13) {
+    throw new Error("Encrypted payload is not valid.");
+  }
+  const iv = bytes.slice(0, 12);
+  const cipher = bytes.slice(12);
+  const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipher);
+  return textDecoder.decode(decrypted);
+}
+
+async function computeMessageHash(
+  sessionId: string,
+  participantId: string,
+  messageId: string,
+  content: string,
+): Promise<string> {
+  if (typeof crypto === "undefined" || !crypto.subtle) {
+    throw new Error("Web Crypto API is not available.");
+  }
+  const composite = `${sessionId}:${participantId}:${messageId}:${content}`;
+  const digest = await crypto.subtle.digest("SHA-256", textEncoder.encode(composite));
+  return toBase64(new Uint8Array(digest));
+}
+
+function upsertMessage(list: Message[], message: Message): Message[] {
+  const next = list.filter((item) => item.messageId !== message.messageId);
+  next.push(message);
+  next.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  return next;
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  bytes.forEach((value) => {
+    binary += String.fromCharCode(value);
+  });
+  if (typeof btoa === "function") {
+    return btoa(binary);
+  }
+  const globalBuffer = (globalThis as { Buffer?: any }).Buffer;
+  if (globalBuffer) {
+    return globalBuffer.from(bytes).toString("base64");
+  }
+  throw new Error("Base64 encoding is not supported in this environment.");
+}
+
+function fromBase64(value: string): Uint8Array {
+  if (typeof atob === "function") {
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+  }
+  const globalBuffer = (globalThis as { Buffer?: any }).Buffer;
+  if (globalBuffer) {
+    return globalBuffer.from(value, "base64");
+  }
+  throw new Error("Base64 decoding is not supported in this environment.");
 }
