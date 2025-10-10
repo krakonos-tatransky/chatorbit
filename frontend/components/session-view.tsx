@@ -294,7 +294,11 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     };
 
     peerConnection.onconnectionstatechange = () => {
-      if (peerConnection.connectionState === "failed" || peerConnection.connectionState === "disconnected") {
+      const state = peerConnection.connectionState;
+      if (state === "connected") {
+        setConnected(true);
+        setError(null);
+      } else if (state === "failed" || state === "disconnected" || state === "closed") {
         setConnected(false);
         if (participantRole === "host") {
           hasSentOfferRef.current = false;
