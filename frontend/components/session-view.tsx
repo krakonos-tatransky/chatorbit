@@ -10,6 +10,10 @@ import { apiUrl, wsUrl } from "@/lib/api";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
+function logEvent(message: string, ...details: unknown[]) {
+  console.log(`[SessionView] ${message}`, ...details);
+}
+
 type Participant = {
   participantId: string;
   role: string;
@@ -98,11 +102,13 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
 
   const handlePeerMessage = useCallback(
     async (raw: string) => {
+      logEvent("Received raw data channel payload", raw);
       try {
         const payload = JSON.parse(raw);
         if (payload.type === "message") {
           const incoming = payload.message as EncryptedMessage;
           if (!incoming?.messageId || incoming.sessionId !== token) {
+            logEvent("Ignoring unexpected data channel message", payload);
             return;
           }
           try {
@@ -133,6 +139,12 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
               }),
             );
             setError(null);
+            logEvent("Processed decrypted message", {
+              messageId: incoming.messageId,
+              participantId: incoming.participantId,
+              role: incoming.role,
+              createdAt: incoming.createdAt,
+            });
           } catch (cause) {
             console.error("Unable to decrypt incoming message", cause);
             setError("Unable to decrypt incoming message.");
@@ -159,6 +171,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
             });
           }
           setMessages((prev) => prev.filter((item) => item.messageId !== messageId));
+          logEvent("Processed delete instruction", { messageId, sessionId });
         }
       } catch (cause) {
         console.error("Unable to parse data channel payload", cause);
@@ -170,9 +183,11 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const attachDataChannel = useCallback(
     (channel: RTCDataChannel) => {
       dataChannelRef.current = channel;
+      logEvent("Attached data channel", { label: channel.label, readyState: channel.readyState });
       channel.onopen = () => {
         setConnected(true);
         setError(null);
+        logEvent("Data channel opened", { label: channel.label });
       };
       channel.onclose = () => {
         setConnected(false);
@@ -180,11 +195,14 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         if (participantRole === "host") {
           hasSentOfferRef.current = false;
         }
+        logEvent("Data channel closed", { label: channel.label });
       };
       channel.onerror = () => {
         setConnected(false);
+        logEvent("Data channel encountered an error", { label: channel.label });
       };
       channel.onmessage = (event) => {
+        logEvent("Data channel message received", { label: channel.label, length: event.data?.length });
         void handlePeerMessage(event.data);
       };
     },
@@ -200,6 +218,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       if (!socket || socket.readyState !== WebSocket.OPEN) {
         return;
       }
+      logEvent("Sending signal", { signalType, payload });
       socket.send(
         JSON.stringify({
           type: "signal",
@@ -216,6 +235,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       const signalType = payload.signalType as string;
       const detail = payload.payload;
 
+      logEvent("Processing signaling payload", { signalType, hasRemote: !!pc.remoteDescription });
+
       const flushPendingCandidates = async () => {
         const queue = pendingCandidatesRef.current;
         while (queue.length > 0) {
@@ -225,6 +246,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           }
           try {
             await pc.addIceCandidate(candidate);
+            logEvent("Applied queued ICE candidate", candidate);
           } catch (cause) {
             console.error("Failed to apply queued ICE candidate", cause);
           }
@@ -232,23 +254,29 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       };
 
       if (signalType === "offer" && detail) {
+        logEvent("Applying remote offer");
         await pc.setRemoteDescription(detail as RTCSessionDescriptionInit);
         await flushPendingCandidates();
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
+        logEvent("Created answer", answer);
         sendSignal("answer", answer);
       } else if (signalType === "answer" && detail) {
+        logEvent("Applying remote answer");
         await pc.setRemoteDescription(detail as RTCSessionDescriptionInit);
         await flushPendingCandidates();
       } else if (signalType === "iceCandidate") {
         if (detail) {
           if (pc.remoteDescription) {
             await pc.addIceCandidate(detail as RTCIceCandidateInit);
+            logEvent("Applied ICE candidate from peer", detail);
           } else {
             pendingCandidatesRef.current.push(detail as RTCIceCandidateInit);
+            logEvent("Queued ICE candidate until remote description is available", detail);
           }
         } else if (pc.remoteDescription) {
           await pc.addIceCandidate(null);
+          logEvent("Applied end-of-candidates signal");
         }
       }
     },
@@ -259,6 +287,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     async (payload: any) => {
       const pc = peerConnectionRef.current;
       if (!pc) {
+        logEvent("Queueing signaling payload until peer connection is ready", payload);
         pendingSignalsRef.current.push(payload);
         return;
       }
@@ -279,6 +308,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       return;
     }
 
+    logEvent("Creating new RTCPeerConnection", { participantId, participantRole });
     const peerConnection = new RTCPeerConnection({
       iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }],
     });
@@ -288,12 +318,15 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       if (event.candidate) {
         const candidate = typeof event.candidate.toJSON === "function" ? event.candidate.toJSON() : event.candidate;
         sendSignal("iceCandidate", candidate);
+        logEvent("Discovered ICE candidate", candidate);
       } else {
         sendSignal("iceCandidate", null);
+        logEvent("Finished gathering ICE candidates");
       }
     };
 
     peerConnection.onconnectionstatechange = () => {
+      logEvent("Peer connection state changed", peerConnection.connectionState);
       const state = peerConnection.connectionState;
       if (state === "connected") {
         setConnected(true);
@@ -307,16 +340,19 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     };
 
     if (participantRole === "host") {
+      logEvent("Creating data channel as host");
       const channel = peerConnection.createDataChannel("chat");
       attachDataChannel(channel);
     } else {
       peerConnection.ondatachannel = (event) => {
+        logEvent("Received data channel", { label: event.channel.label });
         attachDataChannel(event.channel);
       };
     }
 
     const backlog = pendingSignalsRef.current.splice(0);
     if (backlog.length > 0) {
+      logEvent("Processing queued signaling payloads", { count: backlog.length });
       void (async () => {
         for (const item of backlog) {
           try {
@@ -329,6 +365,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     }
 
     return () => {
+      logEvent("Tearing down peer connection", { participantId, participantRole });
       pendingCandidatesRef.current = [];
       pendingSignalsRef.current = [];
       hasSentOfferRef.current = false;
@@ -375,6 +412,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     }
 
     async function bootstrap() {
+      logEvent("Fetching initial session status");
       try {
         const statusResponse = await fetch(apiUrl(`/api/sessions/${token}/status`));
 
@@ -382,12 +420,15 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           const statusPayload = await statusResponse.json();
           setSessionStatus(mapStatus(statusPayload));
           setRemainingSeconds(statusPayload.remaining_seconds ?? null);
+          logEvent("Loaded session status", statusPayload);
         } else if (statusResponse.status === 404) {
           setError("Session not found or expired.");
+          logEvent("Session status request returned 404");
           return;
         }
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : "Unable to load session state.");
+        console.error("Failed to load session status", cause);
       }
     }
 
@@ -410,26 +451,32 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     }
 
     const url = wsUrl(`/ws/sessions/${token}?participantId=${participantId}`);
+    logEvent("Opening WebSocket", { url });
     const socket = new WebSocket(url);
     socketRef.current = socket;
 
     socket.onopen = () => {
       setSocketReady(true);
+      logEvent("WebSocket connection established");
     };
 
     socket.onclose = () => {
       setSocketReady(false);
       socketRef.current = null;
+      logEvent("WebSocket connection closed");
     };
 
     socket.onmessage = (event) => {
+      logEvent("Received WebSocket message", event.data);
       try {
         const payload = JSON.parse(event.data);
         if (payload.type === "status") {
           setSessionStatus(mapStatus(payload));
           setRemainingSeconds(payload.remaining_seconds ?? null);
+          logEvent("Updated status from WebSocket", payload);
         } else if (payload.type === "error") {
           setError(payload.message);
+          logEvent("Received WebSocket error", payload);
         } else if (payload.type === "session_closed") {
           setSessionStatus((prev) => (prev ? { ...prev, status: "closed", remainingSeconds: 0 } : prev));
           setRemainingSeconds(0);
@@ -450,6 +497,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     };
 
     return () => {
+      logEvent("Closing WebSocket");
       socket.close();
     };
   }, [handleSignal, participantId, token]);
@@ -467,15 +515,18 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     }
 
     async function createOffer() {
+      logEvent("Attempting to create WebRTC offer");
       try {
         const pc = peerConnectionRef.current;
         if (!pc) {
+          logEvent("Peer connection missing while creating offer");
           return;
         }
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         hasSentOfferRef.current = true;
         sendSignal("offer", offer);
+        logEvent("Created and sent WebRTC offer", offer);
       } catch (cause) {
         console.error("Failed to create WebRTC offer", cause);
       }
