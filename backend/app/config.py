@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     max_message_char_limit: int = 16000
     min_message_char_limit: int = 200
     cors_allowed_origins: List[str] = ["*"]
+    cors_allow_credentials: bool = True
 
 
 @lru_cache
