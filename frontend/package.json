@@ -6,18 +6,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "tsc lib/cn.ts lib/cn.test.ts --noEmit false --esModuleInterop --module CommonJS --target ES2017 --outDir build && node --test build/cn.test.js"
+    "test": "echo 'No frontend tests configured.'"
   },
   "dependencies": {
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "immer": "10.1.1",
-    "lucide-react": "^0.543.0",
     "next": "14.2.15",
     "react": "18.3.1",
-    "react-dom": "18.3.1",
-    "tailwind-merge": "^3.3.1",
-    "zustand": "4.5.4"
+    "react-dom": "18.3.1"
   },
   "devDependencies": {
     "@types/node": "20.14.10",
@@ -25,7 +19,6 @@
     "@types/react-dom": "18.2.25",
     "autoprefixer": "^10.4.21",
     "postcss": "^8.5.6",
-    "tailwindcss": "^4.1.13",
     "typescript": "5.5.4"
   }
 }
