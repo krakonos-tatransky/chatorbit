@@ -25,23 +25,23 @@ an elegant control surface for the host and guest.
 2. **Create a Python virtual env** (optional but recommended) and install backend deps:
    ```bash
    cd ../backend
-   python -m venv .venv
-   source .venv/bin/activate
+   virtualenv -p python3 --system-site-packages --prompt '|> ChatOrbit_DEV <|' env
+   .env/bin/activate
    pip install -r requirements.txt
    ```
 3. **Run the backend**
    ```bash
    uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
    ```
-   Exposing on `0.0.0.0` lets other machines on your LAN reach the API at `http://192.168.1.45:8000`.
+   Exposing on `0.0.0.0` lets other machines on your LAN reach the API at `http://192.168.1.145:8000`.
 4. **Run the frontend**
    ```bash
    cd ../frontend
-   NEXT_PUBLIC_API_BASE_URL=http://192.168.1.45:8000 \
-   NEXT_PUBLIC_WS_BASE_URL=ws://192.168.1.45:8000 \
+   NEXT_PUBLIC_API_BASE_URL=http://192.168.1.145:8000 \
+   NEXT_PUBLIC_WS_BASE_URL=ws://192.168.1.145:8000 \
    pnpm dev --hostname 0.0.0.0 --port 3000
    ```
-5. Open http://192.168.1.45:3000 from any device on the same network to mint tokens and join sessions.
+5. Open http://192.168.1.145:3000 from any device on the same network to mint tokens and join sessions.
 
 ### Dockerized workflow
 
@@ -51,7 +51,7 @@ docker compose up --build
 ```
 
 This spins up the FastAPI backend on port **8000** (with SQLite persistence under `backend/data/`) and the Next.js frontend on
-port **3000**, both reachable via the LAN IP `http://192.168.1.45`.
+port **3000**, both reachable via the LAN IP `http://192.168.1.145`.
 
 ## Key concepts
 
@@ -94,7 +94,7 @@ infra/
 |---------------------------|-----------------------------|--------------------------------------------|
 | `CHAT_DATABASE_URL`       | `sqlite:///./data/chat_orbit.db` | Database location (SQLite file by default) |
 | `CHAT_TOKEN_RATE_LIMIT_PER_HOUR` | `10`                | Maximum token requests per IP each hour    |
-| `NEXT_PUBLIC_API_BASE_URL`| `http://192.168.1.45:8000`  | Frontend → backend HTTP base (LAN-ready)   |
-| `NEXT_PUBLIC_WS_BASE_URL` | `ws://192.168.1.45:8000`    | Frontend → backend WebSocket base (LAN-ready) |
+| `NEXT_PUBLIC_API_BASE_URL`| `http://192.168.1.145:8000`  | Frontend → backend HTTP base (LAN-ready)   |
+| `NEXT_PUBLIC_WS_BASE_URL` | `ws://192.168.1.145:8000`    | Frontend → backend WebSocket base (LAN-ready) |
 
 Everything else ships with sensible defaults so you can get started immediately.
