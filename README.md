@@ -19,6 +19,7 @@ an elegant control surface for the host and guest.
    corepack enable pnpm   # ensures pnpm is available
    cd frontend
    pnpm install
+
    ```
 2. **Create a Python virtual env** (optional but recommended) and install backend deps:
    ```bash
