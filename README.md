@@ -14,9 +14,12 @@ an elegant control surface for the host and guest.
 
 ## Local development
 
-1. **Install dependencies**
+1. **Install frontend dependencies**
    ```bash
-   cd frontend && pnpm install
+   corepack enable pnpm   # ensures pnpm is available
+   cd frontend
+   pnpm install
+
    ```
 2. **Create a Python virtual env** (optional but recommended) and install backend deps:
    ```bash
