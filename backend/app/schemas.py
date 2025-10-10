@@ -73,13 +73,3 @@ class SessionStatusResponse(BaseModel):
     remaining_seconds: Optional[int]
 
 
-class ChatMessagePublic(BaseModel):
-    message_id: str
-    participant_id: str
-    role: str
-    content: str
-    created_at: datetime
-
-
-class ChatMessagesResponse(BaseModel):
-    items: List[ChatMessagePublic]

@@ -4,7 +4,7 @@ import asyncio
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Set
 from uuid import uuid4
 
 from fastapi import (
@@ -23,10 +23,8 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .database import SessionLocal, get_session, init_db
-from .models import ChatMessage, SessionParticipant, SessionStatus, TokenRequestLog, TokenSession
+from .models import SessionParticipant, SessionStatus, TokenRequestLog, TokenSession
 from .schemas import (
-    ChatMessagePublic,
-    ChatMessagesResponse,
     CreateTokenRequest,
     JoinSessionRequest,
     JoinSessionResponse,
@@ -78,11 +76,20 @@ class ConnectionManager:
             if not participants:
                 self._connections.pop(token, None)
 
-    async def broadcast(self, token: str, message: Dict[str, Any]) -> None:
+    async def broadcast(
+        self,
+        token: str,
+        message: Dict[str, Any],
+        *,
+        exclude: Optional[Iterable[str]] = None,
+    ) -> None:
+        skip: Set[str] = set(exclude or [])
         async with self._lock:
-            websockets = list(self._connections.get(token, {}).values())
+            websockets = list(self._connections.get(token, {}).items())
         payload = json.dumps(message)
-        for ws in websockets:
+        for participant, ws in websockets:
+            if participant in skip:
+                continue
             await ws.send_text(payload)
 
     async def send(self, token: str, participant_id: str, message: Dict[str, Any]) -> None:
@@ -270,29 +277,6 @@ def session_status(token: str, db: Session = Depends(get_session)) -> SessionSta
     return serialize_session(session_model)
 
 
-@router.get("/sessions/{token}/messages", response_model=ChatMessagesResponse)
-def list_messages(token: str, db: Session = Depends(get_session)) -> ChatMessagesResponse:
-    session_model = _get_session_by_token(db, token)
-    ensure_session_state(session_model)
-    db.add(session_model)
-    db.commit()
-    db.refresh(session_model)
-
-    messages = [
-        ChatMessagePublic(
-            message_id=message.message_id,
-            participant_id=message.participant_id,
-            role=message.participant.role if message.participant else "unknown",
-            content=message.content,
-            created_at=message.created_at,
-        )
-        for message in session_model.messages
-        if message.deleted_at is None
-    ]
-    messages.sort(key=lambda item: item.created_at)
-    return ChatMessagesResponse(items=messages)
-
-
 app.include_router(router)
 
 
@@ -314,7 +298,7 @@ async def broadcast_status(token: str) -> None:
         db.add(session_model)
         db.commit()
         db.refresh(session_model)
-        payload = serialize_session(session_model).model_dump()
+        payload = serialize_session(session_model).model_dump(mode="json")
     payload.update(
         {
             "type": "status",
@@ -394,73 +378,21 @@ async def websocket_session(websocket: WebSocket, token: str) -> None:
                 continue
 
             message_type = payload.get("type")
-            if message_type == "message":
-                content = (payload.get("content") or "").strip()
-                if not content:
-                    await send_error(token, participant_id, "Message content cannot be empty.")
+            if message_type == "signal":
+                signal_type = payload.get("signalType")
+                if not signal_type:
+                    await send_error(token, participant_id, "signalType is required.")
                     continue
-                with SessionLocal() as message_db:
-                    session_model = _get_session_by_token(message_db, token)
-                    ensure_session_state(session_model)
-                    if session_model.status != SessionStatus.ACTIVE:
-                        await send_error(token, participant_id, "Session is not active yet.")
-                        continue
-                    if session_model.ended_at and utcnow() >= session_model.ended_at:
-                        session_model.status = SessionStatus.CLOSED
-                        message_db.add(session_model)
-                        message_db.commit()
-                        await manager.broadcast(token, {"type": "session_closed"})
-                        break
-                    participant = _get_participant(message_db, session_model.id, participant_id)
-                    if len(content) > session_model.message_char_limit:
-                        await send_error(
-                            token,
-                            participant_id,
-                            f"Messages are limited to {session_model.message_char_limit} characters.",
-                        )
-                        continue
-                    chat_message = ChatMessage(
-                        session_id=session_model.id,
-                        participant_id=participant.id,
-                        message_id=uuid4().hex,
-                        content=content,
-                    )
-                    message_db.add(chat_message)
-                    message_db.commit()
-                    message_db.refresh(chat_message)
-                    message_db.refresh(participant)
-                    public_message = ChatMessagePublic(
-                        message_id=chat_message.message_id,
-                        participant_id=participant.id,
-                        role=participant.role,
-                        content=chat_message.content,
-                        created_at=chat_message.created_at,
-                    )
-                await manager.broadcast(token, {"type": "message", "message": public_message.model_dump()})
-            elif message_type == "delete":
-                message_id = payload.get("messageId")
-                if not message_id:
-                    await send_error(token, participant_id, "messageId is required to delete a message.")
-                    continue
-                with SessionLocal() as delete_db:
-                    session_model = _get_session_by_token(delete_db, token)
-                    participant = _get_participant(delete_db, session_model.id, participant_id)
-                    msg_stmt = select(ChatMessage).where(
-                        ChatMessage.session_id == session_model.id,
-                        ChatMessage.message_id == message_id,
-                        ChatMessage.deleted_at.is_(None),
-                    )
-                    chat_message = delete_db.execute(msg_stmt).scalar_one_or_none()
-                    if not chat_message:
-                        await send_error(token, participant_id, "Message not found.")
-                        continue
-                    if chat_message.participant_id != participant.id:
-                        await send_error(token, participant_id, "You can only delete your own messages.")
-                        continue
-                    chat_message.deleted_at = utcnow()
-                    delete_db.add(chat_message)
-                    delete_db.commit()
-                await manager.broadcast(token, {"type": "delete", "messageId": message_id})
+                await manager.broadcast(
+                    token,
+                    {
+                        "type": "signal",
+                        "signalType": signal_type,
+                        "payload": payload.get("payload"),
+                        "sender": participant_id,
+                    },
+                    exclude={participant_id},
+                )
             else:
                 await send_error(token, participant_id, "Unsupported message type.")
 
