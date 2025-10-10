@@ -38,10 +38,12 @@ from .schemas import (
 settings = get_settings()
 app = FastAPI(title="ChatOrbit Minimal API", version="0.1.0")
 
+allow_all_origins = any(origin == "*" for origin in settings.cors_allowed_origins)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_allowed_origins,
-    allow_credentials=True,
+    allow_origins=["*"] if allow_all_origins else settings.cors_allowed_origins,
+    allow_credentials=settings.cors_allow_credentials and not allow_all_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
