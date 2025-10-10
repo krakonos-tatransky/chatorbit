@@ -5,21 +5,21 @@ services:
       dockerfile: ../infra/docker/backend.Dockerfile
     environment:
       CHAT_DATABASE_URL: sqlite:///./data/chat_orbit.db
-    ports: ["8000:8000"]
+    ports: ["50001:50001"]
     volumes:
       - ../backend:/app
       - backend_data:/app/data
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 50001 --reload
 
   frontend:
     build:
       context: ../frontend
       dockerfile: ../infra/docker/frontend.Dockerfile
     environment:
-      NEXT_PUBLIC_API_BASE_URL: http://192.168.1.145:8000
-      NEXT_PUBLIC_WS_BASE_URL: ws://192.168.1.145:8000
+      NEXT_PUBLIC_API_BASE_URL: http://192.168.1.145:50001
+      NEXT_PUBLIC_WS_BASE_URL: ws://192.168.1.145:50001
     depends_on: [backend]
-    ports: ["3000:3000"]
+    ports: ["80:3000"]
     volumes:
       - ../frontend:/app
     command: pnpm dev --port 3000 --hostname 0.0.0.0
