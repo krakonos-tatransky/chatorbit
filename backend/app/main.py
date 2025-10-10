@@ -298,7 +298,7 @@ async def broadcast_status(token: str) -> None:
         db.add(session_model)
         db.commit()
         db.refresh(session_model)
-        payload = serialize_session(session_model).model_dump()
+        payload = serialize_session(session_model).model_dump(mode="json")
     payload.update(
         {
             "type": "status",
