@@ -25,8 +25,8 @@ an elegant control surface for the host and guest.
 2. **Create a Python virtual env** (optional but recommended) and install backend deps:
    ```bash
    cd ../backend
-   python -m venv .venv
-   source .venv/bin/activate
+   virtualenv -p python3 --system-site-packages --prompt '|> ChatOrbit_DEV <|' env
+   .env/bin/activate
    pip install -r requirements.txt
    ```
 3. **Run the backend**
