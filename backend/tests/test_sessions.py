@@ -34,7 +34,6 @@ def _test_client(tmp_path, monkeypatch, **env) -> Generator[TestClient, None, No
     finally:
         database.Base.metadata.drop_all(database.engine)
 
-
 @pytest.fixture
 def client(tmp_path, monkeypatch) -> Generator[TestClient, None, None]:
     with _test_client(tmp_path, monkeypatch) as test_client:
