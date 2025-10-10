@@ -1,0 +1,81 @@
+from __future__ import annotations
+
+from datetime import datetime
+from enum import Enum
+from typing import List, Optional
+from uuid import uuid4
+
+from sqlalchemy import DateTime, Enum as SqlEnum, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from .database import Base
+
+
+def _utcnow() -> datetime:
+    return datetime.utcnow()
+
+
+class SessionStatus(str, Enum):
+    ISSUED = "issued"
+    ACTIVE = "active"
+    CLOSED = "closed"
+    EXPIRED = "expired"
+
+
+class TokenSession(Base):
+    __tablename__ = "tokensession"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    validity_expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=False))
+    session_ttl_seconds: Mapped[int] = mapped_column(Integer)
+    message_char_limit: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=_utcnow)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False), nullable=True)
+    ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False), nullable=True)
+    status: Mapped[SessionStatus] = mapped_column(SqlEnum(SessionStatus), default=SessionStatus.ISSUED)
+
+    participants: Mapped[List["SessionParticipant"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
+    messages: Mapped[List["ChatMessage"]] = relationship(back_populates="session", cascade="all, delete-orphan")
+    request_logs: Mapped[List["TokenRequestLog"]] = relationship(back_populates="session", cascade="all, delete-orphan")
+
+
+class TokenRequestLog(Base):
+    __tablename__ = "tokenrequestlog"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("tokensession.id", ondelete="CASCADE"))
+    ip_address: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=_utcnow)
+
+    session: Mapped[TokenSession] = relationship(back_populates="request_logs")
+
+
+class SessionParticipant(Base):
+    __tablename__ = "sessionparticipant"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=lambda: uuid4().hex)
+    session_id: Mapped[int] = mapped_column(ForeignKey("tokensession.id", ondelete="CASCADE"))
+    role: Mapped[str] = mapped_column(String(16))
+    ip_address: Mapped[str] = mapped_column(String(64))
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=_utcnow)
+
+    session: Mapped[TokenSession] = relationship(back_populates="participants")
+    messages: Mapped[List["ChatMessage"]] = relationship(back_populates="participant")
+
+
+class ChatMessage(Base):
+    __tablename__ = "chatmessage"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(ForeignKey("tokensession.id", ondelete="CASCADE"))
+    participant_id: Mapped[str] = mapped_column(ForeignKey("sessionparticipant.id", ondelete="CASCADE"))
+    message_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=_utcnow)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=False), nullable=True)
+
+    session: Mapped[TokenSession] = relationship(back_populates="messages")
+    participant: Mapped[SessionParticipant] = relationship(back_populates="messages")
