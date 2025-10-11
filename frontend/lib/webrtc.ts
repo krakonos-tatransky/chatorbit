@@ -7,6 +7,57 @@ const DEFAULT_TURN_URLS = [
 const DEFAULT_TURN_USERNAME = "openrelayproject";
 const DEFAULT_TURN_CREDENTIAL = "openrelayproject";
 
+const UNROUTABLE_HOSTS = new Set(["0.0.0.0", "127.0.0.1", "localhost", "[::]", "::", "::1"]);
+
+function extractHostname(url: string): string | null {
+  const withoutScheme = url.replace(/^([a-z][a-z0-9+.-]*):/i, "");
+  if (!withoutScheme) {
+    return null;
+  }
+  const withoutQuery = withoutScheme.split("?")[0] ?? "";
+  const withoutPrefix = withoutQuery.replace(/^\/\//, "");
+  const atIndex = withoutPrefix.lastIndexOf("@");
+  const hostPort = atIndex >= 0 ? withoutPrefix.slice(atIndex + 1) : withoutPrefix;
+  if (!hostPort) {
+    return null;
+  }
+  if (hostPort.startsWith("[")) {
+    const closingIndex = hostPort.indexOf("]");
+    if (closingIndex === -1) {
+      return null;
+    }
+    return hostPort.slice(0, closingIndex + 1);
+  }
+  const host = hostPort.split(":")[0];
+  return host.length > 0 ? host : null;
+}
+
+function isRoutableIceServerUrl(url: string): boolean {
+  const hostname = extractHostname(url);
+  if (!hostname) {
+    return false;
+  }
+  const normalized = hostname.toLowerCase();
+  if (UNROUTABLE_HOSTS.has(normalized)) {
+    return false;
+  }
+  return true;
+}
+
+function sanitizeIceUrls(urls: string[]): string[] {
+  const valid = urls.filter(isRoutableIceServerUrl);
+  if (valid.length === 0 && urls.length > 0 && typeof console !== "undefined") {
+    console.warn("Ignoring configured ICE server URLs because they are unroutable", urls);
+  }
+  if (valid.length !== urls.length && typeof console !== "undefined") {
+    const ignored = urls.filter((url) => !isRoutableIceServerUrl(url));
+    if (ignored.length > 0) {
+      console.warn("Ignoring unroutable ICE server URLs", ignored);
+    }
+  }
+  return valid;
+}
+
 function parseCsv(value?: string): string[] {
   if (!value) {
     return [];
@@ -29,8 +80,12 @@ function parseConfiguredIceServers(): RTCIceServer[] | null {
 
     for (const item of items) {
       if (typeof item === "string") {
-        if (item.trim().length > 0) {
-          servers.push({ urls: [item.trim()] });
+        const trimmed = item.trim();
+        if (trimmed.length > 0) {
+          const sanitized = sanitizeIceUrls([trimmed]);
+          if (sanitized.length > 0) {
+            servers.push({ urls: sanitized });
+          }
         }
         continue;
       }
@@ -43,11 +98,12 @@ function parseConfiguredIceServers(): RTCIceServer[] | null {
         : typeof urls === "string"
           ? [`${urls}`.trim()].filter((url) => url.length > 0)
           : [];
-      if (urlList.length === 0) {
+      const sanitizedUrls = sanitizeIceUrls(urlList);
+      if (sanitizedUrls.length === 0) {
         continue;
       }
       servers.push({
-        urls: urlList,
+        urls: sanitizedUrls,
         username: typeof item.username === "string" ? item.username : undefined,
         credential: typeof item.credential === "string" ? item.credential : undefined,
         credentialType:
@@ -74,11 +130,11 @@ export function getIceServers(): RTCIceServer[] {
 
   const iceServers: RTCIceServer[] = [];
 
-  const stunUrls = parseCsv(process.env.NEXT_PUBLIC_WEBRTC_STUN_URLS);
+  const stunUrls = sanitizeIceUrls(parseCsv(process.env.NEXT_PUBLIC_WEBRTC_STUN_URLS));
   const effectiveStunUrls = stunUrls.length > 0 ? stunUrls : DEFAULT_STUN_URLS;
   iceServers.push({ urls: effectiveStunUrls });
 
-  const turnUrls = parseCsv(process.env.NEXT_PUBLIC_WEBRTC_TURN_URLS);
+  const turnUrls = sanitizeIceUrls(parseCsv(process.env.NEXT_PUBLIC_WEBRTC_TURN_URLS));
   const turnUsername = process.env.NEXT_PUBLIC_WEBRTC_TURN_USERNAME ?? process.env.NEXT_PUBLIC_WEBRTC_TURN_USER;
   const turnCredential =
     process.env.NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL ?? process.env.NEXT_PUBLIC_WEBRTC_TURN_PASSWORD;
