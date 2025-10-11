@@ -468,6 +468,10 @@ main {
   background: #34d399;
 }
 
+.status-indicator--ended {
+  background: #f87171;
+}
+
 .countdown {
   text-align: right;
 }

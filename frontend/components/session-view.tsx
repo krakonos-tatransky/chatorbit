@@ -983,8 +983,25 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         </div>
         <div className="countdown">
           <div className="status-pill">
-            <span className={`status-indicator${connected ? " status-indicator--active" : ""}`} aria-hidden />
-            <span>{connected ? "Connected" : "Waiting"}</span>
+            <span
+              className={`status-indicator${
+                sessionStatus?.status === "closed" || sessionStatus?.status === "expired"
+                  ? " status-indicator--ended"
+                  : connected
+                    ? " status-indicator--active"
+                    : ""
+              }`}
+              aria-hidden
+            />
+            <span>
+              {sessionStatus?.status === "closed"
+                ? "Ended"
+                : sessionStatus?.status === "expired"
+                  ? "Expired"
+                  : connected
+                    ? "Connected"
+                    : "Waiting"}
+            </span>
           </div>
           <p className="countdown-label">Session timer</p>
           <p className="countdown-time">{countdownLabel}</p>
