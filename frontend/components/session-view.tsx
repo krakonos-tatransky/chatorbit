@@ -128,7 +128,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [tokenCopyState, setTokenCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [socketReconnectNonce, setSocketReconnectNonce] = useState(0);
   const [peerResetNonce, setPeerResetNonce] = useState(0);
-  const [supportsEncryption] = useState(() => resolveCrypto() !== null);
+  const [supportsEncryption, setSupportsEncryption] = useState<boolean | null>(null);
   const [peerSupportsEncryption, setPeerSupportsEncryption] = useState<boolean | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
@@ -157,8 +157,12 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     setPeerSupportsEncryption(null);
   }, [token]);
 
+  useEffect(() => {
+    setSupportsEncryption(resolveCrypto() !== null);
+  }, []);
+
   const ensureEncryptionKey = useCallback(async () => {
-    if (!supportsEncryption) {
+    if (supportsEncryption !== true) {
       throw new Error("Encryption is not supported in this environment.");
     }
     if (encryptionKeyRef.current) {
@@ -245,15 +249,32 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     if (!channel || channel.readyState !== "open") {
       return;
     }
-    logEvent("Announcing capabilities", { supportsEncryption });
+    if (supportsEncryption === null) {
+      logEvent("Encryption capability unknown; delaying announcement");
+      return;
+    }
+    const encryptionSupported = supportsEncryption === true;
+    logEvent("Announcing capabilities", { supportsEncryption: encryptionSupported });
     channel.send(
       JSON.stringify({
         type: "capabilities",
-        supportsEncryption,
+        supportsEncryption: encryptionSupported,
       }),
     );
     capabilityAnnouncedRef.current = true;
   }, [supportsEncryption]);
+
+  useEffect(() => {
+    if (supportsEncryption === null) {
+      return;
+    }
+    if (capabilityAnnouncedRef.current) {
+      return;
+    }
+    if (dataChannelRef.current?.readyState === "open") {
+      sendCapabilities();
+    }
+  }, [sendCapabilities, supportsEncryption]);
 
   const handlePeerMessage = useCallback(
     async (raw: string) => {
@@ -286,7 +307,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
             if (encryptionMode === "none") {
               content = incoming.content ?? "";
             } else {
-              if (!supportsEncryption) {
+              if (supportsEncryption !== true) {
                 throw new Error("Browser cannot decrypt messages in this session.");
               }
               const key = await ensureEncryptionKey();
@@ -844,6 +865,19 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   }, [remainingSeconds, sessionStatus?.status]);
 
+  const encryptionAlertMessage = useMemo(() => {
+    if (supportsEncryption === false && peerSupportsEncryption === false) {
+      return "Messages are sent without end-to-end encryption because neither browser in this session supports it.";
+    }
+    if (supportsEncryption === false) {
+      return "Messages are sent without end-to-end encryption because this browser does not support it.";
+    }
+    if (peerSupportsEncryption === false) {
+      return "Messages are sent without end-to-end encryption because the other participant's browser does not support it.";
+    }
+    return null;
+  }, [peerSupportsEncryption, supportsEncryption]);
+
   async function handleSend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const channel = dataChannelRef.current;
@@ -868,7 +902,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       return;
     }
 
-    const useEncryption = supportsEncryption && peerSupportsEncryption;
+    const useEncryption = supportsEncryption === true && peerSupportsEncryption === true;
     const encryptionMode: EncryptionMode = useEncryption ? "aes-gcm" : "none";
 
     const messageId = generateMessageId();
@@ -1070,10 +1104,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           </span>
         </div>
 
-        {!supportsEncryption || peerSupportsEncryption === false ? (
-          <div className="alert alert--info">
-            Messages are sent without end-to-end encryption in this browser.
-          </div>
+        {encryptionAlertMessage ? (
+          <div className="alert alert--info">{encryptionAlertMessage}</div>
         ) : null}
 
         <div className="chat-log">
