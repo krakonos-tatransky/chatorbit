@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
 
@@ -29,8 +29,54 @@ export function TokenRequestCard() {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<TokenResult | null>(null);
+  const [tokenCopyState, setTokenCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const tokenCopyTimeoutRef = useRef<number | null>(null);
 
   const ttlHours = useMemo(() => (sessionMinutes / 60).toFixed(1), [sessionMinutes]);
+
+  useEffect(() => {
+    return () => {
+      if (tokenCopyTimeoutRef.current) {
+        window.clearTimeout(tokenCopyTimeoutRef.current);
+        tokenCopyTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (tokenCopyTimeoutRef.current) {
+      window.clearTimeout(tokenCopyTimeoutRef.current);
+      tokenCopyTimeoutRef.current = null;
+    }
+    setTokenCopyState("idle");
+  }, [result?.token]);
+
+  const handleCopyToken = useCallback(async () => {
+    if (!result?.token) {
+      return;
+    }
+
+    if (tokenCopyTimeoutRef.current) {
+      window.clearTimeout(tokenCopyTimeoutRef.current);
+      tokenCopyTimeoutRef.current = null;
+    }
+
+    if (typeof navigator === "undefined" || !navigator.clipboard) {
+      setTokenCopyState("failed");
+      tokenCopyTimeoutRef.current = window.setTimeout(() => setTokenCopyState("idle"), 2000);
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(result.token);
+      setTokenCopyState("copied");
+    } catch (cause) {
+      console.error("Failed to copy session token", cause);
+      setTokenCopyState("failed");
+    }
+
+    tokenCopyTimeoutRef.current = window.setTimeout(() => setTokenCopyState("idle"), 2000);
+  }, [result?.token]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -131,9 +177,28 @@ export function TokenRequestCard() {
 
       {result ? (
         <div className="result-card">
-          <div className="result-card__row">
-            <span>Token</span>
-            <strong className="result-card__token">{result.token}</strong>
+          <div className="result-card__row result-card__row--token">
+            <div className="session-token-header">
+              <p className="session-token">Token</p>
+              <button
+                type="button"
+                className={`session-token-copy${
+                  tokenCopyState === "copied" ? " session-token-copy--success" : ""
+                }${tokenCopyState === "failed" ? " session-token-copy--error" : ""}`}
+                onClick={handleCopyToken}
+                aria-label="Copy session token"
+              >
+                {tokenCopyState === "copied" ? "Copied" : "Copy"}
+              </button>
+              <span className="session-token-copy-status" role="status" aria-live="polite">
+                {tokenCopyState === "copied"
+                  ? "Token copied to clipboard"
+                  : tokenCopyState === "failed"
+                    ? "Unable to copy token"
+                    : ""}
+              </span>
+            </div>
+            <p className="session-token-value">{result.token}</p>
           </div>
           <div className="result-card__row">
             <span>Valid until</span>

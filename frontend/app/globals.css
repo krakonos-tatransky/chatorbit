@@ -311,6 +311,12 @@ main {
   align-items: center;
 }
 
+.result-card__row--token {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
 .result-card__token {
   font-family: "JetBrains Mono", "SF Mono", "Consolas", monospace;
   letter-spacing: 0.22em;
