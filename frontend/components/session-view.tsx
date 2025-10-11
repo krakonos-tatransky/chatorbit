@@ -125,6 +125,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<string>("");
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
+  const [tokenCopyState, setTokenCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [socketReconnectNonce, setSocketReconnectNonce] = useState(0);
   const [peerResetNonce, setPeerResetNonce] = useState(0);
   const [supportsEncryption] = useState(() => resolveCrypto() !== null);
@@ -138,6 +139,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
   const encryptionKeyRef = useRef<CryptoKey | null>(null);
   const encryptionPromiseRef = useRef<Promise<CryptoKey> | null>(null);
+  const tokenCopyTimeoutRef = useRef<number | null>(null);
   const capabilityAnnouncedRef = useRef(false);
   const peerSupportsEncryptionRef = useRef<boolean | null>(null);
   const reconnectAttemptsRef = useRef(0);
@@ -174,6 +176,29 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     }
     return encryptionPromiseRef.current;
   }, [supportsEncryption, token]);
+
+  const handleCopyToken = useCallback(async () => {
+    if (tokenCopyTimeoutRef.current) {
+      window.clearTimeout(tokenCopyTimeoutRef.current);
+      tokenCopyTimeoutRef.current = null;
+    }
+
+    if (typeof navigator === "undefined" || !navigator.clipboard) {
+      setTokenCopyState("failed");
+      tokenCopyTimeoutRef.current = window.setTimeout(() => setTokenCopyState("idle"), 2000);
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(token);
+      setTokenCopyState("copied");
+    } catch (cause) {
+      console.error("Failed to copy session token", cause);
+      setTokenCopyState("failed");
+    }
+
+    tokenCopyTimeoutRef.current = window.setTimeout(() => setTokenCopyState("idle"), 2000);
+  }, [token]);
 
   const resetPeerConnection = useCallback(
     ({ recreate = true, delayMs }: { recreate?: boolean; delayMs?: number } = {}) => {
@@ -939,6 +964,10 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
 
   useEffect(() => {
     return () => {
+      if (tokenCopyTimeoutRef.current) {
+        window.clearTimeout(tokenCopyTimeoutRef.current);
+        tokenCopyTimeoutRef.current = null;
+      }
       resetPeerConnection({ recreate: false });
       if (iceRetryTimeoutRef.current) {
         window.clearTimeout(iceRetryTimeoutRef.current);
@@ -970,7 +999,26 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     <div className="session-shell">
       <div className="session-header">
         <div>
-          <p className="session-token">Token</p>
+          <div className="session-token-header">
+            <p className="session-token">Token</p>
+            <button
+              type="button"
+              className={`session-token-copy${
+                tokenCopyState === "copied" ? " session-token-copy--success" : ""
+              }${tokenCopyState === "failed" ? " session-token-copy--error" : ""}`}
+              onClick={handleCopyToken}
+              aria-label="Copy session token"
+            >
+              {tokenCopyState === "copied" ? "Copied" : "Copy"}
+            </button>
+            <span className="session-token-copy-status" role="status" aria-live="polite">
+              {tokenCopyState === "copied"
+                ? "Token copied to clipboard"
+                : tokenCopyState === "failed"
+                  ? "Unable to copy token"
+                  : ""}
+            </span>
+          </div>
           <p className="session-token-value">{token}</p>
           <p className="session-role">
             You are signed in as
