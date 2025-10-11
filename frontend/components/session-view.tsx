@@ -11,6 +11,57 @@ import { getIceServers } from "@/lib/webrtc";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
+type CryptoLike = {
+  subtle: SubtleCrypto;
+  getRandomValues<T extends ArrayBufferView | null>(array: T): T;
+  randomUUID?: () => string;
+};
+
+function resolveCrypto(): CryptoLike | null {
+  const globalScope: any =
+    typeof globalThis !== "undefined"
+      ? globalThis
+      : typeof self !== "undefined"
+        ? self
+        : typeof window !== "undefined"
+          ? window
+          : undefined;
+
+  if (!globalScope) {
+    return null;
+  }
+
+  const candidates = [
+    globalScope.crypto,
+    globalScope.msCrypto,
+    globalScope?.webkitCrypto,
+    globalScope.navigator?.crypto,
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const subtle: SubtleCrypto | undefined =
+      candidate.subtle ?? candidate.webkitSubtle ?? candidate.webcrypto?.subtle;
+    const getRandomValues: CryptoLike["getRandomValues"] | undefined =
+      typeof candidate.getRandomValues === "function"
+        ? candidate.getRandomValues.bind(candidate)
+        : typeof candidate.webcrypto?.getRandomValues === "function"
+          ? candidate.webcrypto.getRandomValues.bind(candidate.webcrypto)
+          : undefined;
+    const randomUUID: CryptoLike["randomUUID"] | undefined =
+      typeof candidate.randomUUID === "function"
+        ? candidate.randomUUID.bind(candidate)
+        : typeof candidate.webcrypto?.randomUUID === "function"
+          ? candidate.webcrypto.randomUUID.bind(candidate.webcrypto)
+          : undefined;
+
+    if (subtle && getRandomValues) {
+      return { subtle, getRandomValues, randomUUID };
+    }
+  }
+
+  return null;
+}
+
 const MAX_RECONNECT_ATTEMPTS = 5;
 const MAX_ICE_FAILURE_RETRIES = 3;
 
@@ -915,28 +966,30 @@ function mapStatus(payload: any): SessionStatus {
 }
 
 function generateMessageId(): string {
-  const globalCrypto: Crypto | undefined = typeof crypto !== "undefined" ? crypto : undefined;
-  if (globalCrypto?.randomUUID) {
-    return globalCrypto.randomUUID().replace(/-/g, "");
+  const cryptoLike = resolveCrypto();
+  if (cryptoLike?.randomUUID) {
+    return cryptoLike.randomUUID().replace(/-/g, "");
   }
   return `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 14)}`;
 }
 
 async function deriveKey(token: string): Promise<CryptoKey> {
-  if (typeof crypto === "undefined" || !crypto.subtle) {
+  const cryptoLike = resolveCrypto();
+  if (!cryptoLike) {
     throw new Error("Web Crypto API is not available.");
   }
-  const digest = await crypto.subtle.digest("SHA-256", textEncoder.encode(token));
-  return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+  const digest = await cryptoLike.subtle.digest("SHA-256", textEncoder.encode(token));
+  return cryptoLike.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
 async function encryptText(key: CryptoKey, plaintext: string): Promise<string> {
-  if (typeof crypto === "undefined" || !crypto.getRandomValues) {
+  const cryptoLike = resolveCrypto();
+  if (!cryptoLike) {
     throw new Error("Web Crypto API is not available.");
   }
-  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const iv = cryptoLike.getRandomValues(new Uint8Array(12));
   const encoded = textEncoder.encode(plaintext);
-  const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+  const encrypted = await cryptoLike.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
   const combined = new Uint8Array(iv.length + encrypted.byteLength);
   combined.set(iv, 0);
   combined.set(new Uint8Array(encrypted), iv.length);
@@ -944,7 +997,8 @@ async function encryptText(key: CryptoKey, plaintext: string): Promise<string> {
 }
 
 async function decryptText(key: CryptoKey, payload: string): Promise<string> {
-  if (typeof crypto === "undefined" || !crypto.subtle) {
+  const cryptoLike = resolveCrypto();
+  if (!cryptoLike) {
     throw new Error("Web Crypto API is not available.");
   }
   const bytes = fromBase64(payload);
@@ -953,7 +1007,7 @@ async function decryptText(key: CryptoKey, payload: string): Promise<string> {
   }
   const iv = bytes.slice(0, 12);
   const cipher = bytes.slice(12);
-  const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipher);
+  const decrypted = await cryptoLike.subtle.decrypt({ name: "AES-GCM", iv }, key, cipher);
   return textDecoder.decode(decrypted);
 }
 
@@ -963,11 +1017,12 @@ async function computeMessageHash(
   messageId: string,
   content: string,
 ): Promise<string> {
-  if (typeof crypto === "undefined" || !crypto.subtle) {
+  const cryptoLike = resolveCrypto();
+  if (!cryptoLike) {
     throw new Error("Web Crypto API is not available.");
   }
   const composite = `${sessionId}:${participantId}:${messageId}:${content}`;
-  const digest = await crypto.subtle.digest("SHA-256", textEncoder.encode(composite));
+  const digest = await cryptoLike.subtle.digest("SHA-256", textEncoder.encode(composite));
   return toBase64(new Uint8Array(digest));
 }
 
