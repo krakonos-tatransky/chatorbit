@@ -44,6 +44,10 @@ class TokenResponse(BaseModel):
 
 class JoinSessionRequest(BaseModel):
     token: str
+    participant_id: Optional[str] = Field(
+        default=None,
+        description="Existing participant identifier when reclaiming a session slot.",
+    )
 
 
 class JoinSessionResponse(BaseModel):

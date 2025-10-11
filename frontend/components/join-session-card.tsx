@@ -34,10 +34,26 @@ export function JoinSessionCard() {
     setLoading(true);
 
     try {
+      const trimmedToken = token.trim();
+      const joinPayload: { token: string; participant_id?: string } = { token: trimmedToken };
+      if (typeof window !== "undefined") {
+        const stored = sessionStorage.getItem(`chatOrbit.session.${trimmedToken}`);
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            if (parsed?.participantId) {
+              joinPayload.participant_id = parsed.participantId;
+            }
+          } catch (cause) {
+            console.warn("Failed to parse stored session payload", cause);
+          }
+        }
+      }
+
       const response = await fetch(apiUrl("/api/sessions/join"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: token.trim() }),
+        body: JSON.stringify(joinPayload),
       });
 
       if (!response.ok) {

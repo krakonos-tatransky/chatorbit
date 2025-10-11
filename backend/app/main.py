@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .database import SessionLocal, get_session, init_db
-from .models import SessionParticipant, SessionStatus, TokenRequestLog, TokenSession
+from .models import ChatMessage, SessionParticipant, SessionStatus, TokenRequestLog, TokenSession
 from .schemas import (
     CreateTokenRequest,
     JoinSessionRequest,
@@ -226,6 +226,36 @@ def join_session(
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Session already closed.")
 
     ip_address = get_client_ip(http_request)
+
+    if request.participant_id:
+        participant_stmt = select(SessionParticipant).where(
+            SessionParticipant.session_id == session_model.id,
+            SessionParticipant.id == request.participant_id,
+        )
+        participant = db.execute(participant_stmt).scalar_one_or_none()
+        if not participant:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Participant record not found for this session.",
+            )
+        if participant.ip_address != ip_address:
+            participant.ip_address = ip_address
+            db.add(participant)
+        db.add(session_model)
+        db.commit()
+        db.refresh(participant)
+        db.refresh(session_model)
+
+        return JoinSessionResponse(
+            token=session_model.token,
+            participant_id=participant.id,
+            role=participant.role,
+            session_active=session_model.status == SessionStatus.ACTIVE,
+            session_started_at=session_model.started_at,
+            session_expires_at=session_model.ended_at,
+            message_char_limit=session_model.message_char_limit,
+        )
+
     existing_participant = next((p for p in session_model.participants if p.ip_address == ip_address), None)
     if existing_participant:
         db.refresh(existing_participant)
@@ -275,6 +305,32 @@ def session_status(token: str, db: Session = Depends(get_session)) -> SessionSta
     db.commit()
     db.refresh(session_model)
     return serialize_session(session_model)
+
+
+@router.get("/sessions/{token}/messages")
+def list_messages(token: str, db: Session = Depends(get_session)) -> Dict[str, Any]:
+    session_model = _get_session_by_token(db, token)
+    ensure_session_state(session_model)
+
+    message_stmt = (
+        select(ChatMessage)
+        .where(ChatMessage.session_id == session_model.id)
+        .order_by(ChatMessage.created_at.asc())
+    )
+    messages = db.execute(message_stmt).scalars().all()
+
+    items = [
+        {
+            "message_id": message.message_id,
+            "participant_id": message.participant_id,
+            "content": message.content,
+            "created_at": message.created_at,
+            "deleted_at": message.deleted_at,
+        }
+        for message in messages
+    ]
+
+    return {"items": items}
 
 
 app.include_router(router)
