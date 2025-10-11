@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import { apiUrl, wsUrl } from "@/lib/api";
+import { getIceServers } from "@/lib/webrtc";
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -310,7 +311,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
 
     logEvent("Creating new RTCPeerConnection", { participantId, participantRole });
     const peerConnection = new RTCPeerConnection({
-      iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }],
+      iceServers: getIceServers(),
     });
     peerConnectionRef.current = peerConnection;
 
