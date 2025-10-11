@@ -95,14 +95,18 @@ type Message = {
   createdAt: string;
 };
 
+type EncryptionMode = "aes-gcm" | "none";
+
 type EncryptedMessage = {
   sessionId: string;
   messageId: string;
   participantId: string;
   role: string;
   createdAt: string;
-  encryptedContent: string;
-  hash: string;
+  encryptedContent?: string;
+  content?: string;
+  hash?: string;
+  encryption?: EncryptionMode;
   deleted?: boolean;
 };
 
@@ -123,6 +127,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const [socketReconnectNonce, setSocketReconnectNonce] = useState(0);
   const [peerResetNonce, setPeerResetNonce] = useState(0);
+  const [supportsEncryption] = useState(() => resolveCrypto() !== null);
+  const [peerSupportsEncryption, setPeerSupportsEncryption] = useState<boolean | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
@@ -132,6 +138,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
   const encryptionKeyRef = useRef<CryptoKey | null>(null);
   const encryptionPromiseRef = useRef<Promise<CryptoKey> | null>(null);
+  const capabilityAnnouncedRef = useRef(false);
+  const peerSupportsEncryptionRef = useRef<boolean | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const iceFailureRetriesRef = useRef(0);
@@ -142,9 +150,15 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     setMessages([]);
     encryptionKeyRef.current = null;
     encryptionPromiseRef.current = null;
+    capabilityAnnouncedRef.current = false;
+    peerSupportsEncryptionRef.current = null;
+    setPeerSupportsEncryption(null);
   }, [token]);
 
   const ensureEncryptionKey = useCallback(async () => {
+    if (!supportsEncryption) {
+      throw new Error("Encryption is not supported in this environment.");
+    }
     if (encryptionKeyRef.current) {
       return encryptionKeyRef.current;
     }
@@ -159,7 +173,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         });
     }
     return encryptionPromiseRef.current;
-  }, [token]);
+  }, [supportsEncryption, token]);
 
   const resetPeerConnection = useCallback(
     ({ recreate = true, delayMs }: { recreate?: boolean; delayMs?: number } = {}) => {
@@ -181,6 +195,9 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       pendingSignalsRef.current = [];
       hasSentOfferRef.current = false;
       setConnected(false);
+      capabilityAnnouncedRef.current = false;
+      peerSupportsEncryptionRef.current = null;
+      setPeerSupportsEncryption(null);
       if (!recreate) {
         return;
       }
@@ -198,35 +215,80 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     [setConnected, setPeerResetNonce],
   );
 
+  const sendCapabilities = useCallback(() => {
+    const channel = dataChannelRef.current;
+    if (!channel || channel.readyState !== "open") {
+      return;
+    }
+    logEvent("Announcing capabilities", { supportsEncryption });
+    channel.send(
+      JSON.stringify({
+        type: "capabilities",
+        supportsEncryption,
+      }),
+    );
+    capabilityAnnouncedRef.current = true;
+  }, [supportsEncryption]);
+
   const handlePeerMessage = useCallback(
     async (raw: string) => {
       logEvent("Received raw data channel payload", raw);
       try {
         const payload = JSON.parse(raw);
+        if (payload.type === "capabilities") {
+          const remoteSupports = Boolean(payload.supportsEncryption);
+          peerSupportsEncryptionRef.current = remoteSupports;
+          setPeerSupportsEncryption(remoteSupports);
+          if (!capabilityAnnouncedRef.current) {
+            sendCapabilities();
+          }
+          return;
+        }
         if (payload.type === "message") {
           const incoming = payload.message as EncryptedMessage;
           if (!incoming?.messageId || incoming.sessionId !== token) {
             logEvent("Ignoring unexpected data channel message", payload);
             return;
           }
+          const encryptionMode: EncryptionMode = incoming.encryption ?? "aes-gcm";
+          if (peerSupportsEncryptionRef.current === null) {
+            const inferred = encryptionMode !== "none";
+            peerSupportsEncryptionRef.current = inferred;
+            setPeerSupportsEncryption(inferred);
+          }
           try {
-            const key = await ensureEncryptionKey();
-            if (!key) {
-              throw new Error("Encryption key unavailable");
+            let content: string;
+            if (encryptionMode === "none") {
+              content = incoming.content ?? "";
+            } else {
+              if (!supportsEncryption) {
+                throw new Error("Browser cannot decrypt messages in this session.");
+              }
+              const key = await ensureEncryptionKey();
+              if (!incoming.encryptedContent) {
+                throw new Error("Encrypted payload is missing.");
+              }
+              content = await decryptText(key, incoming.encryptedContent);
             }
-            const content = await decryptText(key, incoming.encryptedContent);
-            const expectedHash = await computeMessageHash(
-              incoming.sessionId,
-              incoming.participantId,
-              incoming.messageId,
+            if (incoming.hash) {
+              const expectedHash = await computeMessageHash(
+                incoming.sessionId,
+                incoming.participantId,
+                incoming.messageId,
+                content,
+              );
+              if (expectedHash !== incoming.hash) {
+                console.warn("Hash mismatch for message", incoming.messageId);
+                setError("Ignored a message with mismatched hash.");
+                return;
+              }
+            }
+            hashedMessagesRef.current.set(incoming.messageId, {
+              ...incoming,
               content,
-            );
-            if (expectedHash !== incoming.hash) {
-              console.warn("Hash mismatch for message", incoming.messageId);
-              setError("Ignored a message with mismatched hash.");
-              return;
-            }
-            hashedMessagesRef.current.set(incoming.messageId, { ...incoming, deleted: false });
+              encryption: encryptionMode,
+              deleted: false,
+            });
             setMessages((prev) =>
               upsertMessage(prev, {
                 messageId: incoming.messageId,
@@ -237,15 +299,16 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
               }),
             );
             setError(null);
-            logEvent("Processed decrypted message", {
+            logEvent("Processed incoming message", {
               messageId: incoming.messageId,
               participantId: incoming.participantId,
               role: incoming.role,
               createdAt: incoming.createdAt,
+              encryption: encryptionMode,
             });
           } catch (cause) {
-            console.error("Unable to decrypt incoming message", cause);
-            setError("Unable to decrypt incoming message.");
+            console.error("Unable to process incoming message", cause);
+            setError("Unable to process an incoming message.");
           }
         } else if (payload.type === "delete") {
           const messageId = payload.messageId as string | undefined;
@@ -275,7 +338,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         console.error("Unable to parse data channel payload", cause);
       }
     },
-    [ensureEncryptionKey, token],
+    [ensureEncryptionKey, sendCapabilities, supportsEncryption, token],
   );
 
   const attachDataChannel = useCallback(
@@ -287,6 +350,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         setError(null);
         iceFailureRetriesRef.current = 0;
         logEvent("Data channel opened", { label: channel.label });
+        capabilityAnnouncedRef.current = false;
+        sendCapabilities();
       };
       channel.onclose = () => {
         setConnected(false);
@@ -294,10 +359,14 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         if (participantRole === "host") {
           hasSentOfferRef.current = false;
         }
+        peerSupportsEncryptionRef.current = null;
+        setPeerSupportsEncryption(null);
         logEvent("Data channel closed", { label: channel.label });
       };
       channel.onerror = () => {
         setConnected(false);
+        peerSupportsEncryptionRef.current = null;
+        setPeerSupportsEncryption(null);
         logEvent("Data channel encountered an error", { label: channel.label });
       };
       channel.onmessage = (event) => {
@@ -305,7 +374,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         void handlePeerMessage(event.data);
       };
     },
-    [handlePeerMessage, participantRole],
+    [handlePeerMessage, participantRole, sendCapabilities],
   );
 
   const sendSignal = useCallback(
@@ -756,26 +825,50 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       return;
     }
 
+    if (peerSupportsEncryption === null) {
+      setError("Connection is still negotiating. Please wait a moment before sending a message.");
+      return;
+    }
+
+    const useEncryption = supportsEncryption && peerSupportsEncryption;
+    const encryptionMode: EncryptionMode = useEncryption ? "aes-gcm" : "none";
+
     const messageId = generateMessageId();
     const createdAt = new Date().toISOString();
 
     try {
-      const key = await ensureEncryptionKey();
-      if (!key) {
-        throw new Error("Encryption key unavailable");
-      }
-      const encryptedContent = await encryptText(key, trimmed);
       const hash = await computeMessageHash(token, participantId, messageId, trimmed);
-      const record: EncryptedMessage = {
-        sessionId: token,
-        messageId,
-        participantId,
-        role: participantRole,
-        createdAt,
-        encryptedContent,
-        hash,
-        deleted: false,
-      };
+      let record: EncryptedMessage;
+      if (useEncryption) {
+        const key = await ensureEncryptionKey();
+        if (!key) {
+          throw new Error("Encryption key unavailable");
+        }
+        const encryptedContent = await encryptText(key, trimmed);
+        record = {
+          sessionId: token,
+          messageId,
+          participantId,
+          role: participantRole,
+          createdAt,
+          encryptedContent,
+          hash,
+          encryption: encryptionMode,
+          deleted: false,
+        };
+      } else {
+        record = {
+          sessionId: token,
+          messageId,
+          participantId,
+          role: participantRole,
+          createdAt,
+          content: trimmed,
+          hash,
+          encryption: encryptionMode,
+          deleted: false,
+        };
+      }
       hashedMessagesRef.current.set(messageId, record);
       channel.send(
         JSON.stringify({
@@ -795,8 +888,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       setDraft("");
       setError(null);
     } catch (cause) {
-      console.error("Failed to encrypt or send message", cause);
-      setError("Unable to encrypt or send your message.");
+      console.error("Failed to send message", cause);
+      setError("Unable to send your message.");
     }
   }
 
@@ -899,6 +992,12 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           </span>
         </div>
 
+        {!supportsEncryption || peerSupportsEncryption === false ? (
+          <div className="alert alert--info">
+            Messages are sent without end-to-end encryption in this browser.
+          </div>
+        ) : null}
+
         <div className="chat-log">
           {messages.length === 0 ? (
             <p>No messages yet. Start the conversation!</p>
@@ -937,7 +1036,11 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
             <span>
               {draft.length}/{sessionStatus?.messageCharLimit ?? 0}
             </span>
-            <button type="submit" disabled={!connected || sessionStatus?.status !== "active"} className="button button--cyan">
+            <button
+              type="submit"
+              disabled={!connected || sessionStatus?.status !== "active" || peerSupportsEncryption === null}
+              className="button button--cyan"
+            >
               Send
             </button>
           </div>
@@ -1018,12 +1121,12 @@ async function computeMessageHash(
   content: string,
 ): Promise<string> {
   const cryptoLike = resolveCrypto();
-  if (!cryptoLike) {
-    throw new Error("Web Crypto API is not available.");
-  }
   const composite = `${sessionId}:${participantId}:${messageId}:${content}`;
-  const digest = await cryptoLike.subtle.digest("SHA-256", textEncoder.encode(composite));
-  return toBase64(new Uint8Array(digest));
+  if (cryptoLike?.subtle) {
+    const digest = await cryptoLike.subtle.digest("SHA-256", textEncoder.encode(composite));
+    return toBase64(new Uint8Array(digest));
+  }
+  return toBase64(sha256Bytes(composite));
 }
 
 function upsertMessage(list: Message[], message: Message): Message[] {
@@ -1062,4 +1165,102 @@ function fromBase64(value: string): Uint8Array {
     return globalBuffer.from(value, "base64");
   }
   throw new Error("Base64 decoding is not supported in this environment.");
+}
+
+function sha256Bytes(input: string): Uint8Array {
+  const message = textEncoder.encode(input);
+  const messageLength = message.length;
+  const paddedLength = (messageLength + 9 + 63) & ~63;
+  const buffer = new ArrayBuffer(paddedLength);
+  const bytes = new Uint8Array(buffer);
+  bytes.set(message);
+  bytes[messageLength] = 0x80;
+  const view = new DataView(buffer);
+  const bitLength = messageLength * 8;
+  const highBits = Math.floor(bitLength / 0x100000000);
+  const lowBits = bitLength >>> 0;
+  view.setUint32(paddedLength - 8, highBits, false);
+  view.setUint32(paddedLength - 4, lowBits, false);
+
+  const hash = new Uint32Array([
+    0x6a09e667,
+    0xbb67ae85,
+    0x3c6ef372,
+    0xa54ff53a,
+    0x510e527f,
+    0x9b05688c,
+    0x1f83d9ab,
+    0x5be0cd19,
+  ]);
+
+  const k = new Uint32Array([
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+  ]);
+
+  const words = new Uint32Array(64);
+
+  for (let offset = 0; offset < paddedLength; offset += 64) {
+    for (let index = 0; index < 16; index += 1) {
+      words[index] = view.getUint32(offset + index * 4, false);
+    }
+    for (let index = 16; index < 64; index += 1) {
+      const s0 = rotateRight(words[index - 15], 7) ^ rotateRight(words[index - 15], 18) ^ (words[index - 15] >>> 3);
+      const s1 = rotateRight(words[index - 2], 17) ^ rotateRight(words[index - 2], 19) ^ (words[index - 2] >>> 10);
+      words[index] = (words[index - 16] + s0 + words[index - 7] + s1) >>> 0;
+    }
+
+    let a = hash[0];
+    let b = hash[1];
+    let c = hash[2];
+    let d = hash[3];
+    let e = hash[4];
+    let f = hash[5];
+    let g = hash[6];
+    let h = hash[7];
+
+    for (let index = 0; index < 64; index += 1) {
+      const S1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
+      const ch = (e & f) ^ (~e & g);
+      const temp1 = (h + S1 + ch + k[index] + words[index]) >>> 0;
+      const S0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const temp2 = (S0 + maj) >>> 0;
+
+      h = g;
+      g = f;
+      f = e;
+      e = (d + temp1) >>> 0;
+      d = c;
+      c = b;
+      b = a;
+      a = (temp1 + temp2) >>> 0;
+    }
+
+    hash[0] = (hash[0] + a) >>> 0;
+    hash[1] = (hash[1] + b) >>> 0;
+    hash[2] = (hash[2] + c) >>> 0;
+    hash[3] = (hash[3] + d) >>> 0;
+    hash[4] = (hash[4] + e) >>> 0;
+    hash[5] = (hash[5] + f) >>> 0;
+    hash[6] = (hash[6] + g) >>> 0;
+    hash[7] = (hash[7] + h) >>> 0;
+  }
+
+  const result = new Uint8Array(32);
+  const outputView = new DataView(result.buffer);
+  for (let index = 0; index < 8; index += 1) {
+    outputView.setUint32(index * 4, hash[index], false);
+  }
+  return result;
+}
+
+function rotateRight(value: number, amount: number): number {
+  return ((value >>> amount) | (value << (32 - amount))) >>> 0;
 }

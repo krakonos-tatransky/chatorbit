@@ -99,13 +99,13 @@ infra/
 | `NEXT_PUBLIC_API_BASE_URL`| `http://192.168.1.145:50001`  | Frontend → backend HTTP base (LAN-ready)   |
 | `NEXT_PUBLIC_WS_BASE_URL` | `ws://192.168.1.145:50001`    | Frontend → backend WebSocket base (LAN-ready) |
 | `NEXT_PUBLIC_WEBRTC_STUN_URLS` | —                         | Optional comma-separated list of STUN URLs overriding the default Google STUN server |
-| `NEXT_PUBLIC_WEBRTC_TURN_URLS` | —                         | Optional comma-separated list of TURN URLs (none configured by default) |
-| `NEXT_PUBLIC_WEBRTC_TURN_USERNAME` | —                    | TURN username when providing custom TURN URLs |
-| `NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL` | —                  | TURN credential/password when providing custom TURN URLs |
+| `NEXT_PUBLIC_WEBRTC_TURN_URLS` | `turn:global.relay.metered.ca:80,turn:global.relay.metered.ca:443,turn:global.relay.metered.ca:443?transport=tcp` | Optional comma-separated list of TURN URLs overriding the bundled Open Relay fallback |
+| `NEXT_PUBLIC_WEBRTC_TURN_USERNAME` | `openrelayproject`   | TURN username when providing custom TURN URLs |
+| `NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL` | `openrelayproject` | TURN credential/password when providing custom TURN URLs |
 
 > ℹ️  To allow multiple specific origins, set `CHAT_CORS_ALLOWED_ORIGINS` in your `.env` file to either a JSON list (e.g. `["http://localhost:3000", "https://app.example.com"]`), a comma-separated list (`http://localhost:3000,https://app.example.com`), or a single origin string. Leave it as `*` to accept requests from any origin, but note that credentials (cookies/authorization headers) will be suppressed for security when using the wildcard.
 
-Everything else ships with sensible defaults so you can get started immediately.
+Everything else ships with sensible defaults so you can get started immediately. When no TURN configuration is supplied, the frontend automatically falls back to the [Open Relay project](https://www.metered.ca/tools/openrelay/) credentials bundled above so peers behind restrictive networks can still connect.
 
 ## Troubleshooting WebRTC ICE errors
 

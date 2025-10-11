@@ -1,4 +1,11 @@
 const DEFAULT_STUN_URLS = ["stun:stun.l.google.com:19302"];
+const DEFAULT_TURN_URLS = [
+  "turn:global.relay.metered.ca:80",
+  "turn:global.relay.metered.ca:443",
+  "turn:global.relay.metered.ca:443?transport=tcp",
+];
+const DEFAULT_TURN_USERNAME = "openrelayproject";
+const DEFAULT_TURN_CREDENTIAL = "openrelayproject";
 
 const UNROUTABLE_HOSTS = new Set(["0.0.0.0", "127.0.0.1", "localhost", "[::]", "::", "::1"]);
 
@@ -139,6 +146,15 @@ export function getIceServers(): RTCIceServer[] {
       console.warn(
         "Ignoring configured TURN URLs because NEXT_PUBLIC_WEBRTC_TURN_USERNAME or NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL is missing.",
       );
+    }
+  } else {
+    const defaultTurnUrls = sanitizeIceUrls(DEFAULT_TURN_URLS);
+    if (defaultTurnUrls.length > 0) {
+      iceServers.push({
+        urls: defaultTurnUrls,
+        username: DEFAULT_TURN_USERNAME,
+        credential: DEFAULT_TURN_CREDENTIAL,
+      });
     }
   }
 
