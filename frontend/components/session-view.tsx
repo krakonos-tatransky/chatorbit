@@ -797,6 +797,19 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     return () => window.clearInterval(interval);
   }, [remainingSeconds]);
 
+  const connectedParticipantCount = useMemo(() => {
+    const connectedIds = new Set(sessionStatus?.connectedParticipants ?? []);
+    if (connected) {
+      if (participantId) {
+        connectedIds.add(participantId);
+      }
+      for (const participant of sessionStatus?.participants ?? []) {
+        connectedIds.add(participant.participantId);
+      }
+    }
+    return Math.min(connectedIds.size, 2);
+  }, [connected, participantId, sessionStatus?.connectedParticipants, sessionStatus?.participants]);
+
   const countdownLabel = useMemo(() => {
     if (remainingSeconds === null) {
       return sessionStatus?.status === "issued" ? "Waiting for partner…" : "Starting…";
@@ -986,7 +999,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
 
       <div className="chat-panel">
         <div className="chat-panel__stats">
-          <span>Connected participants: {sessionStatus?.connectedParticipants?.length ?? 0}/2</span>
+          <span>Connected participants: {connectedParticipantCount}/2</span>
           <span>
             Limit: {sessionStatus ? sessionStatus.messageCharLimit.toLocaleString() : "—"} chars/message
           </span>
