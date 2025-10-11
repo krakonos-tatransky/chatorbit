@@ -104,6 +104,36 @@ def test_join_session_flow(client: TestClient) -> None:
     assert messages_response.json()["items"] == []
 
 
+def test_rejoin_session_with_participant_id(client: TestClient) -> None:
+    token_response = client.post("/api/tokens", json=_token_payload()).json()
+    token = token_response["token"]
+
+    host_join = client.post(
+        "/api/sessions/join",
+        json={"token": token},
+        headers={"X-Forwarded-For": "10.0.0.1"},
+    )
+    assert host_join.status_code == 200
+    host_data = host_join.json()
+
+    guest_join = client.post(
+        "/api/sessions/join",
+        json={"token": token},
+        headers={"X-Forwarded-For": "10.0.0.2"},
+    )
+    assert guest_join.status_code == 200
+
+    rejoin = client.post(
+        "/api/sessions/join",
+        json={"token": token, "participant_id": host_data["participant_id"]},
+        headers={"X-Forwarded-For": "10.0.0.99"},
+    )
+
+    assert rejoin.status_code == 200
+    payload = rejoin.json()
+    assert payload["participant_id"] == host_data["participant_id"]
+    assert payload["role"] == "host"
+
 def test_cors_wildcard_origin_does_not_expose_credentials(client: TestClient) -> None:
     response = client.options(
         "/api/tokens",

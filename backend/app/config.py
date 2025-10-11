@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     default_message_char_limit: int = 2000
     max_message_char_limit: int = 16000
     min_message_char_limit: int = 200
-    cors_allowed_origins: List[str] = ["*"]
+    cors_allowed_origins: List[str] | str | None = ["*"]
     cors_allow_credentials: bool = True
 
     @field_validator("cors_allowed_origins", mode="before")
