@@ -98,7 +98,30 @@ infra/
 | `CHAT_CORS_ALLOW_CREDENTIALS` | `true`                | Whether to send `Access-Control-Allow-Credentials`; automatically disabled when using a wildcard origin |
 | `NEXT_PUBLIC_API_BASE_URL`| `http://192.168.1.145:50001`  | Frontend → backend HTTP base (LAN-ready)   |
 | `NEXT_PUBLIC_WS_BASE_URL` | `ws://192.168.1.145:50001`    | Frontend → backend WebSocket base (LAN-ready) |
+| `NEXT_PUBLIC_WEBRTC_STUN_URLS` | —                         | Optional comma-separated list of STUN URLs overriding the default Google STUN server |
+| `NEXT_PUBLIC_WEBRTC_TURN_URLS` | —                         | Optional comma-separated list of TURN URLs (none configured by default) |
+| `NEXT_PUBLIC_WEBRTC_TURN_USERNAME` | —                    | TURN username when providing custom TURN URLs |
+| `NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL` | —                  | TURN credential/password when providing custom TURN URLs |
 
 > ℹ️  To allow multiple specific origins, set `CHAT_CORS_ALLOWED_ORIGINS` in your `.env` file to either a JSON list (e.g. `["http://localhost:3000", "https://app.example.com"]`), a comma-separated list (`http://localhost:3000,https://app.example.com`), or a single origin string. Leave it as `*` to accept requests from any origin, but note that credentials (cookies/authorization headers) will be suppressed for security when using the wildcard.
 
 Everything else ships with sensible defaults so you can get started immediately.
+
+## Troubleshooting WebRTC ICE errors
+
+If you see Firefox logs similar to the following when two peers try to connect:
+
+```
+Skipping STUN server because of address type mis-match
+skipping UDP STUN server(addr:IP4:0.0.0.0:19302/UDP)
+failed to create passive TCP host candidate: 3
+TURN(... IP4:0.0.0.0:443/TCP) failed
+```
+
+it means the browser rejected the configured ICE servers. Common causes are:
+
+- **Wild-card or loopback hosts** – values such as `0.0.0.0`, `127.0.0.1`, `[::]`, or `localhost` cannot be reached by other peers. Remove them from `NEXT_PUBLIC_WEBRTC_*` variables or replace them with a routable IP/DNS name.
+- **IPv4/IPv6 mismatch** – attempting to reach an IPv6 TURN/STUN address from an IPv4-only interface (or vice versa) yields an "address type mis-match" warning. Ensure the ICE URLs resolve to addresses that match the network stack of the peers.
+- **Port blocks** – corporate or guest networks often block UDP 3478/5349 or TCP 80/443 on TURN servers. Choose TURN endpoints that are reachable from both clients.
+
+The frontend automatically ignores unroutable ICE URLs, but explicitly set environment variables take precedence. Verify any custom `NEXT_PUBLIC_WEBRTC_STUN_URLS`, `NEXT_PUBLIC_WEBRTC_TURN_URLS`, or `NEXT_PUBLIC_WEBRTC_ICE_SERVERS` overrides before redeploying.

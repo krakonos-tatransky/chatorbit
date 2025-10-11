@@ -11,6 +11,9 @@ import { getIceServers } from "@/lib/webrtc";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
+const MAX_RECONNECT_ATTEMPTS = 5;
+const MAX_ICE_FAILURE_RETRIES = 3;
+
 function logEvent(message: string, ...details: unknown[]) {
   console.log(`[SessionView] ${message}`, ...details);
 }
@@ -67,6 +70,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<string>("");
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
+  const [socketReconnectNonce, setSocketReconnectNonce] = useState(0);
+  const [peerResetNonce, setPeerResetNonce] = useState(0);
   const socketRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
@@ -76,6 +81,10 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
   const encryptionKeyRef = useRef<CryptoKey | null>(null);
   const encryptionPromiseRef = useRef<Promise<CryptoKey> | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const iceFailureRetriesRef = useRef(0);
+  const iceRetryTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
 
   useEffect(() => {
     hashedMessagesRef.current.clear();
@@ -100,6 +109,43 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     }
     return encryptionPromiseRef.current;
   }, [token]);
+
+  const resetPeerConnection = useCallback(
+    ({ recreate = true, delayMs }: { recreate?: boolean; delayMs?: number } = {}) => {
+      if (iceRetryTimeoutRef.current) {
+        window.clearTimeout(iceRetryTimeoutRef.current);
+        iceRetryTimeoutRef.current = null;
+      }
+      const existing = peerConnectionRef.current;
+      if (existing) {
+        try {
+          existing.close();
+        } catch (cause) {
+          console.warn("Failed to close RTCPeerConnection", cause);
+        }
+      }
+      peerConnectionRef.current = null;
+      dataChannelRef.current = null;
+      pendingCandidatesRef.current = [];
+      pendingSignalsRef.current = [];
+      hasSentOfferRef.current = false;
+      setConnected(false);
+      if (!recreate) {
+        return;
+      }
+      if (delayMs && delayMs > 0) {
+        iceRetryTimeoutRef.current = window.setTimeout(() => {
+          iceRetryTimeoutRef.current = null;
+          if (socketRef.current?.readyState === WebSocket.OPEN) {
+            setPeerResetNonce((value) => value + 1);
+          }
+        }, delayMs);
+      } else {
+        setPeerResetNonce((value) => value + 1);
+      }
+    },
+    [setConnected, setPeerResetNonce],
+  );
 
   const handlePeerMessage = useCallback(
     async (raw: string) => {
@@ -188,6 +234,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       channel.onopen = () => {
         setConnected(true);
         setError(null);
+        iceFailureRetriesRef.current = 0;
         logEvent("Data channel opened", { label: channel.label });
       };
       channel.onclose = () => {
@@ -316,13 +363,12 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     peerConnectionRef.current = peerConnection;
 
     peerConnection.onicecandidate = (event) => {
-      if (event.candidate) {
+      if (event.candidate && event.candidate.candidate) {
         const candidate = typeof event.candidate.toJSON === "function" ? event.candidate.toJSON() : event.candidate;
         sendSignal("iceCandidate", candidate);
         logEvent("Discovered ICE candidate", candidate);
       } else {
-        sendSignal("iceCandidate", null);
-        logEvent("Finished gathering ICE candidates");
+        logEvent("ICE candidate gathering complete");
       }
     };
 
@@ -332,11 +378,30 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       if (state === "connected") {
         setConnected(true);
         setError(null);
+        iceFailureRetriesRef.current = 0;
       } else if (state === "failed" || state === "disconnected" || state === "closed") {
         setConnected(false);
         if (participantRole === "host") {
           hasSentOfferRef.current = false;
         }
+      }
+    };
+
+    peerConnection.oniceconnectionstatechange = () => {
+      const state = peerConnection.iceConnectionState;
+      logEvent("ICE connection state changed", state);
+      if (state === "failed" && participantRole === "host" && peerConnectionRef.current === peerConnection) {
+        if (iceFailureRetriesRef.current < MAX_ICE_FAILURE_RETRIES) {
+          const attempt = iceFailureRetriesRef.current + 1;
+          iceFailureRetriesRef.current = attempt;
+          resetPeerConnection({ delayMs: 1000 * attempt });
+          logEvent("ICE connection failed; scheduling retry", { attempt });
+        } else {
+          setError("Connection failed. Please refresh to retry.");
+          logEvent("ICE connection failed and maximum retries reached");
+        }
+      } else if (state === "connected") {
+        iceFailureRetriesRef.current = 0;
       }
     };
 
@@ -367,18 +432,17 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
 
     return () => {
       logEvent("Tearing down peer connection", { participantId, participantRole });
-      pendingCandidatesRef.current = [];
-      pendingSignalsRef.current = [];
-      hasSentOfferRef.current = false;
-      if (dataChannelRef.current) {
-        dataChannelRef.current.close();
-        dataChannelRef.current = null;
-      }
-      peerConnection.close();
-      peerConnectionRef.current = null;
-      setConnected(false);
+      resetPeerConnection({ recreate: false });
     };
-  }, [attachDataChannel, participantId, participantRole, sendSignal]);
+  }, [
+    attachDataChannel,
+    participantId,
+    participantRole,
+    peerResetNonce,
+    processSignalPayload,
+    resetPeerConnection,
+    sendSignal,
+  ]);
 
   useEffect(() => {
     if (participantId) {
@@ -451,23 +515,71 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       return;
     }
 
+    let active = true;
+
+    if (reconnectTimeoutRef.current) {
+      window.clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
     const url = wsUrl(`/ws/sessions/${token}?participantId=${participantId}`);
     logEvent("Opening WebSocket", { url });
     const socket = new WebSocket(url);
     socketRef.current = socket;
 
     socket.onopen = () => {
+      if (!active) {
+        return;
+      }
+      reconnectAttemptsRef.current = 0;
+      if (reconnectTimeoutRef.current) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
       setSocketReady(true);
+      setError(null);
+      iceFailureRetriesRef.current = 0;
       logEvent("WebSocket connection established");
+      if (peerConnectionRef.current) {
+        resetPeerConnection();
+      }
     };
 
     socket.onclose = () => {
+      if (!active) {
+        return;
+      }
       setSocketReady(false);
       socketRef.current = null;
+      setConnected(false);
+      resetPeerConnection({ recreate: false });
       logEvent("WebSocket connection closed");
+      if (participantId && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+        const attempt = reconnectAttemptsRef.current + 1;
+        reconnectAttemptsRef.current = attempt;
+        const delay = 1000 * attempt;
+        reconnectTimeoutRef.current = window.setTimeout(() => {
+          reconnectTimeoutRef.current = null;
+          setSocketReconnectNonce((value) => value + 1);
+        }, delay);
+        logEvent("Scheduling WebSocket reconnect", { attempt, delay });
+      } else if (participantId) {
+        setError("Max reconnect attempts reached.");
+      }
+    };
+
+    socket.onerror = (event) => {
+      if (!active) {
+        return;
+      }
+      logEvent("WebSocket error", event);
+      setError("WebSocket error");
     };
 
     socket.onmessage = (event) => {
+      if (!active) {
+        return;
+      }
       logEvent("Received WebSocket message", event.data);
       try {
         const payload = JSON.parse(event.data);
@@ -484,10 +596,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           if (dataChannelRef.current) {
             dataChannelRef.current.close();
           }
-          if (peerConnectionRef.current) {
-            peerConnectionRef.current.close();
-            peerConnectionRef.current = null;
-          }
+          resetPeerConnection({ recreate: false });
           setConnected(false);
         } else if (payload.type === "signal") {
           void handleSignal(payload);
@@ -498,10 +607,15 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     };
 
     return () => {
-      logEvent("Closing WebSocket");
+      active = false;
+      if (reconnectTimeoutRef.current) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      socketRef.current = null;
       socket.close();
     };
-  }, [handleSignal, participantId, token]);
+  }, [handleSignal, participantId, resetPeerConnection, socketReconnectNonce, token]);
 
   useEffect(() => {
     if (
@@ -511,12 +625,13 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       !peerConnectionRef.current ||
       hasSentOfferRef.current ||
       sessionStatus?.status !== "active" ||
-      connected
+      connected ||
+      (sessionStatus?.connectedParticipants && sessionStatus.connectedParticipants.length < 2)
     ) {
       return;
     }
 
-    async function createOffer() {
+    const timer = window.setTimeout(async () => {
       logEvent("Attempting to create WebRTC offer");
       try {
         const pc = peerConnectionRef.current;
@@ -532,10 +647,20 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       } catch (cause) {
         console.error("Failed to create WebRTC offer", cause);
       }
-    }
+    }, 1500);
 
-    void createOffer();
-  }, [connected, participantId, participantRole, sendSignal, sessionStatus?.status, socketReady]);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    connected,
+    participantId,
+    participantRole,
+    sendSignal,
+    sessionStatus?.connectedParticipants,
+    sessionStatus?.status,
+    socketReady,
+  ]);
 
   useEffect(() => {
     if (remainingSeconds === null) {
@@ -654,6 +779,25 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     );
     setMessages((prev) => prev.filter((item) => item.messageId !== messageId));
   }
+
+  useEffect(() => {
+    return () => {
+      resetPeerConnection({ recreate: false });
+      if (iceRetryTimeoutRef.current) {
+        window.clearTimeout(iceRetryTimeoutRef.current);
+        iceRetryTimeoutRef.current = null;
+      }
+      if (reconnectTimeoutRef.current) {
+        window.clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      const socket = socketRef.current;
+      if (socket) {
+        socket.close();
+        socketRef.current = null;
+      }
+    };
+  }, [resetPeerConnection]);
 
   if (!participantId) {
     return (
