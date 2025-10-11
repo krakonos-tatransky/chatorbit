@@ -1,11 +1,4 @@
 const DEFAULT_STUN_URLS = ["stun:stun.l.google.com:19302"];
-const DEFAULT_TURN_URLS = [
-  "turn:openrelay.metered.ca:80",
-  "turn:openrelay.metered.ca:443",
-  "turn:openrelay.metered.ca:443?transport=tcp",
-];
-const DEFAULT_TURN_USERNAME = "openrelayproject";
-const DEFAULT_TURN_CREDENTIAL = "openrelayproject";
 
 const UNROUTABLE_HOSTS = new Set(["0.0.0.0", "127.0.0.1", "localhost", "[::]", "::", "::1"]);
 
@@ -139,14 +132,14 @@ export function getIceServers(): RTCIceServer[] {
   const turnCredential =
     process.env.NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL ?? process.env.NEXT_PUBLIC_WEBRTC_TURN_PASSWORD;
 
-  if (turnUrls.length > 0 && turnUsername && turnCredential) {
-    iceServers.push({ urls: turnUrls, username: turnUsername, credential: turnCredential });
-  } else {
-    iceServers.push({
-      urls: DEFAULT_TURN_URLS,
-      username: DEFAULT_TURN_USERNAME,
-      credential: DEFAULT_TURN_CREDENTIAL,
-    });
+  if (turnUrls.length > 0) {
+    if (turnUsername && turnCredential) {
+      iceServers.push({ urls: turnUrls, username: turnUsername, credential: turnCredential });
+    } else if (typeof console !== "undefined") {
+      console.warn(
+        "Ignoring configured TURN URLs because NEXT_PUBLIC_WEBRTC_TURN_USERNAME or NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL is missing.",
+      );
+    }
   }
 
   return iceServers;
