@@ -509,7 +509,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       !participantId ||
       !peerConnectionRef.current ||
       hasSentOfferRef.current ||
-      sessionStatus?.status !== "active"
+      sessionStatus?.status !== "active" ||
+      connected
     ) {
       return;
     }
@@ -533,7 +534,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     }
 
     void createOffer();
-  }, [participantId, participantRole, sendSignal, sessionStatus?.status, socketReady]);
+  }, [connected, participantId, participantRole, sendSignal, sessionStatus?.status, socketReady]);
 
   useEffect(() => {
     if (remainingSeconds === null) {
