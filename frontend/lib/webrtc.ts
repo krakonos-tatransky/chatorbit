@@ -85,8 +85,6 @@ function getDefaultTurnConfiguration(): RTCIceServer | null {
   return null;
 }
 
-type ExtendedIceServer = RTCIceServer & { credentialType?: "oauth" | "password" };
-
 function parseConfiguredIceServers(): RTCIceServer[] | null {
   const raw = process.env.NEXT_PUBLIC_WEBRTC_ICE_SERVERS;
   if (!raw) {
@@ -121,17 +119,22 @@ function parseConfiguredIceServers(): RTCIceServer[] | null {
       if (sanitizedUrls.length === 0) {
         continue;
       }
-      const server: ExtendedIceServer = {
+      const credentialType =
+        item.credentialType === "oauth" || item.credentialType === "password"
+          ? item.credentialType
+          : undefined;
+
+      const baseServer: RTCIceServer = {
         urls: sanitizedUrls,
         username: typeof item.username === "string" ? item.username : undefined,
         credential: typeof item.credential === "string" ? item.credential : undefined,
       };
 
-      if (item.credentialType === "oauth" || item.credentialType === "password") {
-        server.credentialType = item.credentialType;
+      if (credentialType) {
+        servers.push({ ...baseServer, credentialType } as RTCIceServer);
+      } else {
+        servers.push(baseServer);
       }
-
-      servers.push(server);
     }
 
     if (servers.length > 0) {
