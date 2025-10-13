@@ -53,6 +53,18 @@ docker compose up --build
 This spins up the FastAPI backend on port **50001** (with SQLite persistence under `backend/data/`) and the Next.js frontend on
 port **80**, both reachable via the LAN IP `http://192.168.1.145`.
 
+### Codex / sandbox prerequisites
+
+If you are running automated checks inside a Codex-style sandbox, make sure the environment provides the following so the
+project’s verification commands succeed:
+
+- **Outbound npm registry access** – `pnpm build` triggers Next.js to download an `@next/swc-*` binary that matches the CPU and
+  libc of the build container. When the sandbox blocks outbound HTTPS, the build fails with `ENETUNREACH`. Either allow network
+  egress to `https://registry.npmjs.org` and the associated CDN hosts or pre-populate the expected SWC binary in the environment.
+- **Docker CLI with Compose plugin** – The infra checks rely on `/usr/bin/docker compose`. Install Docker (or another compatible
+  OCI engine) along with the Compose v2 plugin so the `docker compose -f docker-compose.production.yml up --build` command is
+  available on the PATH.
+
 ## Key concepts
 
 - **Token minting** – Each device can request up to 10 tokens per hour. The requester picks the validity window (one day/week/
