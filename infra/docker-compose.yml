@@ -3,26 +3,33 @@ services:
     build:
       context: ../backend
       dockerfile: ../infra/docker/backend.Dockerfile
+    command: uvicorn app.main:app --host 0.0.0.0 --port 50001 --reload
     environment:
+      CHAT_CORS_ALLOWED_ORIGINS: http://localhost:3000
+      CHAT_CORS_ALLOW_CREDENTIALS: "false"
       CHAT_DATABASE_URL: sqlite:///./data/chat_orbit.db
-    ports: ["50001:50001"]
+    ports:
+      - "50001:50001"
+    restart: unless-stopped
     volumes:
       - ../backend:/app
       - backend_data:/app/data
-    command: uvicorn app.main:app --host 0.0.0.0 --port 50001 --reload
 
   frontend:
     build:
       context: ../frontend
       dockerfile: ../infra/docker/frontend.Dockerfile
+    command: pnpm dev --port 3000 --hostname 0.0.0.0
+    depends_on:
+      - backend
     environment:
-      NEXT_PUBLIC_API_BASE_URL: http://192.168.1.145:50001
-      NEXT_PUBLIC_WS_BASE_URL: ws://192.168.1.145:50001
-    depends_on: [backend]
-    ports: ["80:3000"]
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:50001
+      NEXT_PUBLIC_WS_BASE_URL: ws://localhost:50001
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
     volumes:
       - ../frontend:/app
-    command: pnpm dev --port 3000 --hostname 0.0.0.0
 
 volumes:
   backend_data: {}
