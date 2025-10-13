@@ -1,26 +1,36 @@
 import * as React from "react";
 import { Slot } from "@/components/ui/slot";
-import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/cn";
+const baseButtonClasses =
+  "inline-flex items-center justify-center rounded-2xl text-sm font-medium transition active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none px-4 h-10";
 
-const buttonVariants = cva(
-  "inline-flex items-center justify-center rounded-2xl text-sm font-medium transition active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none px-4 h-10",
-  {
-    variants: {
-      variant: {
-        default: "bg-black text-white hover:opacity-90",
-        outline: "border border-neutral-200 hover:bg-neutral-50",
-        ghost: "hover:bg-neutral-100",
-      },
-      size: { sm: "h-9 px-3", md: "h-10 px-4", lg: "h-11 px-5" },
-    },
-    defaultVariants: { variant: "default", size: "md" },
-  }
-);
+const variantClasses = {
+  default: "bg-black text-white hover:opacity-90",
+  outline: "border border-neutral-200 hover:bg-neutral-50",
+  ghost: "hover:bg-neutral-100",
+};
+
+const sizeClasses = {
+  sm: "h-9 px-3",
+  md: "h-10 px-4",
+  lg: "h-11 px-5",
+};
+
+type ButtonVariant = keyof typeof variantClasses;
+type ButtonSize = keyof typeof sizeClasses;
+
+const buttonVariants = (options: {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+}) => {
+  const { variant = "default", size = "md" } = options;
+  return cn(baseButtonClasses, variantClasses[variant], sizeClasses[size]);
+};
 
 export interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {
+  extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
   asChild?: boolean;
 }
 
