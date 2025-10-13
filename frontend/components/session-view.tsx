@@ -62,7 +62,8 @@ function resolveCrypto(): CryptoLike | null {
   return null;
 }
 
-const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_BASE_DELAY_MS = 1000;
+const RECONNECT_MAX_DELAY_MS = 30000;
 const MAX_ICE_FAILURE_RETRIES = 3;
 
 function logEvent(message: string, ...details: unknown[]) {
@@ -706,9 +707,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       setError(null);
       iceFailureRetriesRef.current = 0;
       logEvent("WebSocket connection established");
-      if (peerConnectionRef.current) {
-        resetPeerConnection();
-      }
+      resetPeerConnection();
     };
 
     socket.onclose = () => {
@@ -720,17 +719,19 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       setConnected(false);
       resetPeerConnection({ recreate: false });
       logEvent("WebSocket connection closed");
-      if (participantId && reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+      if (participantId) {
         const attempt = reconnectAttemptsRef.current + 1;
         reconnectAttemptsRef.current = attempt;
-        const delay = 1000 * attempt;
+        const backoffAttempt = Math.min(attempt, 6);
+        const delay = Math.min(
+          RECONNECT_BASE_DELAY_MS * 2 ** (backoffAttempt - 1),
+          RECONNECT_MAX_DELAY_MS,
+        );
         reconnectTimeoutRef.current = window.setTimeout(() => {
           reconnectTimeoutRef.current = null;
           setSocketReconnectNonce((value) => value + 1);
         }, delay);
         logEvent("Scheduling WebSocket reconnect", { attempt, delay });
-      } else if (participantId) {
-        setError("Max reconnect attempts reached.");
       }
     };
 
