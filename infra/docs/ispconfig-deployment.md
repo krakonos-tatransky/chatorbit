@@ -24,16 +24,17 @@ It assumes you already have SSH access to the server, administrator privileges i
    sudo apt install -y nginx certbot python3-certbot-nginx git rsync
    ```
 
-## 2. Configure DNS and a site in ISPConfig
+## 2. Configure DNS and ISPConfig sites
 
-1. **Create DNS records** in ISPConfig for the desired hostnames (e.g., `chat.example.com`). Ensure A/AAAA records point to the server.
-2. **Add a web domain** in ISPConfig:
-   - Go to **Sites → Websites → Add new website**.
-   - Set the domain (e.g., `chat.example.com`).
-   - Choose the correct web server (`apache` or `nginx`) and disable auto-created web content (the app will be reverse-proxied).
-   - Enable **Let's Encrypt SSL** but leave it unchecked for now—we will request the certificate after deployment.
-   - Note the document root (typically `/var/www/clients/clientX/webY/web`).
-3. (Optional) Add a separate **subdomain** for the API if you prefer to split frontend and backend (e.g., `api.chat.example.com`). Repeat the website creation steps.
+1. **Create DNS records** in ISPConfig so all application hostnames resolve to the VPS:
+   - `chatorbit.com` → public IPv4/IPv6 of the server (frontend)
+   - `endpoints.chatorbit.com` → same IP (API + WebSocket)
+   - `turn.chatorbit.com` → TURN server (reuse the existing ISPConfig site) _or_ point `turn.l0l0l0.com` to the TURN host if you prefer to isolate it.
+2. **Add/confirm the web domains** in ISPConfig:
+   - `chatorbit.com` should already exist. We will update its proxy directives later so it forwards to the frontend container.
+   - Create a second site for `endpoints.chatorbit.com`. Disable auto-created web content—the API lives behind a reverse proxy.
+   - Leave **Let's Encrypt SSL** unchecked for now; we will request certificates after the containers are healthy.
+   - Note the document roots (typically `/var/www/clients/clientX/webY/web`). These paths are also where ISPConfig expects per-site configuration snippets.
 
 ## 3. Fetch the ChatOrbit code
 
@@ -49,19 +50,13 @@ Replace `clientX`, `webY`, and `webX` with the client/site identifiers ISPConfig
 
 ## 4. Configure environment
 
-1. **Create an `.env` file** for backend and frontend overrides. At minimum set the public base URLs so the frontend talks to the proxied backend:
+1. **Copy the production template** and adjust hostnames/credentials. The repo ships `infra/.env.production.example` with sane defaults for `https://chatorbit.com` (frontend) and `https://endpoints.chatorbit.com` (API).
    ```bash
-   cat <<'ENV' | sudo -u webX tee infra/.env.production
-   NEXT_PUBLIC_API_BASE_URL=https://chat.example.com/api
-   NEXT_PUBLIC_WS_BASE_URL=wss://chat.example.com/api
-   NEXT_PUBLIC_WEBRTC_DEFAULT_STUN_URLS=stun:stun.l.google.com:19302
-   NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_URLS=turn:turn.chatorbit.com:443,turn:turn.chatorbit.com:443?transport=tcp
-   NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_USERNAME=pakalolo
-   NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_CREDENTIAL=275ea323d4eac7f635ef5cd3518f32af957beaeb6e6579fad5e1009903b7d5e4
-   CHAT_CORS_ALLOWED_ORIGINS=https://chat.example.com
-   CHAT_CORS_ALLOW_CREDENTIALS=false
-   ENV
+   sudo -u webX cp infra/.env.production.example infra/.env.production
+   sudo -u webX nano infra/.env.production  # or your preferred editor
    ```
+   - Set `CHAT_CORS_ALLOWED_ORIGINS` to the origins that should call the API (e.g., `https://chatorbit.com,https://www.chatorbit.com`).
+   - Confirm the TURN hostnames/credentials. Change `NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_URLS` if you relocate Coturn to `turn.l0l0l0.com`.
 2. **Configure persistence**. The default SQLite database writes to `backend/data`. Make sure this directory is writable by the web user:
    ```bash
    sudo -u webX mkdir -p backend/data
@@ -70,12 +65,11 @@ Replace `clientX`, `webY`, and `webX` with the client/site identifiers ISPConfig
 
 ## 5. Deploy with Docker Compose (recommended)
 
-1. Review the production-oriented Compose file that ships with the repo:
+1. Review `infra/docker-compose.production.yml` to confirm the loopback bindings and environment defaults match your DNS decisions. The file expects `infra/.env.production` and keeps the backend on `127.0.0.1:50001` plus the frontend on `127.0.0.1:3000`.
    ```bash
-   sudo -u webX sed -n '1,120p' infra/docker-compose.production.yml
+   sudo -u webX sed -n '1,160p' infra/docker-compose.production.yml
    ```
-   The file already restricts published ports to `127.0.0.1` so ISPConfig can proxy HTTP/S traffic, sets `NEXT_PUBLIC_*` URLs to `https://endpoints.chatorbit.com`, and exposes TURN servers at `turn.chatorbit.com`.
-2. If you need to tweak ports or domains, edit `infra/docker-compose.production.yml` as the web user. Keep the backend bound to `127.0.0.1:50001` and frontend to `127.0.0.1:3000` when using Apache or Nginx as the reverse proxy.
+2. Adjust anything project-specific (image tags, TURN URLs, rate limits) by editing `infra/.env.production`—the Compose file now reads every variable from there with sensible fallbacks. Only change the YAML if you need additional services or non-loopback bindings.
 3. Create a systemd unit for the Compose stack (run as root):
    ```bash
    sudo tee /etc/systemd/system/chatorbit.service <<'UNIT'
@@ -106,71 +100,82 @@ Replace `clientX`, `webY`, and `webX` with the client/site identifiers ISPConfig
 
 ## 6. Configure the web server via ISPConfig
 
-Reverse proxy traffic from ISPConfig's managed web server to the ChatOrbit services. Adjust upstream ports to match the values in your Compose file.
+Reverse proxy traffic from ISPConfig's managed web server to the ChatOrbit containers. Because `chatorbit.com` and `endpoints.chatorbit.com` live as separate ISPConfig sites, configure directives on each vhost. Adjust upstream ports if you changed them in Compose.
 
 ### Apache directives
 
-1. Ensure the required modules are enabled on the server (run as root once):
+1. Enable proxy modules once (run as root):
    ```bash
    sudo a2enmod proxy proxy_http proxy_wstunnel headers
    sudo systemctl reload apache2
    ```
-2. In ISPConfig, edit the website and add the following **Apache directives** under "Options" → "Apache Directives":
+2. **Frontend (`chatorbit.com`)** – Under *Options → Apache Directives* add:
    ```apache
    ProxyPreserveHost On
    RequestHeader set X-Forwarded-Proto expr=%{REQUEST_SCHEME}
 
-   ProxyPass "/api/" "http://127.0.0.1:50001/"
-   ProxyPassReverse "/api/" "http://127.0.0.1:50001/"
-
-   ProxyPass "/ws/"  "ws://127.0.0.1:50001/ws/"
-   ProxyPassReverse "/ws/"  "ws://127.0.0.1:50001/ws/"
-
-   ProxyPass "/" "http://127.0.0.1:3000/"
+   ProxyPass "/" "http://127.0.0.1:3000/" retry=0
    ProxyPassReverse "/" "http://127.0.0.1:3000/"
    ```
+   Add `ProxyPassReverseCookieDomain 127.0.0.1 chatorbit.com` if you later enable cookie-based auth.
+3. **API (`endpoints.chatorbit.com`)** – Add the following directives:
+   ```apache
+   ProxyPreserveHost On
+   RequestHeader set X-Forwarded-Proto expr=%{REQUEST_SCHEME}
+
+   ProxyPass "/ws/"  "ws://127.0.0.1:50001/ws/" retry=0
+   ProxyPassReverse "/ws/"  "ws://127.0.0.1:50001/ws/"
+
+   ProxyPass "/" "http://127.0.0.1:50001/" retry=0
+   ProxyPassReverse "/" "http://127.0.0.1:50001/"
+   ```
+   If you expose additional FastAPI routes (e.g., `/docs`), they inherit the root proxy.
 
 ### Nginx directives
 
-In ISPConfig, edit the website and add the following **nginx directives** in the "Options" → "nginx Directives" box:
+Add snippets under *Options → nginx Directives* on each site.
 
-```nginx
-location /api/ {
-    proxy_pass http://127.0.0.1:50001/;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
+- **Frontend (`chatorbit.com`)**
+  ```nginx
+  location / {
+      proxy_pass http://127.0.0.1:3000/;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+  }
+  ```
+- **API (`endpoints.chatorbit.com`)**
+  ```nginx
+  location /ws/ {
+      proxy_pass http://127.0.0.1:50001/ws/;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+  }
 
-location /ws/ {
-    proxy_pass http://127.0.0.1:50001/ws/;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-    proxy_set_header Host $host;
-}
+  location / {
+      proxy_pass http://127.0.0.1:50001/;
+      proxy_set_header Host $host;
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+  }
+  ```
 
-location / {
-    proxy_pass http://127.0.0.1:3000/;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
-```
-
-Save the website changes and let ISPConfig reload the service.
+Save each website. ISPConfig will reload Apache/Nginx with the new reverse proxy configuration.
 
 ## 7. Issue HTTPS certificates
 
-After the site resolves to your server, revisit the website in ISPConfig and enable the **Let's Encrypt SSL** checkbox. Save the form; ISPConfig will provision the certificate and reload the web server automatically. Verify with:
+After each hostname resolves to your server, revisit the corresponding ISPConfig site and enable the **Let's Encrypt SSL** checkbox. Save the form; ISPConfig will provision the certificate and reload the web server automatically. Verify with:
 
 ```bash
-curl -I https://chat.example.com
+curl -I https://chatorbit.com
+curl -I https://endpoints.chatorbit.com
 ```
 
-If you use separate subdomains for API and frontend, enable SSL on each.
+Keep the existing TURN vhost (`turn.chatorbit.com` or `turn.l0l0l0.com`) enrolled in Let's Encrypt as well so WebRTC clients trust the TURN certificate.
 
 ## 8. Rolling updates
 
@@ -216,10 +221,10 @@ If Docker is not allowed, you can run the components directly:
    ```bash
    cd /var/www/clients/clientX/webY/app/frontend
    sudo -u webX pnpm install
-   sudo -u webX NEXT_PUBLIC_API_BASE_URL=https://chat.example.com/api pnpm build
+   sudo -u webX NEXT_PUBLIC_API_BASE_URL=https://endpoints.chatorbit.com pnpm build
    sudo -u webX pnpm next export --outdir ../dist
    ```
-   Update the ISPConfig website to serve the static `dist` directory and proxy `/api` as above.
+   Update the ISPConfig website to serve the static `dist` directory and keep the `/` → frontend and `/ws` → backend proxies described above.
 
 ## 10. Backups and monitoring
 
