@@ -1,12 +1,3 @@
-const DEFAULT_STUN_URLS = ["stun:stun.l.google.com:19302"];
-const DEFAULT_TURN_URLS = [
-  "turn:global.relay.metered.ca:80",
-  "turn:global.relay.metered.ca:443",
-  "turn:global.relay.metered.ca:443?transport=tcp",
-];
-const DEFAULT_TURN_USERNAME = "openrelayproject";
-const DEFAULT_TURN_CREDENTIAL = "openrelayproject";
-
 const UNROUTABLE_HOSTS = new Set(["0.0.0.0", "127.0.0.1", "localhost", "[::]", "::", "::1"]);
 
 function extractHostname(url: string): string | null {
@@ -66,6 +57,32 @@ function parseCsv(value?: string): string[] {
     .split(",")
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
+}
+
+function getDefaultStunUrls(): string[] {
+  return sanitizeIceUrls(parseCsv(process.env.NEXT_PUBLIC_WEBRTC_DEFAULT_STUN_URLS));
+}
+
+function getDefaultTurnConfiguration(): RTCIceServer | null {
+  const urls = sanitizeIceUrls(parseCsv(process.env.NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_URLS));
+  if (urls.length === 0) {
+    return null;
+  }
+
+  const username = process.env.NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_USERNAME;
+  const credential = process.env.NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_CREDENTIAL;
+
+  if (username && credential) {
+    return { urls, username, credential };
+  }
+
+  if (typeof console !== "undefined") {
+    console.warn(
+      "Ignoring default TURN URLs because NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_USERNAME or NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_CREDENTIAL is missing.",
+    );
+  }
+
+  return null;
 }
 
 function parseConfiguredIceServers(): RTCIceServer[] | null {
@@ -131,8 +148,13 @@ export function getIceServers(): RTCIceServer[] {
   const iceServers: RTCIceServer[] = [];
 
   const stunUrls = sanitizeIceUrls(parseCsv(process.env.NEXT_PUBLIC_WEBRTC_STUN_URLS));
-  const effectiveStunUrls = stunUrls.length > 0 ? stunUrls : DEFAULT_STUN_URLS;
-  iceServers.push({ urls: effectiveStunUrls });
+  const defaultStunUrls = getDefaultStunUrls();
+  const effectiveStunUrls = stunUrls.length > 0 ? stunUrls : defaultStunUrls;
+  if (effectiveStunUrls.length > 0) {
+    iceServers.push({ urls: effectiveStunUrls });
+  } else if (typeof console !== "undefined") {
+    console.warn("No STUN URLs configured; peer connectivity may be impaired.");
+  }
 
   const turnUrls = sanitizeIceUrls(parseCsv(process.env.NEXT_PUBLIC_WEBRTC_TURN_URLS));
   const turnUsername = process.env.NEXT_PUBLIC_WEBRTC_TURN_USERNAME ?? process.env.NEXT_PUBLIC_WEBRTC_TURN_USER;
@@ -148,13 +170,9 @@ export function getIceServers(): RTCIceServer[] {
       );
     }
   } else {
-    const defaultTurnUrls = sanitizeIceUrls(DEFAULT_TURN_URLS);
-    if (defaultTurnUrls.length > 0) {
-      iceServers.push({
-        urls: defaultTurnUrls,
-        username: DEFAULT_TURN_USERNAME,
-        credential: DEFAULT_TURN_CREDENTIAL,
-      });
+    const defaultTurn = getDefaultTurnConfiguration();
+    if (defaultTurn) {
+      iceServers.push(defaultTurn);
     }
   }
 

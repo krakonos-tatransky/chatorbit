@@ -54,6 +54,10 @@ Replace `clientX`, `webY`, and `webX` with the client/site identifiers ISPConfig
    cat <<'ENV' | sudo -u webX tee infra/.env.production
    NEXT_PUBLIC_API_BASE_URL=https://chat.example.com/api
    NEXT_PUBLIC_WS_BASE_URL=wss://chat.example.com/api
+   NEXT_PUBLIC_WEBRTC_DEFAULT_STUN_URLS=stun:stun.l.google.com:19302
+   NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_URLS=turn:turn.chatorbit.com:443,turn:turn.chatorbit.com:443?transport=tcp
+   NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_USERNAME=pakalolo
+   NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_CREDENTIAL=275ea323d4eac7f635ef5cd3518f32af957beaeb6e6579fad5e1009903b7d5e4
    CHAT_CORS_ALLOWED_ORIGINS=https://chat.example.com
    CHAT_CORS_ALLOW_CREDENTIALS=false
    ENV
