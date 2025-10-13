@@ -119,15 +119,22 @@ function parseConfiguredIceServers(): RTCIceServer[] | null {
       if (sanitizedUrls.length === 0) {
         continue;
       }
-      servers.push({
+      const credentialType =
+        item.credentialType === "oauth" || item.credentialType === "password"
+          ? item.credentialType
+          : undefined;
+
+      const baseServer: RTCIceServer = {
         urls: sanitizedUrls,
         username: typeof item.username === "string" ? item.username : undefined,
         credential: typeof item.credential === "string" ? item.credential : undefined,
-        credentialType:
-          item.credentialType === "oauth" || item.credentialType === "password"
-            ? item.credentialType
-            : undefined,
-      });
+      };
+
+      if (credentialType) {
+        servers.push({ ...baseServer, credentialType } as RTCIceServer);
+      } else {
+        servers.push(baseServer);
+      }
     }
 
     if (servers.length > 0) {
