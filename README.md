@@ -51,7 +51,9 @@ docker compose up --build
 ```
 
 This spins up the FastAPI backend on port **50001** (with SQLite persistence under `backend/data/`) and the Next.js frontend on
-port **80**, both reachable via the LAN IP `http://192.168.1.145`.
+port **3000**, both reachable via the LAN IP `http://192.168.1.145`.
+
+For production, copy `infra/.env.production.example` to `infra/.env.production` and tailor the hostnames/credentials. The production Compose file keeps both containers bound to loopback (`127.0.0.1:50001` for the API and `127.0.0.1:3000` for the frontend) so ISPConfig-managed Apache/Nginx vhosts can publish `https://endpoints.chatorbit.com` (API/WebSocket) and `https://chatorbit.com` (frontend) via reverse proxy rules.
 
 ### Codex / sandbox prerequisites
 
@@ -124,6 +126,18 @@ infra/
 > 🌐  Hosting for the public internet? Keep `CHAT_CORS_ALLOWED_ORIGINS=*` and set `CHAT_CORS_ALLOW_CREDENTIALS=false` (or rely on the automatic downgrade) so any browser can reach the API without pre-registering origins. Because browsers forbid combining `Access-Control-Allow-Origin: *` with credentials, authenticate requests using bearer tokens or one-time query params instead of cookies when you need broad origin support. If you do require cookie-based auth, maintain an allowlist of trusted origins instead of the wildcard.
 
 Everything else ships with sensible defaults so you can get started immediately. When no custom ICE configuration is supplied, the frontend falls back to the values defined in `NEXT_PUBLIC_WEBRTC_DEFAULT_*` so peers behind restrictive networks can still connect without hard-coded credentials.
+
+### Environment file map
+
+| Location | Purpose | Typical action |
+|----------|---------|----------------|
+| `.env` (optional) | Shared overrides when running both services directly on a laptop | Copy `.env.example` and tweak LAN IPs if you are not using Docker |
+| `backend/.env` | Backend-specific values when running FastAPI without Docker | Copy `backend/.env.example` and adjust database or rate-limit settings |
+| `frontend/.env.local` | Frontend overrides for `pnpm dev` / `pnpm build` | Copy `frontend/.env.local.example` and set API/WS URLs for your environment |
+| `infra/.env.production` | Values consumed by `docker-compose.production.yml` | Copy `infra/.env.production.example`, set the public domains, and load TURN credentials |
+
+The Compose files read `infra/.env.production` automatically, while the development stack injects variables inline. Keeping the files scoped this way avoids accidentally leaking production credentials into local builds and mirrors how ISPConfig expects per-site configuration files.
+
 
 ## Troubleshooting WebRTC ICE errors
 
