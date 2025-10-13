@@ -11,6 +11,8 @@ import { getIceServers } from "@/lib/webrtc";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
+type TimeoutHandle = ReturnType<typeof setTimeout>;
+
 type CryptoLike = {
   subtle: SubtleCrypto;
   getRandomValues<T extends ArrayBufferView | null>(array: T): T;
@@ -144,9 +146,9 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const capabilityAnnouncedRef = useRef(false);
   const peerSupportsEncryptionRef = useRef<boolean | null>(null);
   const reconnectAttemptsRef = useRef(0);
-  const reconnectTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const reconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
   const iceFailureRetriesRef = useRef(0);
-  const iceRetryTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
 
   useEffect(() => {
     hashedMessagesRef.current.clear();
@@ -208,7 +210,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const resetPeerConnection = useCallback(
     ({ recreate = true, delayMs }: { recreate?: boolean; delayMs?: number } = {}) => {
       if (iceRetryTimeoutRef.current) {
-        window.clearTimeout(iceRetryTimeoutRef.current);
+        clearTimeout(iceRetryTimeoutRef.current);
         iceRetryTimeoutRef.current = null;
       }
       const existing = peerConnectionRef.current;
@@ -232,7 +234,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         return;
       }
       if (delayMs && delayMs > 0) {
-        iceRetryTimeoutRef.current = window.setTimeout(() => {
+        iceRetryTimeoutRef.current = setTimeout(() => {
           iceRetryTimeoutRef.current = null;
           if (socketRef.current?.readyState === WebSocket.OPEN) {
             setPeerResetNonce((value) => value + 1);
@@ -685,7 +687,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     let active = true;
 
     if (reconnectTimeoutRef.current) {
-      window.clearTimeout(reconnectTimeoutRef.current);
+      clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
 
@@ -700,7 +702,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       }
       reconnectAttemptsRef.current = 0;
       if (reconnectTimeoutRef.current) {
-        window.clearTimeout(reconnectTimeoutRef.current);
+        clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
       setSocketReady(true);
@@ -727,7 +729,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           RECONNECT_BASE_DELAY_MS * 2 ** (backoffAttempt - 1),
           RECONNECT_MAX_DELAY_MS,
         );
-        reconnectTimeoutRef.current = window.setTimeout(() => {
+        reconnectTimeoutRef.current = setTimeout(() => {
           reconnectTimeoutRef.current = null;
           setSocketReconnectNonce((value) => value + 1);
         }, delay);
@@ -776,7 +778,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     return () => {
       active = false;
       if (reconnectTimeoutRef.current) {
-        window.clearTimeout(reconnectTimeoutRef.current);
+        clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
       socketRef.current = null;
@@ -1005,11 +1007,11 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       }
       resetPeerConnection({ recreate: false });
       if (iceRetryTimeoutRef.current) {
-        window.clearTimeout(iceRetryTimeoutRef.current);
+        clearTimeout(iceRetryTimeoutRef.current);
         iceRetryTimeoutRef.current = null;
       }
       if (reconnectTimeoutRef.current) {
-        window.clearTimeout(reconnectTimeoutRef.current);
+        clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
       const socket = socketRef.current;
