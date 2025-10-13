@@ -98,16 +98,20 @@ infra/
 | `CHAT_CORS_ALLOW_CREDENTIALS` | `true`                | Whether to send `Access-Control-Allow-Credentials`; automatically disabled when using a wildcard origin |
 | `NEXT_PUBLIC_API_BASE_URL`| `http://192.168.1.145:50001`  | Frontend → backend HTTP base (LAN-ready)   |
 | `NEXT_PUBLIC_WS_BASE_URL` | `ws://192.168.1.145:50001`    | Frontend → backend WebSocket base (LAN-ready) |
-| `NEXT_PUBLIC_WEBRTC_STUN_URLS` | —                         | Optional comma-separated list of STUN URLs overriding the default Google STUN server |
-| `NEXT_PUBLIC_WEBRTC_TURN_URLS` | `turn:global.relay.metered.ca:80,turn:global.relay.metered.ca:443,turn:global.relay.metered.ca:443?transport=tcp` | Optional comma-separated list of TURN URLs overriding the bundled Open Relay fallback |
-| `NEXT_PUBLIC_WEBRTC_TURN_USERNAME` | `openrelayproject`   | TURN username when providing custom TURN URLs |
-| `NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL` | `openrelayproject` | TURN credential/password when providing custom TURN URLs |
+| `NEXT_PUBLIC_WEBRTC_STUN_URLS` | —                         | Optional comma-separated list of STUN URLs overriding the default list |
+| `NEXT_PUBLIC_WEBRTC_DEFAULT_STUN_URLS` | `stun:stun.l.google.com:19302` | Baseline STUN URLs used when no override is provided |
+| `NEXT_PUBLIC_WEBRTC_TURN_URLS` | — | Optional comma-separated list of TURN URLs overriding the default list |
+| `NEXT_PUBLIC_WEBRTC_TURN_USERNAME` | — | TURN username when providing custom TURN URLs |
+| `NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL` | — | TURN credential/password when providing custom TURN URLs |
+| `NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_URLS` | `turn:turn.chatorbit.com:443,turn:turn.chatorbit.com:443?transport=tcp` | Baseline TURN URLs used when no override is provided |
+| `NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_USERNAME` | `pakalolo` | TURN username paired with the default TURN URLs |
+| `NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_CREDENTIAL` | `275ea323d4eac7f635ef5cd3518f32af957beaeb6e6579fad5e1009903b7d5e4` | TURN credential paired with the default TURN URLs |
 
 > ℹ️  To allow multiple specific origins, set `CHAT_CORS_ALLOWED_ORIGINS` in your `.env` file to either a JSON list (e.g. `["http://localhost:3000", "https://app.example.com"]`), a comma-separated list (`http://localhost:3000,https://app.example.com`), or a single origin string. Leave it as `*` to accept requests from any origin, but note that credentials (cookies/authorization headers) will be suppressed for security when using the wildcard.
 >
 > 🌐  Hosting for the public internet? Keep `CHAT_CORS_ALLOWED_ORIGINS=*` and set `CHAT_CORS_ALLOW_CREDENTIALS=false` (or rely on the automatic downgrade) so any browser can reach the API without pre-registering origins. Because browsers forbid combining `Access-Control-Allow-Origin: *` with credentials, authenticate requests using bearer tokens or one-time query params instead of cookies when you need broad origin support. If you do require cookie-based auth, maintain an allowlist of trusted origins instead of the wildcard.
 
-Everything else ships with sensible defaults so you can get started immediately. When no TURN configuration is supplied, the frontend automatically falls back to the [Open Relay project](https://www.metered.ca/tools/openrelay/) credentials bundled above so peers behind restrictive networks can still connect.
+Everything else ships with sensible defaults so you can get started immediately. When no custom ICE configuration is supplied, the frontend falls back to the values defined in `NEXT_PUBLIC_WEBRTC_DEFAULT_*` so peers behind restrictive networks can still connect without hard-coded credentials.
 
 ## Troubleshooting WebRTC ICE errors
 
