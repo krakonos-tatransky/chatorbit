@@ -1,0 +1,39 @@
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../infra/docker/backend.Dockerfile
+    command: uvicorn app.main:app --host 0.0.0.0 --port 50001
+    env_file:
+      - ./.env.production
+    environment:
+      CHAT_CORS_ALLOWED_ORIGINS: https://endpoints.chatorbit.com
+      CHAT_CORS_ALLOW_CREDENTIALS: "false"
+      CHAT_DATABASE_URL: sqlite:///./data/chat_orbit.db
+    ports:
+      - "127.0.0.1:50001:50001"
+    restart: unless-stopped
+    volumes:
+      - backend_data:/app/data
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: ../infra/docker/frontend.Dockerfile
+    command: >-
+      sh -c "pnpm build && pnpm start --port 3000 --hostname 0.0.0.0"
+    depends_on:
+      - backend
+    env_file:
+      - ./.env.production
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE_URL: https://endpoints.chatorbit.com
+      NEXT_PUBLIC_WS_BASE_URL: wss://endpoints.chatorbit.com
+      NEXT_PUBLIC_WEBRTC_TURN_URLS: turn:turn.chatorbit.com:3478,turn:turn.chatorbit.com:3478?transport=tcp
+    ports:
+      - "127.0.0.1:3000:3000"
+    restart: unless-stopped
+
+volumes:
+  backend_data: {}
