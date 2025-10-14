@@ -69,8 +69,8 @@ function getDefaultTurnConfiguration(): RTCIceServer | null {
     return null;
   }
 
-  const username = process.env.NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_USERNAME;
-  const credential = process.env.NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_CREDENTIAL;
+  const username = process.env.NEXT_PUBLIC_WEBRTC_TURN_USERNAME;
+  const credential = process.env.NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL;
 
   if (username && credential) {
     return { urls, username, credential };
@@ -78,7 +78,7 @@ function getDefaultTurnConfiguration(): RTCIceServer | null {
 
   if (typeof console !== "undefined") {
     console.warn(
-      "Ignoring default TURN URLs because NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_USERNAME or NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_CREDENTIAL is missing.",
+      "Ignoring default TURN URLs because NEXT_PUBLIC_WEBRTC_TURN_USERNAME or NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL is missing.",
     );
   }
 

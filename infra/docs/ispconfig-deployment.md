@@ -230,6 +230,7 @@ If Docker is not allowed, you can run the components directly:
 
 - Use ISPConfig's backup features or schedule cron jobs to archive `/var/www/clients/clientX/webY/app/backend/data` (SQLite) and `.env` files.
 - Monitor services with `systemctl status`, `journalctl`, or integrate with external monitoring tools.
+`sudo journalctl -u chatorbit.service -f -n 50`
 - Configure firewall rules (e.g., UFW) to allow only necessary ports (80, 443, SSH, TURN if applicable).
 
 Following these steps will deploy ChatOrbit under ISPConfig while keeping ownership and permissions aligned with the panel, enabling HTTPS, and providing a reproducible update path.
