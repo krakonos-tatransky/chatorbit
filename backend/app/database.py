@@ -125,7 +125,6 @@ def get_database_statistics() -> Dict[str, Any]:
         for model in (
             models.TokenSession,
             models.SessionParticipant,
-            models.ChatMessage,
             models.TokenRequestLog,
         ):
             table_name = model.__tablename__

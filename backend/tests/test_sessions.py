@@ -115,7 +115,6 @@ def test_database_healthcheck(client: TestClient) -> None:
     assert set(statistics["tables"].keys()) == {
         "tokensession",
         "sessionparticipant",
-        "chatmessage",
         "tokenrequestlog",
     }
     rate_limit_stats = statistics["rate_limit"]
