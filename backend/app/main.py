@@ -21,7 +21,13 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .database import SessionLocal, check_database_connection, get_session, init_db
+from .database import (
+    SessionLocal,
+    check_database_connection,
+    get_database_statistics,
+    get_session,
+    init_db,
+)
 from .models import SessionParticipant, SessionStatus, TokenRequestLog, TokenSession
 from .schemas import (
     CreateTokenRequest,
@@ -114,10 +120,10 @@ router = APIRouter(prefix="/api")
 
 
 @router.get("/health/database")
-def database_healthcheck() -> Dict[str, str]:
+def database_healthcheck() -> Dict[str, Any]:
     if not check_database_connection():
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database unavailable")
-    return {"status": "ok"}
+    return {"status": "ok", "statistics": get_database_statistics()}
 
 
 def get_client_ip(request: Request) -> str:
