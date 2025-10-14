@@ -106,7 +106,22 @@ def test_issue_token_and_rate_limit(client: TestClient) -> None:
 def test_database_healthcheck(client: TestClient) -> None:
     response = client.get("/api/health/database")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    payload = response.json()
+    assert payload["status"] == "ok"
+    statistics = payload["statistics"]
+    assert "size_bytes" in statistics
+    assert statistics["size_bytes"] is None or statistics["size_bytes"] >= 0
+    assert statistics["total_records"] >= 0
+    assert set(statistics["tables"].keys()) == {
+        "tokensession",
+        "sessionparticipant",
+        "chatmessage",
+        "tokenrequestlog",
+    }
+    rate_limit_stats = statistics["rate_limit"]
+    assert rate_limit_stats["window_seconds"] == 60 * 60
+    assert rate_limit_stats["limit_per_identifier"] >= 1
+    assert rate_limit_stats["identifiers_at_limit"] >= 0
 
 
 def test_join_session_flow(client: TestClient) -> None:

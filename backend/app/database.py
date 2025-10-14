@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Dict, Iterator, Optional
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -14,22 +15,30 @@ from .config import get_settings
 settings = get_settings()
 
 
-def _prepare_sqlite_database(url: str) -> None:
+def _resolve_sqlite_path(url: str) -> Optional[Path]:
     try:
         database_url = make_url(url)
     except Exception:
-        return
+        return None
 
     if not database_url.drivername.startswith("sqlite"):
-        return
+        return None
 
     database_path = database_url.database
     if not database_path or database_path == ":memory:":
-        return
+        return None
 
     path = Path(database_path)
     if not path.is_absolute():
         path = Path.cwd() / path
+    return path
+
+
+def _prepare_sqlite_database(url: str) -> None:
+    path = _resolve_sqlite_path(url)
+    if not path:
+        return
+
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -93,3 +102,68 @@ def session_scope() -> Iterator[SessionLocal]:
 def get_session() -> Iterator[SessionLocal]:
     with session_scope() as session:
         yield session
+
+
+def get_database_statistics() -> Dict[str, Any]:
+    from . import models  # noqa: WPS433
+
+    statistics: Dict[str, Any] = {}
+
+    size_bytes: Optional[int] = None
+    sqlite_path = _resolve_sqlite_path(settings.database_url)
+    if sqlite_path:
+        try:
+            size_bytes = sqlite_path.stat().st_size if sqlite_path.exists() else 0
+        except OSError:
+            size_bytes = None
+    statistics["size_bytes"] = size_bytes
+
+    table_counts: Dict[str, int] = {}
+    total_records = 0
+
+    with SessionLocal() as session:
+        for model in (
+            models.TokenSession,
+            models.SessionParticipant,
+            models.ChatMessage,
+            models.TokenRequestLog,
+        ):
+            table_name = model.__tablename__
+            count = session.execute(select(func.count()).select_from(model)).scalar() or 0
+            table_counts[table_name] = int(count)
+            total_records += int(count)
+
+        rate_limit_threshold = settings.token_rate_limit_per_hour
+        window_start = datetime.utcnow() - timedelta(hours=1)
+
+        identity_counts = session.execute(
+            select(models.TokenRequestLog.client_identity, func.count())
+            .where(
+                models.TokenRequestLog.client_identity.is_not(None),
+                models.TokenRequestLog.created_at >= window_start,
+            )
+            .group_by(models.TokenRequestLog.client_identity)
+        )
+        identity_violations = sum(
+            1 for _identity, count in identity_counts if (count or 0) >= rate_limit_threshold
+        )
+
+        ip_counts = session.execute(
+            select(models.TokenRequestLog.ip_address, func.count())
+            .where(
+                models.TokenRequestLog.client_identity.is_(None),
+                models.TokenRequestLog.created_at >= window_start,
+            )
+            .group_by(models.TokenRequestLog.ip_address)
+        )
+        ip_violations = sum(1 for _ip, count in ip_counts if (count or 0) >= rate_limit_threshold)
+
+    statistics["tables"] = table_counts
+    statistics["total_records"] = total_records
+    statistics["rate_limit"] = {
+        "window_seconds": int(timedelta(hours=1).total_seconds()),
+        "limit_per_identifier": rate_limit_threshold,
+        "identifiers_at_limit": identity_violations + ip_violations,
+    }
+
+    return statistics
