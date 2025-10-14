@@ -29,7 +29,7 @@ It assumes you already have SSH access to the server, administrator privileges i
 1. **Create DNS records** in ISPConfig so all application hostnames resolve to the VPS:
    - `chatorbit.com` → public IPv4/IPv6 of the server (frontend)
    - `endpoints.chatorbit.com` → same IP (API + WebSocket)
-   - `turn.chatorbit.com` → TURN server (reuse the existing ISPConfig site) _or_ point `turn.l0l0l0.com` to the TURN host if you prefer to isolate it.
+   - `turn.i0i0i0.com` → TURN server (reuse the existing ISPConfig site) _or_ point a dedicated TURN hostname at the TURN host if you prefer to isolate it.
 2. **Add/confirm the web domains** in ISPConfig:
    - `chatorbit.com` should already exist. We will update its proxy directives later so it forwards to the frontend container.
    - Create a second site for `endpoints.chatorbit.com`. Disable auto-created web content—the API lives behind a reverse proxy.
@@ -56,7 +56,7 @@ Replace `clientX`, `webY`, and `webX` with the client/site identifiers ISPConfig
    sudo -u webX nano infra/.env.production  # or your preferred editor
    ```
    - Set `CHAT_CORS_ALLOWED_ORIGINS` to the origins that should call the API (e.g., `https://chatorbit.com,https://www.chatorbit.com`).
-   - Confirm the TURN hostnames/credentials. Change `NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_URLS` if you relocate Coturn to `turn.l0l0l0.com`.
+   - Confirm the TURN hostnames/credentials. Change `NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_URLS` if you relocate Coturn to a different hostname.
 2. **Configure persistence**. The default SQLite database writes to `backend/data`. Make sure this directory is writable by the web user:
    ```bash
    sudo -u webX mkdir -p backend/data
@@ -69,7 +69,7 @@ Replace `clientX`, `webY`, and `webX` with the client/site identifiers ISPConfig
    ```bash
    sudo -u webX sed -n '1,160p' infra/docker-compose.production.yml
    ```
-2. Adjust anything project-specific (image tags, TURN URLs, rate limits) by editing `infra/.env.production`—the Compose file now reads every variable from there with sensible fallbacks. Only change the YAML if you need additional services or non-loopback bindings.
+2. Adjust anything project-specific (image tags, TURN URLs, rate limits) by editing `infra/.env.production`—the Compose file reads every variable from there. Only change the YAML if you need additional services or non-loopback bindings.
 3. Create a systemd unit for the Compose stack (run as root):
    ```bash
    sudo tee /etc/systemd/system/chatorbit.service <<'UNIT'
@@ -175,7 +175,7 @@ curl -I https://chatorbit.com
 curl -I https://endpoints.chatorbit.com
 ```
 
-Keep the existing TURN vhost (`turn.chatorbit.com` or `turn.l0l0l0.com`) enrolled in Let's Encrypt as well so WebRTC clients trust the TURN certificate.
+Keep the TURN vhost (`turn.i0i0i0.com`) enrolled in Let's Encrypt as well so WebRTC clients trust the TURN certificate.
 
 ## 8. Rolling updates
 

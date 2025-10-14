@@ -69,8 +69,8 @@ function getDefaultTurnConfiguration(): RTCIceServer | null {
     return null;
   }
 
-  const username = process.env.NEXT_PUBLIC_WEBRTC_TURN_USERNAME;
-  const credential = process.env.NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL;
+  const username = process.env.NEXT_PUBLIC_WEBRTC_TURN_DEFAULT_USER;
+  const credential = process.env.NEXT_PUBLIC_WEBRTC_TURN_DEFAULT_PASSWORD;
 
   if (username && credential) {
     return { urls, username, credential };
@@ -78,7 +78,7 @@ function getDefaultTurnConfiguration(): RTCIceServer | null {
 
   if (typeof console !== "undefined") {
     console.warn(
-      "Ignoring default TURN URLs because NEXT_PUBLIC_WEBRTC_TURN_USERNAME or NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL is missing.",
+      "Ignoring default TURN URLs because NEXT_PUBLIC_WEBRTC_TURN_DEFAULT_USER or NEXT_PUBLIC_WEBRTC_TURN_DEFAULT_PASSWORD is missing.",
     );
   }
 
@@ -164,16 +164,15 @@ export function getIceServers(): RTCIceServer[] {
   }
 
   const turnUrls = sanitizeIceUrls(parseCsv(process.env.NEXT_PUBLIC_WEBRTC_TURN_URLS));
-  const turnUsername = process.env.NEXT_PUBLIC_WEBRTC_TURN_USERNAME ?? process.env.NEXT_PUBLIC_WEBRTC_TURN_USER;
-  const turnCredential =
-    process.env.NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL ?? process.env.NEXT_PUBLIC_WEBRTC_TURN_PASSWORD;
+  const turnUsername = process.env.NEXT_PUBLIC_WEBRTC_TURN_USER;
+  const turnCredential = process.env.NEXT_PUBLIC_WEBRTC_TURN_PASSWORD;
 
   if (turnUrls.length > 0) {
     if (turnUsername && turnCredential) {
       iceServers.push({ urls: turnUrls, username: turnUsername, credential: turnCredential });
     } else if (typeof console !== "undefined") {
       console.warn(
-        "Ignoring configured TURN URLs because NEXT_PUBLIC_WEBRTC_TURN_USERNAME or NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL is missing.",
+        "Ignoring configured TURN URLs because NEXT_PUBLIC_WEBRTC_TURN_USER or NEXT_PUBLIC_WEBRTC_TURN_PASSWORD is missing.",
       );
     }
   } else {
