@@ -204,6 +204,7 @@ def issue_token(
     http_request: Request = None,
 ) -> TokenResponse:
     ip_address = get_client_ip(http_request)
+    print('request.client_identity: ', request.client_identity)
     enforce_rate_limit(db, ip=ip_address, client_identity=request.client_identity)
 
     message_limit = min(

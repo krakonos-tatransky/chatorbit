@@ -115,7 +115,7 @@ infra/
 | `NEXT_PUBLIC_API_BASE_URL`| `http://192.168.1.145:50001`  | Frontend → backend HTTP base (LAN-ready)   |
 | `NEXT_PUBLIC_WS_BASE_URL` | `ws://192.168.1.145:50001`    | Frontend → backend WebSocket base (LAN-ready) |
 | `NEXT_PUBLIC_WEBRTC_STUN_URLS` | —                         | Optional comma-separated list of STUN URLs overriding the default list |
-| `NEXT_PUBLIC_WEBRTC_DEFAULT_STUN_URLS` | `stun:stun.l.google.com:19302` | Baseline STUN URLs used when no override is provided |
+| `NEXT_PUBLIC_WEBRTC_DEFAULT_STUN_URLS` | `stun:stun.nextcloud.com:443` | Baseline STUN URLs used when no override is provided |
 | `NEXT_PUBLIC_WEBRTC_TURN_URLS` | — | Optional comma-separated list of TURN URLs overriding the default list |
 | `NEXT_PUBLIC_WEBRTC_TURN_USER` | — | TURN username when providing custom TURN URLs |
 | `NEXT_PUBLIC_WEBRTC_TURN_PASSWORD` | — | TURN password when providing custom TURN URLs |
