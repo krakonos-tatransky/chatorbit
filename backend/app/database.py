@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -45,6 +45,27 @@ def init_db() -> None:
     from . import models  # noqa: WPS433
 
     Base.metadata.create_all(bind=engine)
+    _apply_sqlite_schema_migrations()
+
+
+def _apply_sqlite_schema_migrations() -> None:
+    """Apply lightweight, idempotent schema updates for SQLite deployments."""
+
+    if engine.dialect.name != "sqlite":
+        return
+
+    def _has_column(table: str, column: str) -> bool:
+        try:
+            inspector = inspect(engine)
+            return any(col["name"] == column for col in inspector.get_columns(table))
+        except Exception:  # pragma: no cover - defensive, shouldn't occur in tests
+            return False
+
+    with engine.begin() as connection:
+        if not _has_column("tokenrequestlog", "client_identity"):
+            connection.execute(text("ALTER TABLE tokenrequestlog ADD COLUMN client_identity VARCHAR(255)"))
+        if not _has_column("sessionparticipant", "client_identity"):
+            connection.execute(text("ALTER TABLE sessionparticipant ADD COLUMN client_identity VARCHAR(255)"))
 
 
 def check_database_connection() -> bool:

@@ -1,4 +1,5 @@
 import importlib
+import sqlite3
 import sys
 from contextlib import contextmanager
 from pathlib import Path
@@ -33,6 +34,49 @@ def _test_client(tmp_path, monkeypatch, **env) -> Generator[TestClient, None, No
             yield test_client
     finally:
         database.Base.metadata.drop_all(database.engine)
+
+
+def test_init_db_backfills_client_identity_columns(tmp_path, monkeypatch) -> None:
+    db_path = tmp_path / "legacy.db"
+    monkeypatch.setenv("CHAT_DATABASE_URL", f"sqlite:///{db_path}")
+
+    from app import config, database  # noqa: WPS433
+
+    importlib.reload(config)
+    importlib.reload(database)
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "CREATE TABLE tokensession (id INTEGER PRIMARY KEY AUTOINCREMENT)"
+        )
+        connection.execute(
+            "CREATE TABLE tokenrequestlog ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "session_id INTEGER NOT NULL,"
+            "ip_address VARCHAR(64) NOT NULL,"
+            "created_at DATETIME NOT NULL"
+            ")"
+        )
+        connection.execute(
+            "CREATE TABLE sessionparticipant ("
+            "id TEXT PRIMARY KEY,"
+            "session_id INTEGER NOT NULL,"
+            "role VARCHAR(16) NOT NULL,"
+            "ip_address VARCHAR(64) NOT NULL,"
+            "joined_at DATETIME NOT NULL"
+            ")"
+        )
+
+    database.init_db()
+
+    with sqlite3.connect(db_path) as connection:
+        token_columns = {row[1] for row in connection.execute("PRAGMA table_info(tokenrequestlog)")}
+        participant_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(sessionparticipant)")
+        }
+
+    assert "client_identity" in token_columns
+    assert "client_identity" in participant_columns
 
 @pytest.fixture
 def client(tmp_path, monkeypatch) -> Generator[TestClient, None, None]:
