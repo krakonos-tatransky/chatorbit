@@ -4,6 +4,7 @@ import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { apiUrl } from "@/lib/api";
+import { getClientIdentity } from "@/lib/client-identity";
 
 type TokenResult = {
   token: string;
@@ -31,15 +32,28 @@ export function TokenRequestCard() {
   const [result, setResult] = useState<TokenResult | null>(null);
   const [tokenCopyState, setTokenCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const tokenCopyTimeoutRef = useRef<number | null>(null);
+  const [clientIdentity, setClientIdentity] = useState<string | null>(null);
 
   const ttlHours = useMemo(() => (sessionMinutes / 60).toFixed(1), [sessionMinutes]);
 
   useEffect(() => {
+    let cancelled = false;
+    getClientIdentity()
+      .then((identity) => {
+        if (!cancelled) {
+          setClientIdentity(identity);
+        }
+      })
+      .catch((error) => {
+        console.warn("Unable to prefetch client identity", error);
+      });
+
     return () => {
       if (tokenCopyTimeoutRef.current) {
         window.clearTimeout(tokenCopyTimeoutRef.current);
         tokenCopyTimeoutRef.current = null;
       }
+      cancelled = true;
     };
   }, []);
 
@@ -84,6 +98,7 @@ export function TokenRequestCard() {
     setError(null);
 
     try {
+      const identity = clientIdentity ?? (await getClientIdentity());
       const response = await fetch(apiUrl("/api/tokens"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -91,6 +106,7 @@ export function TokenRequestCard() {
           validity_period: validity,
           session_ttl_minutes: sessionMinutes,
           message_char_limit: messageLimit,
+          ...(identity ? { client_identity: identity } : {}),
         }),
       });
 

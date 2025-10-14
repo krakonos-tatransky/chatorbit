@@ -48,6 +48,7 @@ class TokenRequestLog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     session_id: Mapped[int] = mapped_column(ForeignKey("tokensession.id", ondelete="CASCADE"))
     ip_address: Mapped[str] = mapped_column(String(64))
+    client_identity: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=_utcnow)
 
     session: Mapped[TokenSession] = relationship(back_populates="request_logs")
@@ -60,6 +61,7 @@ class SessionParticipant(Base):
     session_id: Mapped[int] = mapped_column(ForeignKey("tokensession.id", ondelete="CASCADE"))
     role: Mapped[str] = mapped_column(String(16))
     ip_address: Mapped[str] = mapped_column(String(64))
+    client_identity: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=_utcnow)
 
     session: Mapped[TokenSession] = relationship(back_populates="participants")

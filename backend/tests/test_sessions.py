@@ -71,7 +71,7 @@ def test_join_session_flow(client: TestClient) -> None:
 
     first_join = client.post(
         "/api/sessions/join",
-        json={"token": token},
+        json={"token": token, "client_identity": "host-identity"},
         headers={"X-Forwarded-For": "10.0.0.1"},
     )
     assert first_join.status_code == 200
@@ -79,10 +79,18 @@ def test_join_session_flow(client: TestClient) -> None:
     assert host_data["role"] == "host"
     assert host_data["session_active"] is False
 
+    host_rejoin = client.post(
+        "/api/sessions/join",
+        json={"token": token, "client_identity": "host-identity"},
+        headers={"X-Forwarded-For": "10.0.0.55"},
+    )
+    assert host_rejoin.status_code == 200
+    assert host_rejoin.json()["participant_id"] == host_data["participant_id"]
+
     second_join = client.post(
         "/api/sessions/join",
-        json={"token": token},
-        headers={"X-Forwarded-For": "10.0.0.2"},
+        json={"token": token, "client_identity": "guest-identity"},
+        headers={"X-Forwarded-For": "10.0.0.1"},
     )
     assert second_join.status_code == 200
     guest_data = second_join.json()
@@ -93,8 +101,8 @@ def test_join_session_flow(client: TestClient) -> None:
 
     third_join = client.post(
         "/api/sessions/join",
-        json={"token": token},
-        headers={"X-Forwarded-For": "10.0.0.3"},
+        json={"token": token, "client_identity": "third-identity"},
+        headers={"X-Forwarded-For": "10.0.0.1"},
     )
     assert third_join.status_code == 409
 
@@ -116,7 +124,7 @@ def test_rejoin_session_with_participant_id(client: TestClient) -> None:
 
     host_join = client.post(
         "/api/sessions/join",
-        json={"token": token},
+        json={"token": token, "client_identity": "host-identity"},
         headers={"X-Forwarded-For": "10.0.0.1"},
     )
     assert host_join.status_code == 200
@@ -124,14 +132,18 @@ def test_rejoin_session_with_participant_id(client: TestClient) -> None:
 
     guest_join = client.post(
         "/api/sessions/join",
-        json={"token": token},
-        headers={"X-Forwarded-For": "10.0.0.2"},
+        json={"token": token, "client_identity": "guest-identity"},
+        headers={"X-Forwarded-For": "10.0.0.1"},
     )
     assert guest_join.status_code == 200
 
     rejoin = client.post(
         "/api/sessions/join",
-        json={"token": token, "participant_id": host_data["participant_id"]},
+        json={
+            "token": token,
+            "participant_id": host_data["participant_id"],
+            "client_identity": "host-identity-new",
+        },
         headers={"X-Forwarded-For": "10.0.0.99"},
     )
 
@@ -139,6 +151,14 @@ def test_rejoin_session_with_participant_id(client: TestClient) -> None:
     payload = rejoin.json()
     assert payload["participant_id"] == host_data["participant_id"]
     assert payload["role"] == "host"
+
+    lookup = client.post(
+        "/api/sessions/join",
+        json={"token": token, "client_identity": "host-identity-new"},
+        headers={"X-Forwarded-For": "10.0.0.77"},
+    )
+    assert lookup.status_code == 200
+    assert lookup.json()["participant_id"] == host_data["participant_id"]
 
 
 def test_not_found_responses_include_msg_app_header(client: TestClient) -> None:

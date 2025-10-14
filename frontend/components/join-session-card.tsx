@@ -1,11 +1,12 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { useRouter } from "next/navigation";
 
 import { apiUrl } from "@/lib/api";
+import { getClientIdentity } from "@/lib/client-identity";
 
 type JoinResponse = {
   token: string;
@@ -23,6 +24,12 @@ export function JoinSessionCard() {
   const [loading, setLoading] = useState<boolean>(false);
   const router = useRouter();
 
+  useEffect(() => {
+    getClientIdentity().catch((error) => {
+      console.warn("Unable to prefetch client identity", error);
+    });
+  }, []);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token.trim()) {
@@ -35,7 +42,8 @@ export function JoinSessionCard() {
 
     try {
       const trimmedToken = token.trim();
-      const joinPayload: { token: string; participant_id?: string } = { token: trimmedToken };
+      const identity = await getClientIdentity();
+      const joinPayload: { token: string; participant_id?: string; client_identity?: string } = { token: trimmedToken };
       if (typeof window !== "undefined") {
         const stored = sessionStorage.getItem(`chatOrbit.session.${trimmedToken}`);
         if (stored) {
@@ -48,6 +56,9 @@ export function JoinSessionCard() {
             console.warn("Failed to parse stored session payload", cause);
           }
         }
+      }
+      if (identity) {
+        joinPayload.client_identity = identity;
       }
 
       const response = await fetch(apiUrl("/api/sessions/join"), {
