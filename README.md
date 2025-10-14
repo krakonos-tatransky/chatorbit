@@ -33,15 +33,15 @@ an elegant control surface for the host and guest.
    ```bash
    uvicorn app.main:app --host 0.0.0.0 --port 50001 --reload
    ```
-   Exposing on `0.0.0.0` lets other machines on your LAN reach the API at `http://192.168.1.145:50001`.
+   Exposing on `0.0.0.0` lets other machines on your LAN reach the API at `http://localhost:50001`.
 4. **Run the frontend**
    ```bash
    cd ../frontend
-   NEXT_PUBLIC_API_BASE_URL=http://192.168.1.145:50001 \
-   NEXT_PUBLIC_WS_BASE_URL=ws://192.168.1.145:50001 \
+   NEXT_PUBLIC_API_BASE_URL=http://localhost:50001 \
+   NEXT_PUBLIC_WS_BASE_URL=ws://localhost:50001 \
    pnpm dev --hostname 0.0.0.0 --port 80
    ```
-5. Open http://192.168.1.145 from any device on the same network to mint tokens and join sessions.
+5. Open http://localhost from any device on the same network to mint tokens and join sessions.
 
 ### Dockerized workflow
 
@@ -53,21 +53,10 @@ docker compose up --build
 ```
 
 This spins up the FastAPI backend on port **50001** (with SQLite persistence under `backend/data/`) and the Next.js frontend on
-port **3000**, both reachable via the LAN IP `http://192.168.1.145`.
+port **3000**, both reachable via the LAN IP `http://localhost`.
 
 For production, copy `infra/.env.production.example` to `infra/.env.production` and tailor the hostnames/credentials. The production Compose file keeps both containers bound to loopback (`127.0.0.1:50001` for the API and `127.0.0.1:3000` for the frontend) so ISPConfig-managed Apache/Nginx vhosts can publish `https://api.yourserver.com` (API/WebSocket) and `https://yourserver.com` (frontend) via reverse proxy rules.
 
-### Codex / sandbox prerequisites
-
-If you are running automated checks inside a Codex-style sandbox, make sure the environment provides the following so the
-project’s verification commands succeed:
-
-- **Outbound npm registry access** – `pnpm build` triggers Next.js to download an `@next/swc-*` binary that matches the CPU and
-  libc of the build container. When the sandbox blocks outbound HTTPS, the build fails with `ENETUNREACH`. Either allow network
-  egress to `https://registry.npmjs.org` and the associated CDN hosts or pre-populate the expected SWC binary in the environment.
-- **Docker CLI with Compose plugin** – The infra checks rely on `/usr/bin/docker compose`. Install Docker (or another compatible
-  OCI engine) along with the Compose v2 plugin so the `docker compose -f docker-compose.production.yml up --build` command is
-  available on the PATH.
 
 ## Key concepts
 
