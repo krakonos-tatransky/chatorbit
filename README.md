@@ -55,7 +55,7 @@ docker compose up --build
 This spins up the FastAPI backend on port **50001** (with SQLite persistence under `backend/data/`) and the Next.js frontend on
 port **3000**, both reachable via the LAN IP `http://192.168.1.145`.
 
-For production, copy `infra/.env.production.example` to `infra/.env.production` and tailor the hostnames/credentials. The production Compose file keeps both containers bound to loopback (`127.0.0.1:50001` for the API and `127.0.0.1:3000` for the frontend) so ISPConfig-managed Apache/Nginx vhosts can publish `https://endpoints.chatorbit.com` (API/WebSocket) and `https://chatorbit.com` (frontend) via reverse proxy rules.
+For production, copy `infra/.env.production.example` to `infra/.env.production` and tailor the hostnames/credentials. The production Compose file keeps both containers bound to loopback (`127.0.0.1:50001` for the API and `127.0.0.1:3000` for the frontend) so ISPConfig-managed Apache/Nginx vhosts can publish `https://api.yourserver.com` (API/WebSocket) and `https://yourserver.com` (frontend) via reverse proxy rules.
 
 ### Codex / sandbox prerequisites
 
@@ -108,18 +108,18 @@ infra/
 
 | Variable                  | Default                     | Purpose                                    |
 |---------------------------|-----------------------------|--------------------------------------------|
-| `CHAT_DATABASE_URL`       | `sqlite:///./data/chat_orbit.db` | Database location (SQLite file by default) |
+| `CHAT_DATABASE_URL`       | `sqlite:///./data/yourapp.db` | Database location (SQLite file by default) |
 | `CHAT_TOKEN_RATE_LIMIT_PER_HOUR` | `10`                | Maximum token requests per IP each hour    |
 | `CHAT_CORS_ALLOWED_ORIGINS` | `*`                      | Comma-separated list, JSON array, or single string origin(s) allowed to call the API |
 | `CHAT_CORS_ALLOW_CREDENTIALS` | `true`                | Whether to send `Access-Control-Allow-Credentials`; automatically disabled when using a wildcard origin |
-| `NEXT_PUBLIC_API_BASE_URL`| `http://192.168.1.145:50001`  | Frontend → backend HTTP base (LAN-ready)   |
-| `NEXT_PUBLIC_WS_BASE_URL` | `ws://192.168.1.145:50001`    | Frontend → backend WebSocket base (LAN-ready) |
+| `NEXT_PUBLIC_API_BASE_URL`| `http://yourserver:50001`  | Frontend → backend HTTP base (LAN-ready)   |
+| `NEXT_PUBLIC_WS_BASE_URL` | `ws://yourserver:50001`    | Frontend → backend WebSocket base (LAN-ready) |
 | `NEXT_PUBLIC_WEBRTC_STUN_URLS` | —                         | Optional comma-separated list of STUN URLs overriding the default list |
 | `NEXT_PUBLIC_WEBRTC_DEFAULT_STUN_URLS` | `stun:stun.nextcloud.com:443` | Baseline STUN URLs used when no override is provided |
 | `NEXT_PUBLIC_WEBRTC_TURN_URLS` | — | Optional comma-separated list of TURN URLs overriding the default list |
 | `NEXT_PUBLIC_WEBRTC_TURN_USER` | — | TURN username when providing custom TURN URLs |
 | `NEXT_PUBLIC_WEBRTC_TURN_PASSWORD` | — | TURN password when providing custom TURN URLs |
-| `NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_URLS` | `turn:turn.i0i0i0.com:5349?transport=udp` | Baseline TURN URLs used when no override is provided |
+| `NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_URLS` | `turn:turn.yourserver.com:5349?transport=udp` | Baseline TURN URLs used when no override is provided |
 | `NEXT_PUBLIC_WEBRTC_TURN_DEFAULT_USER` | `youruser` | TURN username paired with the default TURN URLs |
 | `NEXT_PUBLIC_WEBRTC_TURN_DEFAULT_PASSWORD` | `yourpassword` | TURN password paired with the default TURN URLs |
 
