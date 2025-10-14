@@ -121,18 +121,28 @@ def get_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def enforce_rate_limit(db: Session, ip: str) -> None:
+def enforce_rate_limit(db: Session, *, ip: str, client_identity: Optional[str]) -> None:
     window_start = utcnow() - timedelta(hours=1)
-    stmt = (
-        select(func.count())
-        .select_from(TokenRequestLog)
-        .where(TokenRequestLog.ip_address == ip, TokenRequestLog.created_at >= window_start)
-    )
+    if client_identity:
+        stmt = (
+            select(func.count())
+            .select_from(TokenRequestLog)
+            .where(
+                TokenRequestLog.client_identity == client_identity,
+                TokenRequestLog.created_at >= window_start,
+            )
+        )
+    else:
+        stmt = (
+            select(func.count())
+            .select_from(TokenRequestLog)
+            .where(TokenRequestLog.ip_address == ip, TokenRequestLog.created_at >= window_start)
+        )
     count = db.execute(stmt).scalar() or 0
     if count >= settings.token_rate_limit_per_hour:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Token request limit reached for this IP. Please try again later.",
+            detail="Token request limit reached for this identifier. Please try again later.",
         )
 
 
@@ -194,7 +204,7 @@ def issue_token(
     http_request: Request = None,
 ) -> TokenResponse:
     ip_address = get_client_ip(http_request)
-    enforce_rate_limit(db, ip_address)
+    enforce_rate_limit(db, ip=ip_address, client_identity=request.client_identity)
 
     message_limit = min(
         max(request.message_char_limit, settings.min_message_char_limit),
@@ -214,7 +224,11 @@ def issue_token(
     db.add(session_model)
     db.flush()
 
-    log = TokenRequestLog(session_id=session_model.id, ip_address=ip_address)
+    log = TokenRequestLog(
+        session_id=session_model.id,
+        ip_address=ip_address,
+        client_identity=request.client_identity,
+    )
     db.add(log)
     db.commit()
     db.refresh(session_model)
@@ -243,6 +257,7 @@ def join_session(
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Session already closed.")
 
     ip_address = get_client_ip(http_request)
+    client_identity = request.client_identity
 
     if request.participant_id:
         participant_stmt = select(SessionParticipant).where(
@@ -252,8 +267,14 @@ def join_session(
         participant = db.execute(participant_stmt).scalar_one_or_none()
         if not participant:
             raise _not_found("Participant record not found for this session.")
+        updated = False
         if participant.ip_address != ip_address:
             participant.ip_address = ip_address
+            updated = True
+        if participant.client_identity != client_identity:
+            participant.client_identity = client_identity
+            updated = True
+        if updated:
             db.add(participant)
         db.add(session_model)
         db.commit()
@@ -270,7 +291,17 @@ def join_session(
             message_char_limit=session_model.message_char_limit,
         )
 
-    existing_participant = next((p for p in session_model.participants if p.ip_address == ip_address), None)
+    existing_participant: Optional[SessionParticipant] = None
+    if client_identity:
+        existing_participant = next(
+            (p for p in session_model.participants if p.client_identity == client_identity),
+            None,
+        )
+    if not client_identity and not existing_participant:
+        existing_participant = next(
+            (p for p in session_model.participants if p.ip_address == ip_address),
+            None,
+        )
     if existing_participant:
         db.refresh(existing_participant)
         return JoinSessionResponse(
@@ -287,7 +318,12 @@ def join_session(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Session already has two participants.")
 
     role = "host" if not session_model.participants else "guest"
-    participant = SessionParticipant(session_id=session_model.id, role=role, ip_address=ip_address)
+    participant = SessionParticipant(
+        session_id=session_model.id,
+        role=role,
+        ip_address=ip_address,
+        client_identity=client_identity,
+    )
     db.add(participant)
 
     now = utcnow()

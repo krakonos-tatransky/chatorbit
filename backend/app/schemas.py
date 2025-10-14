@@ -32,6 +32,10 @@ class CreateTokenRequest(BaseModel):
         default=2000,
         description="Maximum characters allowed per message.",
     )
+    client_identity: Optional[str] = Field(
+        default=None,
+        description="Optional unique identifier provided by the client instead of an IP address.",
+    )
 
 
 class TokenResponse(BaseModel):
@@ -47,6 +51,10 @@ class JoinSessionRequest(BaseModel):
     participant_id: Optional[str] = Field(
         default=None,
         description="Existing participant identifier when reclaiming a session slot.",
+    )
+    client_identity: Optional[str] = Field(
+        default=None,
+        description="Optional unique identifier provided by the client instead of an IP address.",
     )
 
 
