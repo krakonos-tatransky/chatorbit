@@ -120,8 +120,8 @@ infra/
 | `NEXT_PUBLIC_WEBRTC_TURN_USER` | — | TURN username when providing custom TURN URLs |
 | `NEXT_PUBLIC_WEBRTC_TURN_PASSWORD` | — | TURN password when providing custom TURN URLs |
 | `NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_URLS` | `turn:turn.i0i0i0.com:5349?transport=udp` | Baseline TURN URLs used when no override is provided |
-| `NEXT_PUBLIC_WEBRTC_TURN_DEFAULT_USER` | `pakalolo` | TURN username paired with the default TURN URLs |
-| `NEXT_PUBLIC_WEBRTC_TURN_DEFAULT_PASSWORD` | `275ea323d4eac7f635ef5cd3518f32af957beaeb6e6579fad5e1009903b7d5e4` | TURN password paired with the default TURN URLs |
+| `NEXT_PUBLIC_WEBRTC_TURN_DEFAULT_USER` | `youruser` | TURN username paired with the default TURN URLs |
+| `NEXT_PUBLIC_WEBRTC_TURN_DEFAULT_PASSWORD` | `yourpassword` | TURN password paired with the default TURN URLs |
 
 > ℹ️  To allow multiple specific origins, set `CHAT_CORS_ALLOWED_ORIGINS` in your `.env` file to either a JSON list (e.g. `["http://localhost:3000", "https://app.example.com"]`), a comma-separated list (`http://localhost:3000,https://app.example.com`), or a single origin string. Leave it as `*` to accept requests from any origin, but note that credentials (cookies/authorization headers) will be suppressed for security when using the wildcard.
 >
