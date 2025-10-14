@@ -11,6 +11,110 @@ import { getIceServers } from "@/lib/webrtc";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
+type NotificationSoundPlayer = (context: AudioContext) => void;
+
+const gentlyDisconnectNodes = (nodes: AudioNode[]) => {
+  for (const node of nodes) {
+    try {
+      node.disconnect();
+    } catch (cause) {
+      console.warn("Failed to disconnect audio node", cause);
+    }
+  }
+};
+
+export const NOTIFICATION_SOUNDS = {
+  gentleChime: (context: AudioContext) => {
+    const now = context.currentTime;
+    const duration = 0.4;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(660, now);
+    oscillator.frequency.exponentialRampToValueAtTime(880, now + duration * 0.6);
+
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+
+    oscillator.onended = () => gentlyDisconnectNodes([oscillator, gain]);
+    oscillator.start(now);
+    oscillator.stop(now + duration);
+  },
+  icqInspired: (context: AudioContext) => {
+    const now = context.currentTime;
+
+    const createChirp = (
+      startTime: number,
+      config: {
+        startFrequency: number;
+        endFrequency: number;
+        duration: number;
+        gainPeak: number;
+        type?: OscillatorType;
+      },
+    ) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      const { startFrequency, endFrequency, duration, gainPeak, type = "triangle" } = config;
+
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(startFrequency, startTime);
+      oscillator.frequency.exponentialRampToValueAtTime(endFrequency, startTime + duration * 0.7);
+
+      gain.gain.setValueAtTime(0.0001, startTime);
+      gain.gain.exponentialRampToValueAtTime(gainPeak, startTime + duration * 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+
+      oscillator.connect(gain);
+      gain.connect(context.destination);
+
+      oscillator.onended = () => gentlyDisconnectNodes([oscillator, gain]);
+      oscillator.start(startTime);
+      oscillator.stop(startTime + duration);
+    };
+
+    createChirp(now, {
+      startFrequency: 980,
+      endFrequency: 620,
+      duration: 0.22,
+      gainPeak: 0.08,
+    });
+
+    createChirp(now + 0.18, {
+      startFrequency: 540,
+      endFrequency: 820,
+      duration: 0.28,
+      gainPeak: 0.07,
+    });
+
+    const softBedOscillator = context.createOscillator();
+    const softBedGain = context.createGain();
+
+    softBedOscillator.type = "sine";
+    softBedOscillator.frequency.setValueAtTime(410, now + 0.05);
+    softBedOscillator.frequency.linearRampToValueAtTime(520, now + 0.5);
+
+    softBedGain.gain.setValueAtTime(0.0001, now + 0.05);
+    softBedGain.gain.linearRampToValueAtTime(0.02, now + 0.1);
+    softBedGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.55);
+
+    softBedOscillator.connect(softBedGain);
+    softBedGain.connect(context.destination);
+
+    softBedOscillator.onended = () => gentlyDisconnectNodes([softBedOscillator, softBedGain]);
+    softBedOscillator.start(now + 0.05);
+    softBedOscillator.stop(now + 0.55);
+  },
+} satisfies Record<string, NotificationSoundPlayer>;
+
+export type NotificationSoundName = keyof typeof NOTIFICATION_SOUNDS;
+const DEFAULT_NOTIFICATION_SOUND: NotificationSoundName = "icqInspired";
+
 type TimeoutHandle = ReturnType<typeof setTimeout>;
 
 type CryptoLike = {
@@ -152,6 +256,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const audioContextRef = useRef<AudioContext | null>(null);
   const knownMessageIdsRef = useRef<Set<string>>(new Set());
   const initialMessagesHandledRef = useRef(false);
+  const notificationSoundRef = useRef<NotificationSoundName>(DEFAULT_NOTIFICATION_SOUND);
 
   const ensureAudioContext = useCallback(() => {
     if (typeof window === "undefined") {
@@ -190,29 +295,10 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       return;
     }
 
-    const now = context.currentTime;
-    const duration = 0.4;
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(660, now);
-    oscillator.frequency.exponentialRampToValueAtTime(880, now + duration * 0.6);
-
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.05);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-
-    oscillator.onended = () => {
-      oscillator.disconnect();
-      gain.disconnect();
-    };
-
-    oscillator.start(now);
-    oscillator.stop(now + duration);
+    const selectedSoundName = notificationSoundRef.current;
+    const selectedSound =
+      NOTIFICATION_SOUNDS[selectedSoundName] ?? NOTIFICATION_SOUNDS.gentleChime;
+    selectedSound(context);
   }, [ensureAudioContext]);
 
   useEffect(() => {
