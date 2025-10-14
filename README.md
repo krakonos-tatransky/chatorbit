@@ -46,6 +46,8 @@ an elegant control surface for the host and guest.
 ### Dockerized workflow
 
 ```bash
+# From the repo root
+cp .env.example .env  # edit as needed for your LAN
 cd infra
 docker compose up --build
 ```
@@ -115,11 +117,11 @@ infra/
 | `NEXT_PUBLIC_WEBRTC_STUN_URLS` | —                         | Optional comma-separated list of STUN URLs overriding the default list |
 | `NEXT_PUBLIC_WEBRTC_DEFAULT_STUN_URLS` | `stun:stun.l.google.com:19302` | Baseline STUN URLs used when no override is provided |
 | `NEXT_PUBLIC_WEBRTC_TURN_URLS` | — | Optional comma-separated list of TURN URLs overriding the default list |
-| `NEXT_PUBLIC_WEBRTC_TURN_USERNAME` | — | TURN username when providing custom TURN URLs |
-| `NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL` | — | TURN credential/password when providing custom TURN URLs |
-| `NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_URLS` | `turn:turn.chatorbit.com:443,turn:turn.chatorbit.com:443?transport=tcp` | Baseline TURN URLs used when no override is provided |
-| `NEXT_PUBLIC_WEBRTC_TURN_USERNAME` | `pakalolo` | TURN username paired with the default TURN URLs |
-| `NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL` | `275ea323d4eac7f635ef5cd3518f32af957beaeb6e6579fad5e1009903b7d5e4` | TURN credential paired with the default TURN URLs |
+| `NEXT_PUBLIC_WEBRTC_TURN_USER` | — | TURN username when providing custom TURN URLs |
+| `NEXT_PUBLIC_WEBRTC_TURN_PASSWORD` | — | TURN password when providing custom TURN URLs |
+| `NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_URLS` | `turn:turn.i0i0i0.com:5349?transport=udp` | Baseline TURN URLs used when no override is provided |
+| `NEXT_PUBLIC_WEBRTC_TURN_DEFAULT_USER` | `youruser` | TURN username paired with the default TURN URLs |
+| `NEXT_PUBLIC_WEBRTC_TURN_DEFAULT_PASSWORD` | `yourpassword` | TURN password paired with the default TURN URLs |
 
 > ℹ️  To allow multiple specific origins, set `CHAT_CORS_ALLOWED_ORIGINS` in your `.env` file to either a JSON list (e.g. `["http://localhost:3000", "https://app.example.com"]`), a comma-separated list (`http://localhost:3000,https://app.example.com`), or a single origin string. Leave it as `*` to accept requests from any origin, but note that credentials (cookies/authorization headers) will be suppressed for security when using the wildcard.
 >
@@ -131,12 +133,12 @@ Everything else ships with sensible defaults so you can get started immediately.
 
 | Location | Purpose | Typical action |
 |----------|---------|----------------|
-| `.env` (optional) | Shared overrides when running both services directly on a laptop | Copy `.env.example` and tweak LAN IPs if you are not using Docker |
+| `.env` | Shared overrides when running locally (Docker Compose or directly) | Copy `.env.example`, adjust LAN IPs, and keep it alongside the root `docker-compose` workflows |
 | `backend/.env` | Backend-specific values when running FastAPI without Docker | Copy `backend/.env.example` and adjust database or rate-limit settings |
 | `frontend/.env.local` | Frontend overrides for `pnpm dev` / `pnpm build` | Copy `frontend/.env.local.example` and set API/WS URLs for your environment |
 | `infra/.env.production` | Values consumed by `docker-compose.production.yml` | Copy `infra/.env.production.example`, set the public domains, and load TURN credentials |
 
-The Compose files read `infra/.env.production` automatically, while the development stack injects variables inline. Keeping the files scoped this way avoids accidentally leaking production credentials into local builds and mirrors how ISPConfig expects per-site configuration files.
+Both Compose files load their respective environment files automatically—`infra/docker-compose.yml` consumes the root `.env`, while `infra/docker-compose.production.yml` loads `infra/.env.production`. Keeping the files scoped this way avoids accidentally leaking production credentials into local builds and mirrors how ISPConfig expects per-site configuration files.
 
 
 ## Troubleshooting WebRTC ICE errors
@@ -147,14 +149,14 @@ If you see Firefox logs similar to the following when two peers try to connect:
 Skipping STUN server because of address type mis-match
 skipping UDP STUN server(addr:IP4:0.0.0.0:19302/UDP)
 failed to create passive TCP host candidate: 3
-TURN(... IP4:0.0.0.0:443/TCP) failed
+TURN(... IP4:0.0.0.0:5349/UDP) failed
 ```
 
 it means the browser rejected the configured ICE servers. Common causes are:
 
 - **Wild-card or loopback hosts** – values such as `0.0.0.0`, `127.0.0.1`, `[::]`, or `localhost` cannot be reached by other peers. Remove them from `NEXT_PUBLIC_WEBRTC_*` variables or replace them with a routable IP/DNS name.
 - **IPv4/IPv6 mismatch** – attempting to reach an IPv6 TURN/STUN address from an IPv4-only interface (or vice versa) yields an "address type mis-match" warning. Ensure the ICE URLs resolve to addresses that match the network stack of the peers.
-- **Missing TURN credentials** – log lines like `Missing MESSAGE-INTEGRITY`, `nr_stun_process_error_response failed`, or STUN error code `401` indicate the TURN server rejected the request. Double-check `NEXT_PUBLIC_WEBRTC_TURN_USERNAME`/`NEXT_PUBLIC_WEBRTC_TURN_CREDENTIAL` (or the credentials supplied inside `NEXT_PUBLIC_WEBRTC_ICE_SERVERS`) and confirm they match your TURN provider.
+- **Missing TURN credentials** – log lines like `Missing MESSAGE-INTEGRITY`, `nr_stun_process_error_response failed`, or STUN error code `401` indicate the TURN server rejected the request. Double-check `NEXT_PUBLIC_WEBRTC_TURN_USER`/`NEXT_PUBLIC_WEBRTC_TURN_PASSWORD` (or the credentials supplied inside `NEXT_PUBLIC_WEBRTC_ICE_SERVERS`) and confirm they match your TURN provider.
 - **Port blocks** – corporate or guest networks often block UDP 3478/5349 or TCP 80/443 on TURN servers. Choose TURN endpoints that are reachable from both clients.
 
 The frontend automatically ignores unroutable ICE URLs, but explicitly set environment variables take precedence. Verify any custom `NEXT_PUBLIC_WEBRTC_STUN_URLS`, `NEXT_PUBLIC_WEBRTC_TURN_URLS`, or `NEXT_PUBLIC_WEBRTC_ICE_SERVERS` overrides before redeploying.
