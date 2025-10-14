@@ -149,6 +149,71 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const reconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
   const iceFailureRetriesRef = useRef(0);
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const knownMessageIdsRef = useRef<Set<string>>(new Set());
+  const initialMessagesHandledRef = useRef(false);
+
+  const ensureAudioContext = useCallback(() => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+
+    const AudioContextClass =
+      window.AudioContext ??
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+
+    if (!AudioContextClass) {
+      return null;
+    }
+
+    let context = audioContextRef.current;
+    if (!context || context.state === "closed") {
+      try {
+        context = new AudioContextClass();
+      } catch (cause) {
+        console.warn("Unable to create AudioContext", cause);
+        return null;
+      }
+      audioContextRef.current = context as AudioContext;
+    }
+
+    if (context.state === "suspended") {
+      void context.resume().catch(() => {});
+    }
+
+    return context as AudioContext;
+  }, []);
+
+  const playNotificationTone = useCallback(() => {
+    const context = ensureAudioContext();
+    if (!context) {
+      return;
+    }
+
+    const now = context.currentTime;
+    const duration = 0.4;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(660, now);
+    oscillator.frequency.exponentialRampToValueAtTime(880, now + duration * 0.6);
+
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.08, now + 0.05);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+
+    oscillator.onended = () => {
+      oscillator.disconnect();
+      gain.disconnect();
+    };
+
+    oscillator.start(now);
+    oscillator.stop(now + duration);
+  }, [ensureAudioContext]);
 
   useEffect(() => {
     hashedMessagesRef.current.clear();
@@ -158,10 +223,22 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     capabilityAnnouncedRef.current = false;
     peerSupportsEncryptionRef.current = null;
     setPeerSupportsEncryption(null);
+    knownMessageIdsRef.current.clear();
+    initialMessagesHandledRef.current = false;
   }, [token]);
 
   useEffect(() => {
     setSupportsEncryption(resolveCrypto() !== null);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      const context = audioContextRef.current;
+      if (context) {
+        audioContextRef.current = null;
+        context.close().catch(() => {});
+      }
+    };
   }, []);
 
   const ensureEncryptionKey = useCallback(async () => {
@@ -183,6 +260,27 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     }
     return encryptionPromiseRef.current;
   }, [supportsEncryption, token]);
+
+  useEffect(() => {
+    const knownIds = knownMessageIdsRef.current;
+    const newMessages: Message[] = [];
+
+    for (const message of messages) {
+      if (!knownIds.has(message.messageId)) {
+        knownIds.add(message.messageId);
+        newMessages.push(message);
+      }
+    }
+
+    if (!initialMessagesHandledRef.current) {
+      initialMessagesHandledRef.current = true;
+      return;
+    }
+
+    if (newMessages.some((message) => message.participantId !== participantId)) {
+      playNotificationTone();
+    }
+  }, [messages, participantId, playNotificationTone]);
 
   const handleCopyToken = useCallback(async () => {
     if (tokenCopyTimeoutRef.current) {
