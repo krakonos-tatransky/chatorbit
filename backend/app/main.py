@@ -33,7 +33,13 @@ from .schemas import (
 )
 
 settings = get_settings()
-app = FastAPI(title="ChatOrbit Minimal API", version="0.1.0")
+app = FastAPI(
+    title="ChatOrbit Minimal API",
+    version="0.1.0",
+    docs_url="/docs" if settings.enable_docs else None,
+    redoc_url="/redoc" if settings.enable_docs else None,
+    openapi_url="/openapi.json" if settings.enable_docs else None,
+)
 
 allow_all_origins = any(origin == "*" for origin in settings.cors_allowed_origins)
 

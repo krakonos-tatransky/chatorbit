@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     min_message_char_limit: int = 200
     cors_allowed_origins: List[str] | str | None = ["*"]
     cors_allow_credentials: bool = True
+    enable_docs: bool = False
 
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
