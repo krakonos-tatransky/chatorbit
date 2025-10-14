@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set
 from uuid import uuid4
 
@@ -22,7 +21,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .config import get_settings
-from .database import SessionLocal, get_session, init_db
+from .database import SessionLocal, check_database_connection, get_session, init_db
 from .models import ChatMessage, SessionParticipant, SessionStatus, TokenRequestLog, TokenSession
 from .schemas import (
     CreateTokenRequest,
@@ -53,8 +52,9 @@ def utcnow() -> datetime:
 
 @app.on_event("startup")
 def on_startup() -> None:
-    Path("data").mkdir(parents=True, exist_ok=True)
     init_db()
+    if not check_database_connection():
+        raise RuntimeError("Database connection check failed during startup.")
 
 
 class ConnectionManager:
@@ -105,6 +105,13 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 router = APIRouter(prefix="/api")
+
+
+@router.get("/health/database")
+def database_healthcheck() -> Dict[str, str]:
+    if not check_database_connection():
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database unavailable")
+    return {"status": "ok"}
 
 
 def get_client_ip(request: Request) -> str:
@@ -161,11 +168,21 @@ def serialize_session(session_model: TokenSession) -> SessionStatusResponse:
     )
 
 
+def _not_found(detail: str) -> HTTPException:
+    """Create a standardized 404 response with an application-specific header."""
+
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=detail,
+        headers={"msg-app": detail},
+    )
+
+
 def _get_session_by_token(db: Session, token: str) -> TokenSession:
     stmt = select(TokenSession).where(TokenSession.token == token)
     session_model = db.execute(stmt).scalar_one_or_none()
     if not session_model:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found.")
+        raise _not_found("Token not found in database.")
     db.refresh(session_model)
     return session_model
 
@@ -234,10 +251,7 @@ def join_session(
         )
         participant = db.execute(participant_stmt).scalar_one_or_none()
         if not participant:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Participant record not found for this session.",
-            )
+            raise _not_found("Participant record not found for this session.")
         if participant.ip_address != ip_address:
             participant.ip_address = ip_address
             db.add(participant)
@@ -342,7 +356,7 @@ def _get_participant(db: Session, session_id: int, participant_id: str) -> Sessi
     )
     participant = db.execute(stmt).scalar_one_or_none()
     if not participant:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Participant not found.")
+        raise _not_found("Participant not found in session.")
     db.refresh(participant)
     return participant
 

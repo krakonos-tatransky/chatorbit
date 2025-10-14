@@ -59,6 +59,12 @@ def test_issue_token_and_rate_limit(client: TestClient) -> None:
     assert response.status_code == 429
 
 
+def test_database_healthcheck(client: TestClient) -> None:
+    response = client.get("/api/health/database")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 def test_join_session_flow(client: TestClient) -> None:
     token_response = client.post("/api/tokens", json=_token_payload()).json()
     token = token_response["token"]
@@ -134,6 +140,25 @@ def test_rejoin_session_with_participant_id(client: TestClient) -> None:
     assert payload["participant_id"] == host_data["participant_id"]
     assert payload["role"] == "host"
 
+
+def test_not_found_responses_include_msg_app_header(client: TestClient) -> None:
+    missing_session = client.get("/api/sessions/does-not-exist/status")
+    assert missing_session.status_code == 404
+    assert missing_session.headers.get("msg-app") == "Token not found in database."
+
+    token_response = client.post("/api/tokens", json=_token_payload()).json()
+    token = token_response["token"]
+
+    missing_participant = client.post(
+        "/api/sessions/join",
+        json={"token": token, "participant_id": "unknown"},
+        headers={"X-Forwarded-For": "203.0.113.1"},
+    )
+    assert missing_participant.status_code == 404
+    assert (
+        missing_participant.headers.get("msg-app")
+        == "Participant record not found for this session."
+    )
 def test_cors_wildcard_origin_does_not_expose_credentials(client: TestClient) -> None:
     response = client.options(
         "/api/tokens",
