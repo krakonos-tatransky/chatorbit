@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from .config import get_settings
 from .database import SessionLocal, check_database_connection, get_session, init_db
-from .models import ChatMessage, SessionParticipant, SessionStatus, TokenRequestLog, TokenSession
+from .models import SessionParticipant, SessionStatus, TokenRequestLog, TokenSession
 from .schemas import (
     CreateTokenRequest,
     JoinSessionRequest,
@@ -362,33 +362,6 @@ def session_status(token: str, db: Session = Depends(get_session)) -> SessionSta
     db.commit()
     db.refresh(session_model)
     return serialize_session(session_model)
-
-
-@router.get("/sessions/{token}/messages")
-def list_messages(token: str, db: Session = Depends(get_session)) -> Dict[str, Any]:
-    session_model = _get_session_by_token(db, token)
-    ensure_session_state(session_model)
-
-    message_stmt = (
-        select(ChatMessage)
-        .where(ChatMessage.session_id == session_model.id)
-        .order_by(ChatMessage.created_at.asc())
-    )
-    messages = db.execute(message_stmt).scalars().all()
-
-    items = [
-        {
-            "message_id": message.message_id,
-            "participant_id": message.participant_id,
-            "content": message.content,
-            "created_at": message.created_at,
-            "deleted_at": message.deleted_at,
-        }
-        for message in messages
-    ]
-
-    return {"items": items}
-
 
 app.include_router(router)
 

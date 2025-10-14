@@ -157,11 +157,6 @@ def test_join_session_flow(client: TestClient) -> None:
     assert status_data["remaining_seconds"] is not None
     assert len(status_data["participants"]) == 2
 
-    messages_response = client.get(f"/api/sessions/{token}/messages")
-    assert messages_response.status_code == 200
-    assert messages_response.json()["items"] == []
-
-
 def test_rejoin_session_with_participant_id(client: TestClient) -> None:
     token_response = client.post("/api/tokens", json=_token_payload()).json()
     token = token_response["token"]
