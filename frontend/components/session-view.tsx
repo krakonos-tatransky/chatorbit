@@ -332,6 +332,34 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   }, [ensureAudioContext]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const resumeAudioContext = () => {
+      const context = ensureAudioContext();
+      if (!context) {
+        return;
+      }
+
+      if (context.state === "suspended") {
+        void context.resume().catch(() => {});
+      }
+
+      window.removeEventListener("pointerdown", resumeAudioContext);
+      window.removeEventListener("keydown", resumeAudioContext);
+    };
+
+    window.addEventListener("pointerdown", resumeAudioContext);
+    window.addEventListener("keydown", resumeAudioContext);
+
+    return () => {
+      window.removeEventListener("pointerdown", resumeAudioContext);
+      window.removeEventListener("keydown", resumeAudioContext);
+    };
+  }, [ensureAudioContext]);
+
+  useEffect(() => {
     hashedMessagesRef.current.clear();
     setMessages([]);
     encryptionKeyRef.current = null;
