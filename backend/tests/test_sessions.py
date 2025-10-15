@@ -171,6 +171,37 @@ def test_join_session_flow(client: TestClient) -> None:
     assert status_data["remaining_seconds"] is not None
     assert len(status_data["participants"]) == 2
 
+
+def test_delete_session_marks_status_and_blocks_rejoin(client: TestClient) -> None:
+    token_response = client.post("/api/tokens", json=_token_payload()).json()
+    token = token_response["token"]
+
+    host_join = client.post(
+        "/api/sessions/join",
+        json={"token": token, "client_identity": "host-identity"},
+        headers={"X-Forwarded-For": "10.0.0.1"},
+    )
+    assert host_join.status_code == 200
+
+    delete_response = client.delete(f"/api/sessions/{token}")
+    assert delete_response.status_code == 200
+    payload = delete_response.json()
+    assert payload["status"] == "deleted"
+    assert payload["session_expires_at"] is not None
+
+    status_response = client.get(f"/api/sessions/{token}/status")
+    assert status_response.status_code == 200
+    status_payload = status_response.json()
+    assert status_payload["status"] == "deleted"
+
+    rejoin_attempt = client.post(
+        "/api/sessions/join",
+        json={"token": token, "client_identity": "host-identity"},
+        headers={"X-Forwarded-For": "10.0.0.1"},
+    )
+    assert rejoin_attempt.status_code == 410
+    assert rejoin_attempt.json()["detail"] == "Session has been deleted."
+
 def test_rejoin_session_with_participant_id(client: TestClient) -> None:
     token_response = client.post("/api/tokens", json=_token_payload()).json()
     token = token_response["token"]

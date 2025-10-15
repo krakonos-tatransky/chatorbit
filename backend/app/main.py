@@ -160,7 +160,7 @@ def enforce_rate_limit(db: Session, *, ip: str, client_identity: Optional[str]) 
 
 def ensure_session_state(session_model: TokenSession) -> None:
     now = utcnow()
-    if session_model.status in {SessionStatus.CLOSED, SessionStatus.EXPIRED}:
+    if session_model.status in {SessionStatus.CLOSED, SessionStatus.EXPIRED, SessionStatus.DELETED}:
         return
     if session_model.status == SessionStatus.ISSUED and now > session_model.validity_expires_at:
         session_model.status = SessionStatus.EXPIRED
@@ -268,6 +268,8 @@ def join_session(
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Token expired.")
     if session_model.status == SessionStatus.CLOSED:
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Session already closed.")
+    if session_model.status == SessionStatus.DELETED:
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Session has been deleted.")
 
     ip_address = get_client_ip(http_request)
     client_identity = request.client_identity
@@ -369,6 +371,25 @@ def session_status(token: str, db: Session = Depends(get_session)) -> SessionSta
     db.refresh(session_model)
     return serialize_session(session_model)
 
+
+@router.delete("/sessions/{token}", response_model=SessionStatusResponse)
+async def delete_session(token: str, db: Session = Depends(get_session)) -> SessionStatusResponse:
+    session_model = _get_session_by_token(db, token)
+    ensure_session_state(session_model)
+    if session_model.status != SessionStatus.DELETED:
+        now = utcnow()
+        if session_model.started_at is None:
+            session_model.started_at = now
+        session_model.ended_at = now
+        session_model.status = SessionStatus.DELETED
+        db.add(session_model)
+        db.commit()
+        db.refresh(session_model)
+    response = serialize_session(session_model)
+    await manager.broadcast(token, {"type": "session_deleted"})
+    await broadcast_status(token)
+    return response
+
 app.include_router(router)
 
 
@@ -418,7 +439,7 @@ async def websocket_session(websocket: WebSocket, token: str) -> None:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
         ensure_session_state(session_model)
-        if session_model.status in {SessionStatus.EXPIRED, SessionStatus.CLOSED}:
+        if session_model.status in {SessionStatus.EXPIRED, SessionStatus.CLOSED, SessionStatus.DELETED}:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
         participant_stmt = select(SessionParticipant).where(
@@ -440,8 +461,19 @@ async def websocket_session(websocket: WebSocket, token: str) -> None:
             with SessionLocal() as loop_db:
                 session_model = _get_session_by_token(loop_db, token)
                 ensure_session_state(session_model)
-                if session_model.status in {SessionStatus.EXPIRED, SessionStatus.CLOSED}:
-                    await manager.broadcast(token, {"type": "session_closed"})
+                if session_model.status in {
+                    SessionStatus.EXPIRED,
+                    SessionStatus.CLOSED,
+                    SessionStatus.DELETED,
+                }:
+                    message_type = (
+                        "session_expired"
+                        if session_model.status == SessionStatus.EXPIRED
+                        else "session_deleted"
+                        if session_model.status == SessionStatus.DELETED
+                        else "session_closed"
+                    )
+                    await manager.broadcast(token, {"type": message_type})
                     break
                 timeout: Optional[float] = None
                 if session_model.status == SessionStatus.ACTIVE and session_model.ended_at:

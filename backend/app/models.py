@@ -20,6 +20,7 @@ class SessionStatus(str, Enum):
     ACTIVE = "active"
     CLOSED = "closed"
     EXPIRED = "expired"
+    DELETED = "deleted"
 
 
 class TokenSession(Base):
