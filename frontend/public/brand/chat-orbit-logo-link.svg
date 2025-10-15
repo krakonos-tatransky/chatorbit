@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 120" role="img" aria-labelledby="title desc">
+  <title id="title">ChatOrbit Linked Seats Logo</title>
+  <desc id="desc">Two chat bubbles in orbit connected by a secure token clasp.</desc>
+  <defs>
+    <linearGradient id="bubbleA" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#182C54" />
+      <stop offset="100%" stop-color="#2C6BE7" />
+    </linearGradient>
+    <linearGradient id="bubbleB" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1D3A65" />
+      <stop offset="100%" stop-color="#41C9FF" />
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="320" height="120" rx="20" fill="#03122B" />
+  <g transform="translate(30 20)">
+    <path d="M60 6c-28 0-51 18.6-51 41.6 0 13.7 8.4 26.1 21.6 33.7L24 102l29.8-16.8c2 0.3 4 0.4 6.2 0.4 28 0 51-18.6 51-41.6S88 6 60 6z" fill="url(#bubbleA)" />
+    <circle cx="60" cy="48" r="20" fill="#ffffff" opacity="0.12" />
+    <circle cx="60" cy="48" r="6" fill="#ffffff" />
+  </g>
+  <g transform="translate(170 20)">
+    <path d="M60 6c28 0 51 18.6 51 41.6 0 13.7-8.4 26.1-21.6 33.7L156 102l-29.8-16.8c-2 0.3-4 0.4-6.2 0.4-28 0-51-18.6-51-41.6S32 6 60 6z" fill="url(#bubbleB)" />
+    <circle cx="60" cy="48" r="20" fill="#ffffff" opacity="0.12" />
+    <circle cx="60" cy="48" r="6" fill="#ffffff" />
+  </g>
+  <path d="M140 44c-4.4 0-8 3.6-8 8v16c0 4.4 3.6 8 8 8h40c4.4 0 8-3.6 8-8V52c0-4.4-3.6-8-8-8h-40zm0-10h40c9.9 0 18 8.1 18 18v16c0 9.9-8.1 18-18 18h-40c-9.9 0-18-8.1-18-18V52c0-9.9 8.1-18 18-18z" fill="#7AE4FF" />
+  <circle cx="160" cy="60" r="8" fill="#03122B" />
+  <circle cx="200" cy="60" r="8" fill="#03122B" />
+  <path d="M174 60a6 6 0 0 1-6 6h-4a6 6 0 0 1 0-12h4a6 6 0 0 1 6 6zm28 0a6 6 0 0 1-6 6h-4a6 6 0 0 1 0-12h4a6 6 0 0 1 6 6z" fill="#7AE4FF" />
+</svg>
