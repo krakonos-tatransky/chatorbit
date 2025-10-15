@@ -6,11 +6,7 @@ export const metadata: Metadata = {
 };
 
 export default function PrivacyPolicyPage() {
-  const lastUpdated = new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  }).format(new Date());
+  const lastUpdated = "October 14, 2025";
   return (
     <main className="legal-page">
       <div className="legal-page__inner">
@@ -18,78 +14,133 @@ export default function PrivacyPolicyPage() {
         <p className="legal-page__intro">Last updated {lastUpdated}</p>
 
         <section className="legal-section">
-          <h2>1. Overview</h2>
+          <h2>1. Our Commitment to Privacy</h2>
           <p>
-            ChatOrbit is designed for private, ephemeral conversations. Messages flow directly between participants using
-            peer-to-peer technology. When supported by both browsers we negotiate end-to-end encryption so that only the people
-            in the session can read the content.
+            ChatOrbit is designed to prioritize private, ephemeral conversations. The Service connects participants using
+            peer-to-peer WebRTC technology so that messages flow directly between devices. When supported by both browsers, end
+            to end encryption keeps message content accessible only to intended recipients.
           </p>
         </section>
 
         <section className="legal-section">
-          <h2>2. Data We Process</h2>
+          <h2>2. Information We Collect</h2>
           <ul className="legal-list">
             <li>
-              <strong>Token issuance logs:</strong> We temporarily record an IP address or client identifier to enforce the
-              one-hour rate limit for generating session tokens.
+              <strong>Session metadata:</strong> We temporarily process session tokens, participant identifiers, countdown
+              configuration, and connection status to coordinate joins and show who is connected.
             </li>
             <li>
-              <strong>Session metadata:</strong> The database stores the token value, expiration timestamps, countdown settings,
-              and anonymised participant identifiers. This metadata is required to coordinate the countdown timer and to show who
-              is connected. We never store message bodies or encryption keys.
+              <strong>Signaling details:</strong> Our signaling server exchanges ICE candidates and WebSocket messages needed to
+              establish a connection. These messages may include IP addresses and browser networking information.
             </li>
             <li>
-              <strong>Diagnostic events:</strong> If you opt into client debugging, limited technical details may be written to
-              your local device to help troubleshoot WebRTC connectivity.
+              <strong>STUN/TURN authentication:</strong> Third-party relay services receive short-lived nonces (valid for 600
+              seconds) and IP addresses strictly to facilitate NAT traversal.
+            </li>
+            <li>
+              <strong>Optional diagnostics:</strong> If you opt into client debugging, limited technical logs may be saved to
+              your local device to troubleshoot connectivity issues.
             </li>
           </ul>
         </section>
 
         <section className="legal-section">
-          <h2>3. Session Deletion and Retention</h2>
+          <h2>3. How We Use Your Information</h2>
           <p>
-            Messages are not retained on our servers. When a session ends automatically or when a participant presses the “End
-            session” button, the session is marked as deleted in the database, connected peers are notified, and the token can no
-            longer be used. Residual metadata is purged according to operational retention schedules required for security and
-            abuse prevention.
+            The information described above is used solely to facilitate peer-to-peer connections, authenticate legitimate
+            access to STUN/TURN servers, monitor whether a session remains active, and protect the Service from abuse. We do not
+            profile users or use data for advertising.
           </p>
         </section>
 
         <section className="legal-section">
-          <h2>4. International & GDPR Considerations</h2>
+          <h2>4. End-to-End Encryption</h2>
           <p>
-            Because ChatOrbit does not store message content and only retains minimal operational data, we act as a data
-            controller for the limited personal data described above. The lawful basis for processing is legitimate interest in
-            operating a secure communications platform. You may request access to, correction of, or deletion of identifiable data
-            linked to a token by contacting us at
-            {" "}
-            <a href="mailto:privacy@chatorbit.app">privacy@chatorbit.app</a>.
+            When supported, ChatOrbit negotiates AES-GCM encryption with keys derived from session tokens directly on users'
+            devices. We do not receive these keys and cannot decrypt message content. If encryption is not available in one or
+            both browsers, messages are transmitted unencrypted and the application alerts participants.
           </p>
         </section>
 
         <section className="legal-section">
-          <h2>5. Security</h2>
+          <h2>5. No Message Storage</h2>
           <p>
-            We apply industry-standard security practices to protect the infrastructure that brokers session setup, including
-            transport-layer encryption, hardened hosting environments, and monitoring for abuse. Because communication is peer to
-            peer, we do not have visibility into or control over the content of your messages.
+            Message content is never stored on our servers. Messages exist only in the memory of participating devices during an
+            active session and disappear when the session ends or the application closes. This design means we cannot retrieve
+            or provide message history to third parties, including law enforcement.
           </p>
         </section>
 
         <section className="legal-section">
-          <h2>6. Your Choices</h2>
+          <h2>6. Data Sharing</h2>
           <p>
-            Participation is voluntary. You can decline to create a session, end an active session at any time, or choose not to
-            share a token that you generated. Clearing your browser storage will remove local debugging artifacts created by the
+            We do not sell or rent information to third parties. Session metadata may be disclosed only when required by law or
+            to protect the safety and security of users. Because we do not store message content, we cannot provide it in
+            response to legal requests.
+          </p>
+        </section>
+
+        <section className="legal-section">
+          <h2>7. Data Retention</h2>
+          <p>
+            Session metadata and signaling data are retained only as long as needed to operate the Service or comply with
+            applicable legal obligations. When a session ends or is manually deleted, related metadata is purged according to
+            operational retention schedules. No message bodies or encryption keys are retained.
+          </p>
+        </section>
+
+        <section className="legal-section">
+          <h2>8. Compliance with Data Protection Laws</h2>
+          <p>
+            We strive to comply with applicable data protection laws, including the GDPR and CCPA. ChatOrbit collects only the
+            data necessary to establish peer-to-peer sessions and does not use personal data for profiling. If you are in the
+            European Union, you may request access to, rectification of, or deletion of identifiable data linked to a session by
+            contacting us at <a href="mailto:privacy@chatorbit.app">privacy@chatorbit.app</a>.
+          </p>
+        </section>
+
+        <section className="legal-section">
+          <h2>9. Security</h2>
+          <p>
+            We implement industry-standard security measures to protect signaling infrastructure, including secure WebSocket
+            transport, hardened hosting environments, monitoring for abuse, and TURN server authentication using expiring
+            nonces. You are responsible for securing your own device and ensuring it remains free of malware.
+          </p>
+        </section>
+
+        <section className="legal-section">
+          <h2>10. Third-Party Services</h2>
+          <p>
+            The Service relies on third-party STUN/TURN providers to relay traffic when direct connections are not possible.
+            These providers see network-level information necessary to deliver the Service but do not have access to message
+            content. We select reputable vendors and configure them with security best practices.
+          </p>
+        </section>
+
+        <section className="legal-section">
+          <h2>11. Your Choices</h2>
+          <p>
+            Participation in ChatOrbit is voluntary. You can end a session at any time, choose not to share a session token, or
+            decline to use the Service. Clearing your browser storage will remove local diagnostic artifacts created by the
             application.
           </p>
         </section>
 
         <section className="legal-section">
-          <h2>7. Updates</h2>
+          <h2>12. Changes to This Privacy Policy</h2>
           <p>
-            We may revise this policy when functionality or legal requirements change. We will highlight material updates inside
-            the product. Continuing to use ChatOrbit after an update becomes effective means you accept the revised policy.
+            We may revise this Privacy Policy to reflect changes in our practices or legal requirements. Updated policies will
+            be posted on this page with a revised "Last updated" date. Continued use of ChatOrbit after changes take effect
+            constitutes acceptance of the revised policy.
+          </p>
+        </section>
+
+        <section className="legal-section">
+          <h2>13. Contact Us</h2>
+          <p>
+            Questions about this Privacy Policy or our data practices can be sent to
+            {" "}
+            <a href="mailto:privacy@chatorbit.app">privacy@chatorbit.app</a>.
           </p>
         </section>
       </div>
