@@ -1919,10 +1919,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         <div className="session-alert session-alert--ended">
           <p>Session ended. Request a new token to start over.</p>
           <Link href="/" className="session-alert__home-link">
-            <span aria-hidden className="session-alert__home-icon">
-              🏠
-            </span>
-            <span>Return to home</span>
+            Leave room
           </Link>
         </div>
       ) : null}
