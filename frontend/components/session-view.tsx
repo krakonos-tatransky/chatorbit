@@ -280,6 +280,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const reconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
   const iceFailureRetriesRef = useRef(0);
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const disconnectionRecoveryTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const sessionActiveRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const knownMessageIdsRef = useRef<Set<string>>(new Set());
   const initialMessagesHandledRef = useRef(false);
@@ -342,6 +344,10 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   }, [token]);
 
   useEffect(() => {
+    sessionActiveRef.current = sessionStatus?.status === "active";
+  }, [sessionStatus?.status]);
+
+  useEffect(() => {
     setSupportsEncryption(resolveCrypto() !== null);
   }, []);
 
@@ -371,6 +377,15 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     mediaQuery.addListener(handleChange);
     return () => {
       mediaQuery.removeListener(handleChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (disconnectionRecoveryTimeoutRef.current) {
+        clearTimeout(disconnectionRecoveryTimeoutRef.current);
+        disconnectionRecoveryTimeoutRef.current = null;
+      }
     };
   }, []);
 
@@ -540,6 +555,10 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         clearTimeout(iceRetryTimeoutRef.current);
         iceRetryTimeoutRef.current = null;
       }
+      if (disconnectionRecoveryTimeoutRef.current) {
+        clearTimeout(disconnectionRecoveryTimeoutRef.current);
+        disconnectionRecoveryTimeoutRef.current = null;
+      }
       const existing = peerConnectionRef.current;
       if (existing) {
         try {
@@ -583,6 +602,26 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       setIceGatheringState,
       setDataChannelState,
     ],
+  );
+
+  const schedulePeerConnectionRecovery = useCallback(
+    (pc: RTCPeerConnection, reason: string, { delayMs = RECONNECT_BASE_DELAY_MS }: { delayMs?: number } = {}) => {
+      if (disconnectionRecoveryTimeoutRef.current) {
+        return;
+      }
+      disconnectionRecoveryTimeoutRef.current = setTimeout(() => {
+        disconnectionRecoveryTimeoutRef.current = null;
+        if (peerConnectionRef.current !== pc) {
+          return;
+        }
+        if (!sessionActiveRef.current) {
+          return;
+        }
+        logEvent("Resetting peer connection after interruption", { reason, delayMs });
+        resetPeerConnection();
+      }, delayMs);
+    },
+    [resetPeerConnection],
   );
 
   const sendCapabilities = useCallback(() => {
@@ -729,7 +768,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   );
 
   const attachDataChannel = useCallback(
-    (channel: RTCDataChannel) => {
+    (channel: RTCDataChannel, owner: RTCPeerConnection | null) => {
       dataChannelRef.current = channel;
       setDataChannelState(channel.readyState);
       logEvent("Attached data channel", { label: channel.label, readyState: channel.readyState });
@@ -752,6 +791,9 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         setPeerSupportsEncryption(null);
         logEvent("Data channel closed", { label: channel.label });
         setDataChannelState(channel.readyState);
+        if (owner && peerConnectionRef.current === owner && sessionActiveRef.current) {
+          schedulePeerConnectionRecovery(owner, "data channel closed");
+        }
       };
       channel.onerror = () => {
         setConnected(false);
@@ -759,13 +801,22 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         setPeerSupportsEncryption(null);
         logEvent("Data channel encountered an error", { label: channel.label });
         setDataChannelState(channel.readyState);
+        if (owner && peerConnectionRef.current === owner && sessionActiveRef.current) {
+          schedulePeerConnectionRecovery(owner, "data channel error");
+        }
       };
       channel.onmessage = (event) => {
         logEvent("Data channel message received", { label: channel.label, length: event.data?.length });
         void handlePeerMessage(event.data);
       };
     },
-    [handlePeerMessage, participantRole, sendCapabilities, setDataChannelState],
+    [
+      handlePeerMessage,
+      participantRole,
+      schedulePeerConnectionRecovery,
+      sendCapabilities,
+      setDataChannelState,
+    ],
   );
 
   const sendSignal = useCallback(
@@ -898,10 +949,19 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         setConnected(true);
         setError(null);
         iceFailureRetriesRef.current = 0;
+        if (disconnectionRecoveryTimeoutRef.current) {
+          clearTimeout(disconnectionRecoveryTimeoutRef.current);
+          disconnectionRecoveryTimeoutRef.current = null;
+        }
       } else if (state === "failed" || state === "disconnected" || state === "closed") {
         setConnected(false);
         if (participantRole === "host") {
           hasSentOfferRef.current = false;
+        }
+        if (state === "failed" && peerConnectionRef.current === peerConnection && sessionActiveRef.current) {
+          schedulePeerConnectionRecovery(peerConnection, "peer connection failed", { delayMs: 0 });
+        } else if (state === "disconnected" && peerConnectionRef.current === peerConnection && sessionActiveRef.current) {
+          schedulePeerConnectionRecovery(peerConnection, "peer connection disconnected");
         }
       }
     };
@@ -920,6 +980,14 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           setError("Connection failed. Please refresh to retry.");
           logEvent("ICE connection failed and maximum retries reached");
         }
+      } else if (
+        (state === "failed" || state === "disconnected") &&
+        participantRole !== "host" &&
+        peerConnectionRef.current === peerConnection &&
+        sessionActiveRef.current
+      ) {
+        const delayMs = state === "failed" ? 0 : RECONNECT_BASE_DELAY_MS;
+        schedulePeerConnectionRecovery(peerConnection, `ice connection ${state}`, { delayMs });
       } else if (state === "connected") {
         iceFailureRetriesRef.current = 0;
       }
@@ -928,11 +996,11 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     if (participantRole === "host") {
       logEvent("Creating data channel as host");
       const channel = peerConnection.createDataChannel("chat");
-      attachDataChannel(channel);
+      attachDataChannel(channel, peerConnection);
     } else {
       peerConnection.ondatachannel = (event) => {
         logEvent("Received data channel", { label: event.channel.label });
-        attachDataChannel(event.channel);
+        attachDataChannel(event.channel, peerConnection);
       };
     }
 
@@ -961,6 +1029,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     peerResetNonce,
     processSignalPayload,
     resetPeerConnection,
+    schedulePeerConnectionRecovery,
     sendSignal,
   ]);
 
