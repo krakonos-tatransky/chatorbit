@@ -986,10 +986,16 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         if (participantRole === "host") {
           hasSentOfferRef.current = false;
         }
-        if (state === "failed" && peerConnectionRef.current === peerConnection && sessionActiveRef.current) {
-          schedulePeerConnectionRecovery(peerConnection, "peer connection failed", { delayMs: 0 });
-        } else if (state === "disconnected" && peerConnectionRef.current === peerConnection && sessionActiveRef.current) {
-          schedulePeerConnectionRecovery(peerConnection, "peer connection disconnected");
+        if (
+          participantRole !== "host" &&
+          peerConnectionRef.current === peerConnection &&
+          sessionActiveRef.current
+        ) {
+          if (state === "failed") {
+            schedulePeerConnectionRecovery(peerConnection, "peer connection failed", { delayMs: 0 });
+          } else if (state === "disconnected") {
+            schedulePeerConnectionRecovery(peerConnection, "peer connection disconnected");
+          }
         }
       }
     };
