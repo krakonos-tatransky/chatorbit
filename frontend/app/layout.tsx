@@ -3,8 +3,7 @@ import Image from "next/image";
 import type { Metadata } from "next";
 import Link from "next/link";
 
-const CHAT_ORBIT_LOGO_URL =
-  "https://useruploads.socraticoverflow.com/uploads/ahAuskPi9XfyyezyzWftmmnc.png";
+const CHAT_ORBIT_LOGO_URL = "/brand/chat-orbit-logo.svg";
 
 export const metadata: Metadata = {
   title: "ChatOrbit",
