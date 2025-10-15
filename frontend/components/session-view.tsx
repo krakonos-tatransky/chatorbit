@@ -205,7 +205,7 @@ type Participant = {
 
 type SessionStatus = {
   token: string;
-  status: "issued" | "active" | "closed" | "expired";
+  status: "issued" | "active" | "closed" | "expired" | "deleted";
   validityExpiresAt: string;
   sessionStartedAt: string | null;
   sessionExpiresAt: string | null;
@@ -255,6 +255,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const [sessionEnded, setSessionEnded] = useState(false);
   const [sessionEndedFromStorage, setSessionEndedFromStorage] = useState(false);
+  const [endSessionLoading, setEndSessionLoading] = useState(false);
   const [tokenCopyState, setTokenCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [socketReconnectNonce, setSocketReconnectNonce] = useState(0);
   const [peerResetNonce, setPeerResetNonce] = useState(0);
@@ -645,7 +646,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   );
 
   const finalizeSession = useCallback(
-    (status: "closed" | "expired" = "closed") => {
+    (status: "closed" | "expired" | "deleted" = "closed") => {
       if (sessionEndedRef.current) {
         return;
       }
@@ -1264,7 +1265,13 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         setParticipantRole(payload.role ?? null);
       }
       const candidateStatus = typeof payload.status === "string" ? payload.status : null;
-      const allowedStatuses: SessionStatus["status"][] = ["issued", "active", "closed", "expired"];
+      const allowedStatuses: SessionStatus["status"][] = [
+        "issued",
+        "active",
+        "closed",
+        "expired",
+        "deleted",
+      ];
       const storedStatus: SessionStatus["status"] = candidateStatus &&
         allowedStatuses.includes(candidateStatus as SessionStatus["status"])
         ? (candidateStatus as SessionStatus["status"])
@@ -1273,12 +1280,22 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           : "issued";
       const storedRemaining: number | null =
         typeof payload.remainingSeconds === "number" ? payload.remainingSeconds : null;
-      const ended = Boolean(payload.sessionEnded) || storedStatus === "closed" || storedStatus === "expired";
+      const ended =
+        Boolean(payload.sessionEnded) ||
+        storedStatus === "closed" ||
+        storedStatus === "expired" ||
+        storedStatus === "deleted";
       setSessionEndedFromStorage(ended);
       setSessionStatus((prev) =>
         prev ?? {
           token,
-          status: ended ? (storedStatus === "expired" ? "expired" : "closed") : storedStatus,
+          status: ended
+            ? storedStatus === "expired"
+              ? "expired"
+              : storedStatus === "deleted"
+                ? "deleted"
+                : "closed"
+            : storedStatus,
           validityExpiresAt: payload.sessionExpiresAt ?? payload.sessionStartedAt ?? new Date().toISOString(),
           sessionStartedAt: payload.sessionStartedAt,
           sessionExpiresAt: payload.sessionExpiresAt,
@@ -1468,6 +1485,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           finalizeSession("closed");
         } else if (payload.type === "session_expired") {
           finalizeSession("expired");
+        } else if (payload.type === "session_deleted") {
+          finalizeSession("deleted");
         } else if (payload.type === "signal") {
           void handleSignal(payload);
         }
@@ -1505,6 +1524,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       finalizeSession("closed");
     } else if (sessionStatus.status === "expired") {
       finalizeSession("expired");
+    } else if (sessionStatus.status === "deleted") {
+      finalizeSession("deleted");
     }
   }, [finalizeSession, sessionStatus]);
 
@@ -1594,7 +1615,71 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   }, [connected, participantId, sessionStatus?.connectedParticipants, sessionStatus?.participants]);
 
   const hasSessionEnded =
-    sessionEnded || sessionStatus?.status === "closed" || sessionStatus?.status === "expired";
+    sessionEnded ||
+    sessionStatus?.status === "closed" ||
+    sessionStatus?.status === "expired" ||
+    sessionStatus?.status === "deleted";
+
+  const endSessionButtonLabel = hasSessionEnded
+    ? "Session ended"
+    : endSessionLoading
+      ? "Ending…"
+      : "End session";
+
+  const handleEndSession = useCallback(async () => {
+    if (endSessionLoading || hasSessionEnded) {
+      return;
+    }
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm(
+        "Ending the session will immediately disconnect all participants. Continue?",
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+    setEndSessionLoading(true);
+    try {
+      const response = await fetch(apiUrl(`/api/sessions/${token}`), { method: "DELETE" });
+      let payload: any = null;
+      try {
+        payload = await response.json();
+      } catch (parseError) {
+        if (response.ok) {
+          throw new Error("Server returned an unexpected response.");
+        }
+      }
+      if (!response.ok) {
+        const detail =
+          payload && typeof payload.detail === "string"
+            ? payload.detail
+            : "Unable to end the session. Please try again.";
+        throw new Error(detail);
+      }
+      if (!payload) {
+        throw new Error("Server returned an unexpected response.");
+      }
+      const mapped = mapStatus(payload);
+      setSessionStatus(mapped);
+      if (mapped.status === "deleted") {
+        finalizeSession("deleted");
+      } else if (mapped.status === "expired") {
+        finalizeSession("expired");
+      } else {
+        finalizeSession("closed");
+      }
+      setError(null);
+    } catch (cause) {
+      console.error("Failed to end session", cause);
+      const message =
+        cause instanceof Error && cause.message
+          ? cause.message
+          : "Unable to end the session. Please try again.";
+      setError(message);
+    } finally {
+      setEndSessionLoading(false);
+    }
+  }, [endSessionLoading, finalizeSession, hasSessionEnded, setError, setSessionStatus, token]);
 
   const countdownLabel = useMemo(() => {
     if (hasSessionEnded) {
@@ -1783,26 +1868,36 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   return (
     <div className="session-shell">
       <div className="session-header">
-        <div>
-          <div className="session-token-header">
-            <p className="session-token">Token</p>
+        <div className="session-header__content">
+          <div className="session-header__top">
+            <div className="session-token-header">
+              <p className="session-token">Token</p>
+              <button
+                type="button"
+                className={`session-token-copy${
+                  tokenCopyState === "copied" ? " session-token-copy--success" : ""
+                }${tokenCopyState === "failed" ? " session-token-copy--error" : ""}`}
+                onClick={handleCopyToken}
+                aria-label="Copy session token"
+              >
+                {tokenCopyState === "copied" ? "Copied" : "Copy"}
+              </button>
+              <span className="session-token-copy-status" role="status" aria-live="polite">
+                {tokenCopyState === "copied"
+                  ? "Token copied to clipboard"
+                  : tokenCopyState === "failed"
+                    ? "Unable to copy token"
+                    : ""}
+              </span>
+            </div>
             <button
               type="button"
-              className={`session-token-copy${
-                tokenCopyState === "copied" ? " session-token-copy--success" : ""
-              }${tokenCopyState === "failed" ? " session-token-copy--error" : ""}`}
-              onClick={handleCopyToken}
-              aria-label="Copy session token"
+              className="session-end-button"
+              onClick={handleEndSession}
+              disabled={endSessionLoading || hasSessionEnded}
             >
-              {tokenCopyState === "copied" ? "Copied" : "Copy"}
+              {endSessionButtonLabel}
             </button>
-            <span className="session-token-copy-status" role="status" aria-live="polite">
-              {tokenCopyState === "copied"
-                ? "Token copied to clipboard"
-                : tokenCopyState === "failed"
-                  ? "Unable to copy token"
-                  : ""}
-            </span>
           </div>
           <p className="session-token-value">{token}</p>
           <p className="session-role">
