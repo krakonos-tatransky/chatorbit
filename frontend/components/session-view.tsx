@@ -253,6 +253,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<string>("");
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
+  const [sessionEnded, setSessionEnded] = useState(false);
+  const [sessionEndedFromStorage, setSessionEndedFromStorage] = useState(false);
   const [tokenCopyState, setTokenCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [socketReconnectNonce, setSocketReconnectNonce] = useState(0);
   const [peerResetNonce, setPeerResetNonce] = useState(0);
@@ -286,6 +288,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
   const disconnectionRecoveryTimeoutRef = useRef<TimeoutHandle | null>(null);
   const sessionActiveRef = useRef(false);
+  const sessionEndedRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const knownMessageIdsRef = useRef<Set<string>>(new Set());
   const initialMessagesHandledRef = useRef(false);
@@ -373,6 +376,9 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     setPeerSupportsEncryption(null);
     knownMessageIdsRef.current.clear();
     initialMessagesHandledRef.current = false;
+    sessionEndedRef.current = false;
+    setSessionEnded(false);
+    setSessionEndedFromStorage(false);
   }, [token]);
 
   useEffect(() => {
@@ -635,6 +641,58 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       setIceConnectionState,
       setIceGatheringState,
       setDataChannelState,
+    ],
+  );
+
+  const finalizeSession = useCallback(
+    (status: "closed" | "expired" = "closed") => {
+      if (sessionEndedRef.current) {
+        return;
+      }
+      sessionEndedRef.current = true;
+      setSessionEnded(true);
+      setError((current) => (current === "WebSocket error" ? null : current));
+      setIsReconnecting(false);
+      setSocketReady(false);
+      sessionActiveRef.current = false;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      if (disconnectionRecoveryTimeoutRef.current) {
+        clearTimeout(disconnectionRecoveryTimeoutRef.current);
+        disconnectionRecoveryTimeoutRef.current = null;
+      }
+      resetPeerConnection({ recreate: false });
+      const socket = socketRef.current;
+      if (socket) {
+        socketRef.current = null;
+        try {
+          socket.close();
+        } catch (cause) {
+          console.warn("Failed to close WebSocket during finalization", cause);
+        }
+      }
+      setSessionStatus((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        const nextStatus = status;
+        if (prev.status === nextStatus && prev.remainingSeconds === 0) {
+          return prev;
+        }
+        return { ...prev, status: nextStatus, remainingSeconds: 0 };
+      });
+      setRemainingSeconds(0);
+    },
+    [
+      resetPeerConnection,
+      setError,
+      setIsReconnecting,
+      setSessionEnded,
+      setSessionStatus,
+      setSocketReady,
+      setRemainingSeconds,
     ],
   );
 
@@ -1190,34 +1248,70 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   ]);
 
   useEffect(() => {
-    if (participantId) {
-      return;
-    }
     if (typeof window === "undefined") {
       return;
     }
     const stored = sessionStorage.getItem(`chatOrbit.session.${token}`);
-    if (stored) {
+    if (!stored) {
+      return;
+    }
+    try {
       const payload = JSON.parse(stored);
-      setParticipantId(payload.participantId);
-      setParticipantRole(payload.role ?? null);
+      if (!participantId && payload.participantId) {
+        setParticipantId(payload.participantId);
+      }
+      if (payload.role !== undefined) {
+        setParticipantRole(payload.role ?? null);
+      }
+      const candidateStatus = typeof payload.status === "string" ? payload.status : null;
+      const allowedStatuses: SessionStatus["status"][] = ["issued", "active", "closed", "expired"];
+      const storedStatus: SessionStatus["status"] = candidateStatus &&
+        allowedStatuses.includes(candidateStatus as SessionStatus["status"])
+        ? (candidateStatus as SessionStatus["status"])
+        : payload.sessionActive
+          ? "active"
+          : "issued";
+      const storedRemaining: number | null =
+        typeof payload.remainingSeconds === "number" ? payload.remainingSeconds : null;
+      const ended = Boolean(payload.sessionEnded) || storedStatus === "closed" || storedStatus === "expired";
+      setSessionEndedFromStorage(ended);
       setSessionStatus((prev) =>
         prev ?? {
           token,
-          status: payload.sessionActive ? "active" : "issued",
+          status: ended ? (storedStatus === "expired" ? "expired" : "closed") : storedStatus,
           validityExpiresAt: payload.sessionExpiresAt ?? payload.sessionStartedAt ?? new Date().toISOString(),
           sessionStartedAt: payload.sessionStartedAt,
           sessionExpiresAt: payload.sessionExpiresAt,
           messageCharLimit: payload.messageCharLimit,
           participants: [],
-          remainingSeconds: null,
+          remainingSeconds: ended ? 0 : storedRemaining,
         },
       );
+      if (storedRemaining !== null) {
+        setRemainingSeconds(storedRemaining);
+      } else if (ended) {
+        setRemainingSeconds(0);
+      }
+      if (ended) {
+        sessionEndedRef.current = true;
+        setSessionEnded(true);
+        setSocketReady(false);
+        setIsReconnecting(false);
+      }
+    } catch (cause) {
+      console.warn("Failed to parse stored session payload", cause);
     }
-  }, [participantId, token]);
+  }, [
+    participantId,
+    setIsReconnecting,
+    setSessionEnded,
+    setSessionEndedFromStorage,
+    setSocketReady,
+    token,
+  ]);
 
   useEffect(() => {
-    if (!participantId) {
+    if (!participantId || sessionEnded) {
       return;
     }
 
@@ -1243,7 +1337,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     }
 
     bootstrap();
-  }, [participantId, token]);
+  }, [participantId, sessionEnded, token]);
 
   useEffect(() => {
     if (!participantId || !sessionStatus) {
@@ -1256,7 +1350,35 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   }, [participantId, participantRole, sessionStatus]);
 
   useEffect(() => {
-    if (!participantId) {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (!participantId || !sessionStatus) {
+      return;
+    }
+    try {
+      sessionStorage.setItem(
+        `chatOrbit.session.${token}`,
+        JSON.stringify({
+          token,
+          participantId,
+          role: participantRole,
+          status: sessionStatus.status,
+          sessionActive: sessionStatus.status === "active",
+          sessionStartedAt: sessionStatus.sessionStartedAt,
+          sessionExpiresAt: sessionStatus.sessionExpiresAt,
+          messageCharLimit: sessionStatus.messageCharLimit,
+          remainingSeconds,
+          sessionEnded,
+        }),
+      );
+    } catch (cause) {
+      console.warn("Failed to persist session state", cause);
+    }
+  }, [participantId, participantRole, remainingSeconds, sessionEnded, sessionStatus, token]);
+
+  useEffect(() => {
+    if (!participantId || sessionEnded) {
       return;
     }
 
@@ -1273,7 +1395,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     socketRef.current = socket;
 
     socket.onopen = () => {
-      if (!active) {
+      if (!active || sessionEndedRef.current) {
+        socket.close();
         return;
       }
       reconnectAttemptsRef.current = 0;
@@ -1295,6 +1418,10 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       }
       setSocketReady(false);
       socketRef.current = null;
+      if (sessionEndedRef.current) {
+        logEvent("WebSocket connection closed after session end");
+        return;
+      }
       setConnected(false);
       resetPeerConnection({ recreate: false });
       logEvent("WebSocket connection closed");
@@ -1316,7 +1443,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     };
 
     socket.onerror = (event) => {
-      if (!active) {
+      if (!active || sessionEndedRef.current) {
         return;
       }
       logEvent("WebSocket error", event);
@@ -1324,7 +1451,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     };
 
     socket.onmessage = (event) => {
-      if (!active) {
+      if (!active || sessionEndedRef.current) {
         return;
       }
       logEvent("Received WebSocket message", event.data);
@@ -1338,14 +1465,9 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           setError(payload.message);
           logEvent("Received WebSocket error", payload);
         } else if (payload.type === "session_closed") {
-          setSessionStatus((prev) => (prev ? { ...prev, status: "closed", remainingSeconds: 0 } : prev));
-          setRemainingSeconds(0);
-          if (dataChannelRef.current) {
-            dataChannelRef.current.close();
-          }
-          resetPeerConnection({ recreate: false });
-          setConnected(false);
-          setIsReconnecting(false);
+          finalizeSession("closed");
+        } else if (payload.type === "session_expired") {
+          finalizeSession("expired");
         } else if (payload.type === "signal") {
           void handleSignal(payload);
         }
@@ -1365,13 +1487,38 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     };
   }, [
     handleSignal,
+    finalizeSession,
     participantId,
     reconnectBaseDelayMs,
     resetPeerConnection,
     setIsReconnecting,
+    sessionEnded,
     socketReconnectNonce,
     token,
   ]);
+
+  useEffect(() => {
+    if (!sessionStatus) {
+      return;
+    }
+    if (sessionStatus.status === "closed") {
+      finalizeSession("closed");
+    } else if (sessionStatus.status === "expired") {
+      finalizeSession("expired");
+    }
+  }, [finalizeSession, sessionStatus]);
+
+  useEffect(() => {
+    if (sessionStatus?.status !== "active") {
+      return;
+    }
+    if (remainingSeconds === null) {
+      return;
+    }
+    if (remainingSeconds === 0) {
+      finalizeSession("closed");
+    }
+  }, [finalizeSession, remainingSeconds, sessionStatus?.status]);
 
   useEffect(() => {
     if (
@@ -1446,14 +1593,23 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     return Math.min(connectedIds.size, 2);
   }, [connected, participantId, sessionStatus?.connectedParticipants, sessionStatus?.participants]);
 
+  const hasSessionEnded =
+    sessionEnded || sessionStatus?.status === "closed" || sessionStatus?.status === "expired";
+
   const countdownLabel = useMemo(() => {
+    if (hasSessionEnded) {
+      return "00:00";
+    }
     if (remainingSeconds === null) {
       return sessionStatus?.status === "issued" ? "Waiting for partner…" : "Starting…";
     }
     const minutes = Math.floor(remainingSeconds / 60);
     const seconds = remainingSeconds % 60;
     return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-  }, [remainingSeconds, sessionStatus?.status]);
+  }, [hasSessionEnded, remainingSeconds, sessionStatus?.status]);
+
+  const showChatPanel =
+    sessionStatus?.status === "active" || (hasSessionEnded && !sessionEndedFromStorage);
 
   const encryptionAlertMessage = useMemo(() => {
     if (supportsEncryption === false && peerSupportsEncryption === false) {
@@ -1742,7 +1898,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           <div className="status-pill">
             <span
               className={`status-indicator${
-                sessionStatus?.status === "closed" || sessionStatus?.status === "expired"
+                hasSessionEnded
                   ? " status-indicator--ended"
                   : connected
                     ? " status-indicator--active"
@@ -1751,13 +1907,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
               aria-hidden
             />
             <span>
-              {sessionStatus?.status === "closed"
-                ? "Ended"
-                : sessionStatus?.status === "expired"
-                  ? "Expired"
-                  : connected
-                    ? "Connected"
-                    : "Waiting"}
+              {hasSessionEnded ? "Ended" : connected ? "Connected" : "Waiting"}
             </span>
           </div>
           <p className="countdown-label">Session timer</p>
@@ -1765,11 +1915,16 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         </div>
       </div>
 
-      {sessionStatus?.status === "closed" ? (
-        <div className="session-alert session-alert--ended">Session ended. Request a new token to start over.</div>
+      {hasSessionEnded ? (
+        <div className="session-alert session-alert--ended">
+          <p>Session ended. Request a new token to start over.</p>
+          <Link href="/" className="session-alert__home-link">
+            Leave room
+          </Link>
+        </div>
       ) : null}
 
-      {error ? <div className="alert alert--error">{error}</div> : null}
+      {!hasSessionEnded && error ? <div className="alert alert--error">{error}</div> : null}
 
       {isReconnecting && !connected && sessionStatus?.status === "active" ? (
         <div className="alert alert--info" role="status" aria-live="polite">
@@ -1777,66 +1932,68 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         </div>
       ) : null}
 
-      <div className="chat-panel">
-        <div className="chat-panel__stats">
-          <span>Connected participants: {connectedParticipantCount}/2</span>
-          <span>
-            Limit: {sessionStatus ? sessionStatus.messageCharLimit.toLocaleString() : "—"} chars/message
-          </span>
-        </div>
-
-        {encryptionAlertMessage ? (
-          <div className="alert alert--info">{encryptionAlertMessage}</div>
-        ) : null}
-
-        <div className="chat-log">
-          {messages.length === 0 ? (
-            <p>No messages yet. Start the conversation!</p>
-          ) : (
-            messages.map((message) => {
-              const mine = message.participantId === participantId;
-              return (
-                <div key={message.messageId} className={`message${mine ? " message--own" : ""}`}>
-                  <div className="message-meta">
-                    <span>{mine ? "You" : message.role}</span>
-                    <span className="message__time">
-                      {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                  </div>
-                  <div className="message__body">{message.content}</div>
-                  {mine ? (
-                    <button type="button" onClick={() => handleDelete(message.messageId)} className="message__delete">
-                      Delete
-                    </button>
-                  ) : null}
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        <form onSubmit={handleSend} className="composer">
-          <textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            className="textarea"
-            placeholder="Type your message…"
-            disabled={sessionStatus?.status !== "active"}
-          />
-          <div className="composer__footer">
+      {showChatPanel ? (
+        <div className="chat-panel">
+          <div className="chat-panel__stats">
+            <span>Connected participants: {connectedParticipantCount}/2</span>
             <span>
-              {draft.length}/{sessionStatus?.messageCharLimit ?? 0}
+              Limit: {sessionStatus ? sessionStatus.messageCharLimit.toLocaleString() : "—"} chars/message
             </span>
-            <button
-              type="submit"
-              disabled={!connected || sessionStatus?.status !== "active" || peerSupportsEncryption === null}
-              className="button button--cyan"
-            >
-              Send
-            </button>
           </div>
-        </form>
-      </div>
+
+          {encryptionAlertMessage ? (
+            <div className="alert alert--info">{encryptionAlertMessage}</div>
+          ) : null}
+
+          <div className="chat-log">
+            {messages.length === 0 ? (
+              <p>No messages yet. Start the conversation!</p>
+            ) : (
+              messages.map((message) => {
+                const mine = message.participantId === participantId;
+                return (
+                  <div key={message.messageId} className={`message${mine ? " message--own" : ""}`}>
+                    <div className="message-meta">
+                      <span>{mine ? "You" : message.role}</span>
+                      <span className="message__time">
+                        {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                    </div>
+                    <div className="message__body">{message.content}</div>
+                    {mine ? (
+                      <button type="button" onClick={() => handleDelete(message.messageId)} className="message__delete">
+                        Delete
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <form onSubmit={handleSend} className="composer">
+            <textarea
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              className="textarea"
+              placeholder="Type your message…"
+              disabled={sessionStatus?.status !== "active"}
+            />
+            <div className="composer__footer">
+              <span>
+                {draft.length}/{sessionStatus?.messageCharLimit ?? 0}
+              </span>
+              <button
+                type="submit"
+                disabled={!connected || sessionStatus?.status !== "active" || peerSupportsEncryption === null}
+                className="button button--cyan"
+              >
+                Send
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </div>
   );
 }
