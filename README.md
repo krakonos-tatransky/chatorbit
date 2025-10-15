@@ -67,6 +67,18 @@ For production, copy `infra/.env.production.example` to `infra/.env.production` 
 - **WebSocket messaging** – Messages are relayed as signed bundles. Either author can delete their own line, instantly removing
   it from both histories. When the timer expires the backend closes the session and notifies both peers.
 
+## Brand assets
+
+Need a visual to promote ChatOrbit? The `frontend/public/brand/` directory now ships with three high-resolution SVG marks that
+mirror the product concept of token-gated two-person conversations:
+
+- `chat-orbit-logo-token.svg` – coin-like primary badge with mirrored chat silhouettes orbiting a shared core.
+- `chat-orbit-logo-link.svg` – wide lockup depicting two callouts bridged by a token clasp for hero or banner usage.
+- `chat-orbit-logo-glyph.svg` – compact orbital glyph for favicons, avatars, and tight UI placements.
+
+Because the assets are vector-based you can scale or recolor them in your editor without quality loss. Feel free to drop them
+into the Next.js app by referencing `/brand/<filename>.svg`.
+
 ## Project structure
 
 ```
