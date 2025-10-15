@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     FastAPI,
     HTTPException,
@@ -373,7 +374,11 @@ def session_status(token: str, db: Session = Depends(get_session)) -> SessionSta
 
 
 @router.delete("/sessions/{token}", response_model=SessionStatusResponse)
-async def delete_session(token: str, db: Session = Depends(get_session)) -> SessionStatusResponse:
+def delete_session(
+    token: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_session),
+) -> SessionStatusResponse:
     session_model = _get_session_by_token(db, token)
     ensure_session_state(session_model)
     if session_model.status != SessionStatus.DELETED:
@@ -386,8 +391,8 @@ async def delete_session(token: str, db: Session = Depends(get_session)) -> Sess
         db.commit()
         db.refresh(session_model)
     response = serialize_session(session_model)
-    await manager.broadcast(token, {"type": "session_deleted"})
-    await broadcast_status(token)
+    background_tasks.add_task(manager.broadcast, token, {"type": "session_deleted"})
+    background_tasks.add_task(broadcast_status, token)
     return response
 
 app.include_router(router)
