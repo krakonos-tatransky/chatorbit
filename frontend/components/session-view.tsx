@@ -633,7 +633,14 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   );
 
   const schedulePeerConnectionRecovery = useCallback(
-    (pc: RTCPeerConnection, reason: string, { delayMs = RECONNECT_BASE_DELAY_MS }: { delayMs?: number } = {}) => {
+    (
+      pc: RTCPeerConnection,
+      reason: string,
+      { delayMs = RECONNECT_BASE_DELAY_MS }: { delayMs?: number } = {},
+    ) => {
+      if (participantRole === "host") {
+        return;
+      }
       if (disconnectionRecoveryTimeoutRef.current) {
         return;
       }
@@ -649,7 +656,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         resetPeerConnection();
       }, delayMs);
     },
-    [resetPeerConnection],
+    [participantRole, resetPeerConnection],
   );
 
   const sendCapabilities = useCallback(() => {
