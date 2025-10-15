@@ -29,8 +29,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   <Image
                     src={CHAT_ORBIT_LOGO_URL}
                     alt=""
-                    width={44}
-                    height={44}
+                    width={88}
+                    height={88}
                     sizes="(max-width: 540px) 34px, 44px"
                     priority
                   />
