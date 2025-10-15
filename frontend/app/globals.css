@@ -540,6 +540,28 @@ main {
   color: rgba(148, 163, 184, 0.6);
 }
 
+.session-debug__hide-button {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 0.7rem;
+  font-family: inherit;
+  color: rgba(148, 163, 184, 0.6);
+  cursor: pointer;
+}
+
+.session-debug__hide-button:hover,
+.session-debug__hide-button:focus-visible {
+  color: rgba(148, 163, 184, 0.85);
+}
+
+.session-debug__hide-button:focus-visible {
+  outline: 2px solid rgba(148, 163, 184, 0.4);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .session-debug__list {
   margin: 0;
   display: grid;

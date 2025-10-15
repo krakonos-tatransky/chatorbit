@@ -257,6 +257,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [supportsEncryption, setSupportsEncryption] = useState<boolean | null>(null);
   const [peerSupportsEncryption, setPeerSupportsEncryption] = useState<boolean | null>(null);
   const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
   const [clientIdentity, setClientIdentity] = useState<string | null>(null);
   const [connectionState, setConnectionState] = useState<RTCPeerConnectionState | null>(null);
   const [iceConnectionState, setIceConnectionState] = useState<RTCIceConnectionState | null>(null);
@@ -342,6 +343,35 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
 
   useEffect(() => {
     setSupportsEncryption(resolveCrypto() !== null);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia("(pointer: coarse)");
+    const updateIsTouch = () => {
+      setIsTouchDevice(mediaQuery.matches);
+    };
+
+    updateIsTouch();
+
+    const handleChange = () => {
+      updateIsTouch();
+    };
+
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", handleChange);
+      return () => {
+        mediaQuery.removeEventListener("change", handleChange);
+      };
+    }
+
+    mediaQuery.addListener(handleChange);
+    return () => {
+      mediaQuery.removeListener(handleChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -1395,7 +1425,20 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
             <div className="session-debug" data-test="session-debug-panel">
               <div className="session-debug__header">
                 <p className="session-debug__title">Client debug</p>
-                <p className="session-debug__hint">Press Esc to hide</p>
+                {isTouchDevice ? (
+                  <button
+                    type="button"
+                    className="session-debug__hide-button"
+                    onClick={() => {
+                      setShowDebugPanel(false);
+                    }}
+                    aria-label="Hide debug panel"
+                  >
+                    Hide
+                  </button>
+                ) : (
+                  <p className="session-debug__hint">Press Esc to hide</p>
+                )}
               </div>
               <dl className="session-debug__list">
                 <div className="session-debug__item">
