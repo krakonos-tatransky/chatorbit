@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 
 import { apiUrl, wsUrl } from "@/lib/api";
+import { getClientIdentity } from "@/lib/client-identity";
 import { getIceServers } from "@/lib/webrtc";
 
 const textEncoder = new TextEncoder();
@@ -123,6 +124,20 @@ type CryptoLike = {
   randomUUID?: () => string;
 };
 
+type DebugLogEntry = {
+  timestamp: number;
+  message: string;
+  details: unknown[];
+};
+
+type DebugObserver = (entry: DebugLogEntry) => void;
+
+let debugObserver: DebugObserver | null = null;
+
+function setDebugObserver(observer: DebugObserver | null) {
+  debugObserver = observer;
+}
+
 function resolveCrypto(): CryptoLike | null {
   const globalScope: any =
     typeof globalThis !== "undefined"
@@ -171,9 +186,13 @@ function resolveCrypto(): CryptoLike | null {
 const RECONNECT_BASE_DELAY_MS = 1000;
 const RECONNECT_MAX_DELAY_MS = 30000;
 const MAX_ICE_FAILURE_RETRIES = 3;
+const SECRET_DEBUG_KEYWORD = "orbitdebug";
 
 function logEvent(message: string, ...details: unknown[]) {
   console.log(`[SessionView] ${message}`, ...details);
+  if (debugObserver) {
+    debugObserver({ timestamp: Date.now(), message, details });
+  }
 }
 
 type Participant = {
@@ -237,6 +256,13 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [peerResetNonce, setPeerResetNonce] = useState(0);
   const [supportsEncryption, setSupportsEncryption] = useState<boolean | null>(null);
   const [peerSupportsEncryption, setPeerSupportsEncryption] = useState<boolean | null>(null);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  const [clientIdentity, setClientIdentity] = useState<string | null>(null);
+  const [connectionState, setConnectionState] = useState<RTCPeerConnectionState | null>(null);
+  const [iceConnectionState, setIceConnectionState] = useState<RTCIceConnectionState | null>(null);
+  const [iceGatheringState, setIceGatheringState] = useState<RTCIceGatheringState | null>(null);
+  const [dataChannelState, setDataChannelState] = useState<RTCDataChannelState | null>(null);
+  const [debugEvents, setDebugEvents] = useState<DebugLogEntry[]>([]);
   const socketRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
@@ -257,6 +283,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const knownMessageIdsRef = useRef<Set<string>>(new Set());
   const initialMessagesHandledRef = useRef(false);
   const notificationSoundRef = useRef<NotificationSoundName>(DEFAULT_NOTIFICATION_SOUND);
+  const secretBufferRef = useRef<string>("");
 
   const ensureAudioContext = useCallback(() => {
     if (typeof window === "undefined") {
@@ -316,6 +343,92 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   useEffect(() => {
     setSupportsEncryption(resolveCrypto() !== null);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    function handleKeydown(event: KeyboardEvent) {
+      if (event.defaultPrevented) {
+        return;
+      }
+      if (event.key === "Escape") {
+        secretBufferRef.current = "";
+        setShowDebugPanel(false);
+        return;
+      }
+      if (sessionStatus?.status !== "active") {
+        secretBufferRef.current = "";
+        return;
+      }
+      if (event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+      if (event.key.length !== 1) {
+        return;
+      }
+      const nextBuffer = `${secretBufferRef.current}${event.key}`;
+      secretBufferRef.current = nextBuffer.slice(-SECRET_DEBUG_KEYWORD.length);
+      if (secretBufferRef.current.toLowerCase().includes(SECRET_DEBUG_KEYWORD)) {
+        setShowDebugPanel(true);
+      }
+    }
+
+    window.addEventListener("keydown", handleKeydown);
+    return () => {
+      window.removeEventListener("keydown", handleKeydown);
+    };
+  }, [sessionStatus?.status]);
+
+  useEffect(() => {
+    if (!showDebugPanel) {
+      setDebugEvents([]);
+      setDebugObserver(null);
+      return;
+    }
+
+    setDebugEvents([]);
+    const observer: DebugObserver = (entry) => {
+      setDebugEvents((prev) => {
+        const next = [...prev, entry];
+        if (next.length > 25) {
+          return next.slice(next.length - 25);
+        }
+        return next;
+      });
+    };
+    setDebugObserver(observer);
+
+    return () => {
+      setDebugObserver(null);
+    };
+  }, [showDebugPanel]);
+
+  useEffect(() => {
+    if (!showDebugPanel) {
+      return;
+    }
+
+    let cancelled = false;
+    if (clientIdentity === null) {
+      void getClientIdentity().then((identity) => {
+        if (!cancelled) {
+          setClientIdentity(identity);
+        }
+      });
+    }
+
+    const pc = peerConnectionRef.current;
+    setConnectionState(pc?.connectionState ?? null);
+    setIceConnectionState(pc?.iceConnectionState ?? null);
+    setIceGatheringState(pc?.iceGatheringState ?? null);
+    setDataChannelState(dataChannelRef.current?.readyState ?? null);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showDebugPanel, clientIdentity]);
 
   useEffect(() => {
     return () => {
@@ -407,6 +520,10 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       }
       peerConnectionRef.current = null;
       dataChannelRef.current = null;
+      setConnectionState(null);
+      setIceConnectionState(null);
+      setIceGatheringState(null);
+      setDataChannelState(null);
       pendingCandidatesRef.current = [];
       pendingSignalsRef.current = [];
       hasSentOfferRef.current = false;
@@ -428,7 +545,14 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         setPeerResetNonce((value) => value + 1);
       }
     },
-    [setConnected, setPeerResetNonce],
+    [
+      setConnected,
+      setPeerResetNonce,
+      setConnectionState,
+      setIceConnectionState,
+      setIceGatheringState,
+      setDataChannelState,
+    ],
   );
 
   const sendCapabilities = useCallback(() => {
@@ -577,6 +701,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const attachDataChannel = useCallback(
     (channel: RTCDataChannel) => {
       dataChannelRef.current = channel;
+      setDataChannelState(channel.readyState);
       logEvent("Attached data channel", { label: channel.label, readyState: channel.readyState });
       channel.onopen = () => {
         setConnected(true);
@@ -585,6 +710,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         logEvent("Data channel opened", { label: channel.label });
         capabilityAnnouncedRef.current = false;
         sendCapabilities();
+        setDataChannelState(channel.readyState);
       };
       channel.onclose = () => {
         setConnected(false);
@@ -595,19 +721,21 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         peerSupportsEncryptionRef.current = null;
         setPeerSupportsEncryption(null);
         logEvent("Data channel closed", { label: channel.label });
+        setDataChannelState(channel.readyState);
       };
       channel.onerror = () => {
         setConnected(false);
         peerSupportsEncryptionRef.current = null;
         setPeerSupportsEncryption(null);
         logEvent("Data channel encountered an error", { label: channel.label });
+        setDataChannelState(channel.readyState);
       };
       channel.onmessage = (event) => {
         logEvent("Data channel message received", { label: channel.label, length: event.data?.length });
         void handlePeerMessage(event.data);
       };
     },
-    [handlePeerMessage, participantRole, sendCapabilities],
+    [handlePeerMessage, participantRole, sendCapabilities, setDataChannelState],
   );
 
   const sendSignal = useCallback(
@@ -714,6 +842,9 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       iceServers: getIceServers(),
     });
     peerConnectionRef.current = peerConnection;
+    setConnectionState(peerConnection.connectionState);
+    setIceConnectionState(peerConnection.iceConnectionState);
+    setIceGatheringState(peerConnection.iceGatheringState);
 
     peerConnection.onicecandidate = (event) => {
       if (event.candidate && event.candidate.candidate) {
@@ -725,9 +856,14 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       }
     };
 
+    peerConnection.onicegatheringstatechange = () => {
+      setIceGatheringState(peerConnection.iceGatheringState);
+    };
+
     peerConnection.onconnectionstatechange = () => {
       logEvent("Peer connection state changed", peerConnection.connectionState);
       const state = peerConnection.connectionState;
+      setConnectionState(state);
       if (state === "connected") {
         setConnected(true);
         setError(null);
@@ -743,6 +879,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     peerConnection.oniceconnectionstatechange = () => {
       const state = peerConnection.iceConnectionState;
       logEvent("ICE connection state changed", state);
+      setIceConnectionState(state);
       if (state === "failed" && participantRole === "host" && peerConnectionRef.current === peerConnection) {
         if (iceFailureRetriesRef.current < MAX_ICE_FAILURE_RETRIES) {
           const attempt = iceFailureRetriesRef.current + 1;
@@ -1065,6 +1202,11 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     return null;
   }, [peerSupportsEncryption, supportsEncryption]);
 
+  const recentDebugEvents = useMemo(() => {
+    const limit = 5;
+    return debugEvents.slice(-limit).reverse();
+  }, [debugEvents]);
+
   async function handleSend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const channel = dataChannelRef.current;
@@ -1249,6 +1391,73 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
             </span>
             .
           </p>
+          {showDebugPanel ? (
+            <div className="session-debug" data-test="session-debug-panel">
+              <div className="session-debug__header">
+                <p className="session-debug__title">Client debug</p>
+                <p className="session-debug__hint">Press Esc to hide</p>
+              </div>
+              <dl className="session-debug__list">
+                <div className="session-debug__item">
+                  <dt>Identity</dt>
+                  <dd>{clientIdentity ?? "Gathering…"}</dd>
+                </div>
+                <div className="session-debug__item">
+                  <dt>Peer state</dt>
+                  <dd>{connectionState ?? "—"}</dd>
+                </div>
+                <div className="session-debug__item">
+                  <dt>ICE connection</dt>
+                  <dd>{iceConnectionState ?? "—"}</dd>
+                </div>
+                <div className="session-debug__item">
+                  <dt>ICE gathering</dt>
+                  <dd>{iceGatheringState ?? "—"}</dd>
+                </div>
+                <div className="session-debug__item">
+                  <dt>Data channel</dt>
+                  <dd>{dataChannelState ?? "—"}</dd>
+                </div>
+              </dl>
+              <div className="session-debug__events">
+                <p className="session-debug__subtitle">Recent events</p>
+                {recentDebugEvents.length === 0 ? (
+                  <p className="session-debug__empty">Watching for new logs…</p>
+                ) : (
+                  <ul className="session-debug__event-list">
+                    {recentDebugEvents.map((entry, index) => {
+                      const detail = entry.details[0];
+                      let detailSnippet: string | null = null;
+                      if (detail !== undefined) {
+                        try {
+                          detailSnippet = JSON.stringify(detail);
+                        } catch (error) {
+                          detailSnippet = String(detail);
+                        }
+                        if (detailSnippet && detailSnippet.length > 160) {
+                          detailSnippet = `${detailSnippet.slice(0, 157)}…`;
+                        }
+                      }
+                      const timestamp = new Date(entry.timestamp).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      });
+                      return (
+                        <li key={`${entry.timestamp}-${index}`} className="session-debug__event">
+                          <span className="session-debug__event-time">{timestamp}</span>
+                          <span className="session-debug__event-message">{entry.message}</span>
+                          {detailSnippet ? (
+                            <code className="session-debug__event-detail">{detailSnippet}</code>
+                          ) : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </div>
+          ) : null}
         </div>
         <div className="countdown">
           <div className="status-pill">
