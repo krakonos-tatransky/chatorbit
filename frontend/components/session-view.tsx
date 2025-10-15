@@ -388,10 +388,16 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       return;
     }
 
+    type NetworkInformationLike = {
+      effectiveType?: string;
+      addEventListener?: (type: string, listener: EventListenerOrEventListenerObject) => void;
+      removeEventListener?: (type: string, listener: EventListenerOrEventListenerObject) => void;
+    };
+
     const extendedNavigator = navigator as Navigator & {
-      connection?: NetworkInformation;
-      mozConnection?: NetworkInformation;
-      webkitConnection?: NetworkInformation;
+      connection?: NetworkInformationLike;
+      mozConnection?: NetworkInformationLike;
+      webkitConnection?: NetworkInformationLike;
     };
 
     const connection =
