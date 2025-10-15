@@ -183,7 +183,9 @@ function resolveCrypto(): CryptoLike | null {
   return null;
 }
 
-const RECONNECT_BASE_DELAY_MS = 1000;
+const DEFAULT_RECONNECT_BASE_DELAY_MS = 1000;
+const FAST_NETWORK_RECONNECT_DELAY_MS = 400;
+const MODERATE_NETWORK_RECONNECT_DELAY_MS = 700;
 const RECONNECT_MAX_DELAY_MS = 30000;
 const MAX_ICE_FAILURE_RETRIES = 3;
 const SECRET_DEBUG_KEYWORD = "orbitdebug";
@@ -264,6 +266,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [iceGatheringState, setIceGatheringState] = useState<RTCIceGatheringState | null>(null);
   const [dataChannelState, setDataChannelState] = useState<RTCDataChannelState | null>(null);
   const [debugEvents, setDebugEvents] = useState<DebugLogEntry[]>([]);
+  const [reconnectBaseDelayMs, setReconnectBaseDelayMs] = useState(DEFAULT_RECONNECT_BASE_DELAY_MS);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
@@ -378,6 +382,71 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   useEffect(() => {
     setSupportsEncryption(resolveCrypto() !== null);
   }, []);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined") {
+      return;
+    }
+
+    const extendedNavigator = navigator as Navigator & {
+      connection?: NetworkInformation;
+      mozConnection?: NetworkInformation;
+      webkitConnection?: NetworkInformation;
+    };
+
+    const connection =
+      extendedNavigator.connection ?? extendedNavigator.mozConnection ?? extendedNavigator.webkitConnection;
+
+    if (!connection || typeof connection.addEventListener !== "function") {
+      return;
+    }
+
+    const deriveDelay = () => {
+      const effectiveType = connection.effectiveType;
+      if (effectiveType === "4g") {
+        return FAST_NETWORK_RECONNECT_DELAY_MS;
+      }
+      if (effectiveType === "3g") {
+        return MODERATE_NETWORK_RECONNECT_DELAY_MS;
+      }
+      return DEFAULT_RECONNECT_BASE_DELAY_MS;
+    };
+
+    const updateDelay = () => {
+      const nextDelay = deriveDelay();
+      setReconnectBaseDelayMs((current) => (current === nextDelay ? current : nextDelay));
+    };
+
+    updateDelay();
+
+    const handleChange = () => {
+      updateDelay();
+      logEvent("Network change detected", {
+        effectiveType: connection.effectiveType,
+        downlink: connection.downlink,
+        rtt: connection.rtt,
+      });
+      if (!sessionActiveRef.current) {
+        return;
+      }
+      const pc = peerConnectionRef.current;
+      if (!pc) {
+        return;
+      }
+      setIsReconnecting(true);
+      if (participantRole === "host") {
+        resetPeerConnection();
+      } else {
+        schedulePeerConnectionRecovery(pc, "network change", { delayMs: 0 });
+      }
+    };
+
+    connection.addEventListener("change", handleChange);
+
+    return () => {
+      connection.removeEventListener("change", handleChange);
+    };
+  }, [participantRole, resetPeerConnection, schedulePeerConnectionRecovery, setIsReconnecting]);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -609,6 +678,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       peerSupportsEncryptionRef.current = null;
       setPeerSupportsEncryption(null);
       if (!recreate) {
+        setIsReconnecting(false);
         return;
       }
       if (delayMs && delayMs > 0) {
@@ -624,6 +694,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     },
     [
       setConnected,
+      setIsReconnecting,
       setPeerResetNonce,
       setConnectionState,
       setIceConnectionState,
@@ -636,7 +707,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     (
       pc: RTCPeerConnection,
       reason: string,
-      { delayMs = RECONNECT_BASE_DELAY_MS }: { delayMs?: number } = {},
+      { delayMs }: { delayMs?: number } = {},
     ) => {
       if (participantRole === "host") {
         return;
@@ -644,6 +715,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       if (disconnectionRecoveryTimeoutRef.current) {
         return;
       }
+      const effectiveDelay = delayMs ?? reconnectBaseDelayMs;
+      setIsReconnecting(true);
       disconnectionRecoveryTimeoutRef.current = setTimeout(() => {
         disconnectionRecoveryTimeoutRef.current = null;
         if (peerConnectionRef.current !== pc) {
@@ -652,11 +725,11 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         if (!sessionActiveRef.current) {
           return;
         }
-        logEvent("Resetting peer connection after interruption", { reason, delayMs });
+        logEvent("Resetting peer connection after interruption", { reason, delayMs: effectiveDelay });
         resetPeerConnection();
-      }, delayMs);
+      }, effectiveDelay);
     },
-    [participantRole, resetPeerConnection],
+    [participantRole, reconnectBaseDelayMs, resetPeerConnection, setIsReconnecting],
   );
 
   const sendCapabilities = useCallback(() => {
@@ -811,6 +884,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         setConnected(true);
         setError(null);
         iceFailureRetriesRef.current = 0;
+        setIsReconnecting(false);
         logEvent("Data channel opened", { label: channel.label });
         capabilityAnnouncedRef.current = false;
         sendCapabilities();
@@ -826,6 +900,9 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         setPeerSupportsEncryption(null);
         logEvent("Data channel closed", { label: channel.label });
         setDataChannelState(channel.readyState);
+        if (sessionActiveRef.current) {
+          setIsReconnecting(true);
+        }
         if (owner && peerConnectionRef.current === owner && sessionActiveRef.current) {
           schedulePeerConnectionRecovery(owner, "data channel closed");
         }
@@ -836,6 +913,9 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         setPeerSupportsEncryption(null);
         logEvent("Data channel encountered an error", { label: channel.label });
         setDataChannelState(channel.readyState);
+        if (sessionActiveRef.current) {
+          setIsReconnecting(true);
+        }
         if (owner && peerConnectionRef.current === owner && sessionActiveRef.current) {
           schedulePeerConnectionRecovery(owner, "data channel error");
         }
@@ -850,6 +930,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       participantRole,
       schedulePeerConnectionRecovery,
       sendCapabilities,
+      setIsReconnecting,
       setDataChannelState,
     ],
   );
@@ -983,6 +1064,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       if (state === "connected") {
         setConnected(true);
         setError(null);
+        setIsReconnecting(false);
         iceFailureRetriesRef.current = 0;
         if (disconnectionRecoveryTimeoutRef.current) {
           clearTimeout(disconnectionRecoveryTimeoutRef.current);
@@ -990,6 +1072,9 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         }
       } else if (state === "failed" || state === "disconnected" || state === "closed") {
         setConnected(false);
+        if (sessionActiveRef.current) {
+          setIsReconnecting(true);
+        }
         if (participantRole === "host") {
           hasSentOfferRef.current = false;
         }
@@ -1015,11 +1100,13 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         if (iceFailureRetriesRef.current < MAX_ICE_FAILURE_RETRIES) {
           const attempt = iceFailureRetriesRef.current + 1;
           iceFailureRetriesRef.current = attempt;
+          setIsReconnecting(true);
           resetPeerConnection({ delayMs: 1000 * attempt });
           logEvent("ICE connection failed; scheduling retry", { attempt });
         } else {
           setError("Connection failed. Please refresh to retry.");
           logEvent("ICE connection failed and maximum retries reached");
+          setIsReconnecting(false);
         }
       } else if (
         (state === "failed" || state === "disconnected") &&
@@ -1027,12 +1114,30 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         peerConnectionRef.current === peerConnection &&
         sessionActiveRef.current
       ) {
-        const delayMs = state === "failed" ? 0 : RECONNECT_BASE_DELAY_MS;
+        const delayMs = state === "failed" ? 0 : reconnectBaseDelayMs;
         schedulePeerConnectionRecovery(peerConnection, `ice connection ${state}`, { delayMs });
       } else if (state === "connected") {
         iceFailureRetriesRef.current = 0;
       }
     };
+
+    peerConnection.addEventListener("icecandidateerror", (event: RTCPeerConnectionIceErrorEvent) => {
+      logEvent("ICE candidate error reported", {
+        errorCode: event.errorCode,
+        errorText: event.errorText,
+        url: event.url,
+        hostCandidate: event.hostCandidate,
+      });
+      if (event.errorCode === 438 && sessionActiveRef.current) {
+        logEvent("Detected stale nonce from TURN server; initiating recovery", { url: event.url });
+        setIsReconnecting(true);
+        if (participantRole === "host") {
+          resetPeerConnection();
+        } else {
+          schedulePeerConnectionRecovery(peerConnection, "stale nonce", { delayMs: 0 });
+        }
+      }
+    });
 
     if (participantRole === "host") {
       logEvent("Creating data channel as host");
@@ -1070,6 +1175,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     peerResetNonce,
     processSignalPayload,
     resetPeerConnection,
+    reconnectBaseDelayMs,
     schedulePeerConnectionRecovery,
     sendSignal,
   ]);
@@ -1169,6 +1275,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       setSocketReady(true);
       setError(null);
       iceFailureRetriesRef.current = 0;
+      setIsReconnecting(false);
       logEvent("WebSocket connection established");
       resetPeerConnection();
     };
@@ -1187,13 +1294,14 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         reconnectAttemptsRef.current = attempt;
         const backoffAttempt = Math.min(attempt, 6);
         const delay = Math.min(
-          RECONNECT_BASE_DELAY_MS * 2 ** (backoffAttempt - 1),
+          reconnectBaseDelayMs * 2 ** (backoffAttempt - 1),
           RECONNECT_MAX_DELAY_MS,
         );
         reconnectTimeoutRef.current = setTimeout(() => {
           reconnectTimeoutRef.current = null;
           setSocketReconnectNonce((value) => value + 1);
         }, delay);
+        setIsReconnecting(true);
         logEvent("Scheduling WebSocket reconnect", { attempt, delay });
       }
     };
@@ -1228,6 +1336,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           }
           resetPeerConnection({ recreate: false });
           setConnected(false);
+          setIsReconnecting(false);
         } else if (payload.type === "signal") {
           void handleSignal(payload);
         }
@@ -1245,7 +1354,15 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       socketRef.current = null;
       socket.close();
     };
-  }, [handleSignal, participantId, resetPeerConnection, socketReconnectNonce, token]);
+  }, [
+    handleSignal,
+    participantId,
+    reconnectBaseDelayMs,
+    resetPeerConnection,
+    setIsReconnecting,
+    socketReconnectNonce,
+    token,
+  ]);
 
   useEffect(() => {
     if (
@@ -1644,6 +1761,12 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       ) : null}
 
       {error ? <div className="alert alert--error">{error}</div> : null}
+
+      {isReconnecting && !connected && sessionStatus?.status === "active" ? (
+        <div className="alert alert--info" role="status" aria-live="polite">
+          Reconnecting…
+        </div>
+      ) : null}
 
       <div className="chat-panel">
         <div className="chat-panel__stats">
