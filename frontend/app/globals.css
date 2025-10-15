@@ -54,9 +54,8 @@ body {
   display: inline-flex;
   width: 44px;
   height: 44px;
-  border-radius: 16px;
-  overflow: hidden;
-  box-shadow: 0 12px 25px -15px rgba(8, 145, 178, 0.8);
+  align-items: center;
+  justify-content: center;
 }
 
 .site-logo__text {
@@ -78,7 +77,6 @@ body {
   .site-logo__mark {
     width: 34px;
     height: 34px;
-    border-radius: 12px;
   }
 
   .site-nav {
