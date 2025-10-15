@@ -52,9 +52,9 @@ body {
 
 .site-logo__mark {
   display: inline-flex;
-  width: 40px;
-  height: 40px;
-  border-radius: 14px;
+  width: 44px;
+  height: 44px;
+  border-radius: 16px;
   overflow: hidden;
   box-shadow: 0 12px 25px -15px rgba(8, 145, 178, 0.8);
 }

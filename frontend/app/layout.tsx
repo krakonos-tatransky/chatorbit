@@ -3,10 +3,18 @@ import Image from "next/image";
 import type { Metadata } from "next";
 import Link from "next/link";
 
+const CHAT_ORBIT_LOGO_URL =
+  "https://useruploads.socraticoverflow.com/uploads/ahAuskPi9XfyyezyzWftmmnc.png";
+
 export const metadata: Metadata = {
   title: "ChatOrbit",
   description:
     "Issue temporary tokens and meet privately in a peer-style chat session with a countdown timer.",
+  icons: {
+    icon: CHAT_ORBIT_LOGO_URL,
+    shortcut: CHAT_ORBIT_LOGO_URL,
+    apple: CHAT_ORBIT_LOGO_URL,
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -20,10 +28,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/" className="site-logo">
                 <span className="site-logo__mark" aria-hidden>
                   <Image
-                    src="/brand/chat-orbit-shield-logo.svg"
+                    src={CHAT_ORBIT_LOGO_URL}
                     alt=""
-                    width={40}
-                    height={40}
+                    width={44}
+                    height={44}
+                    sizes="(max-width: 540px) 34px, 44px"
                     priority
                   />
                 </span>
