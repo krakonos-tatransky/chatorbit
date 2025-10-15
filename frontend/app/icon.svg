@@ -1,0 +1,27 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="iconBubble" x1="140" y1="120" x2="360" y2="340" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38BDF8"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <linearGradient id="iconRing" x1="110" y1="402" x2="410" y2="110" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="iconLock" x1="330" y1="310" x2="402" y2="382" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FDBA74"/>
+      <stop offset="1" stop-color="#FB923C"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="160" fill="#020617"/>
+  <path d="M256 120c-75 0-136 61-136 136 0 28.4 8.8 54.7 25.9 77.4 5.6 7.5 1.5 18.2-7.6 20.5l-27.5 7.2c-5.3 1.4-5.8 8.7-0.8 10.7 30.8 12.9 64.3 19.2 98.7 19.2 106.2 0 192.3-82.3 192.3-184C401 181.8 335.6 120 256 120Z" stroke="url(#iconRing)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="230" cy="228" r="110" fill="url(#iconBubble)"/>
+  <circle cx="198" cy="228" r="14" fill="#F8FAFC" fill-opacity="0.85"/>
+  <circle cx="230" cy="228" r="14" fill="#F8FAFC" fill-opacity="0.85"/>
+  <circle cx="262" cy="228" r="14" fill="#F8FAFC" fill-opacity="0.85"/>
+  <g transform="translate(292 270)">
+    <path d="M46 6c-16.6 0-30 13.4-30 30v12h-4c-7.7 0-14 6.3-14 14v46c0 7.7 6.3 14 14 14h68c7.7 0 14-6.3 14-14v-46c0-7.7-6.3-14-14-14h-4v-12c0-16.6-13.4-30-30-30Z" fill="url(#iconLock)"/>
+    <path d="M46 22c7.7 0 14 6.3 14 14v12H32v-12c0-7.7 6.3-14 14-14Z" fill="#1E293B" fill-opacity="0.35"/>
+    <rect x="38" y="58" width="16" height="24" rx="8" fill="#0F172A" fill-opacity="0.75"/>
+  </g>
+</svg>
