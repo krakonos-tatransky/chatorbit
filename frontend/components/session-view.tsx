@@ -384,77 +384,6 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   }, []);
 
   useEffect(() => {
-    if (typeof navigator === "undefined") {
-      return;
-    }
-
-    type NetworkInformationLike = {
-      effectiveType?: string;
-      addEventListener?: (type: string, listener: EventListenerOrEventListenerObject) => void;
-      removeEventListener?: (type: string, listener: EventListenerOrEventListenerObject) => void;
-    };
-
-    const extendedNavigator = navigator as Navigator & {
-      connection?: NetworkInformationLike;
-      mozConnection?: NetworkInformationLike;
-      webkitConnection?: NetworkInformationLike;
-    };
-
-    const connection =
-      extendedNavigator.connection ?? extendedNavigator.mozConnection ?? extendedNavigator.webkitConnection;
-
-    if (!connection || typeof connection.addEventListener !== "function") {
-      return;
-    }
-
-    const deriveDelay = () => {
-      const effectiveType = connection.effectiveType;
-      if (effectiveType === "4g") {
-        return FAST_NETWORK_RECONNECT_DELAY_MS;
-      }
-      if (effectiveType === "3g") {
-        return MODERATE_NETWORK_RECONNECT_DELAY_MS;
-      }
-      return DEFAULT_RECONNECT_BASE_DELAY_MS;
-    };
-
-    const updateDelay = () => {
-      const nextDelay = deriveDelay();
-      setReconnectBaseDelayMs((current) => (current === nextDelay ? current : nextDelay));
-    };
-
-    updateDelay();
-
-    const handleChange = () => {
-      updateDelay();
-      logEvent("Network change detected", {
-        effectiveType: connection.effectiveType,
-        downlink: connection.downlink,
-        rtt: connection.rtt,
-      });
-      if (!sessionActiveRef.current) {
-        return;
-      }
-      const pc = peerConnectionRef.current;
-      if (!pc) {
-        return;
-      }
-      setIsReconnecting(true);
-      if (participantRole === "host") {
-        resetPeerConnection();
-      } else {
-        schedulePeerConnectionRecovery(pc, "network change", { delayMs: 0 });
-      }
-    };
-
-    connection.addEventListener("change", handleChange);
-
-    return () => {
-      connection.removeEventListener("change", handleChange);
-    };
-  }, [participantRole, resetPeerConnection, schedulePeerConnectionRecovery, setIsReconnecting]);
-
-  useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
       return;
     }
@@ -737,6 +666,79 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     },
     [participantRole, reconnectBaseDelayMs, resetPeerConnection, setIsReconnecting],
   );
+
+  useEffect(() => {
+    if (typeof navigator === "undefined") {
+      return;
+    }
+
+    type NetworkInformationLike = {
+      effectiveType?: string;
+      downlink?: number;
+      rtt?: number;
+      addEventListener?: (type: string, listener: EventListenerOrEventListenerObject) => void;
+      removeEventListener?: (type: string, listener: EventListenerOrEventListenerObject) => void;
+    };
+
+    const extendedNavigator = navigator as Navigator & {
+      connection?: NetworkInformationLike;
+      mozConnection?: NetworkInformationLike;
+      webkitConnection?: NetworkInformationLike;
+    };
+
+    const connection =
+      extendedNavigator.connection ?? extendedNavigator.mozConnection ?? extendedNavigator.webkitConnection;
+
+    if (!connection || typeof connection.addEventListener !== "function") {
+      return;
+    }
+
+    const deriveDelay = () => {
+      const effectiveType = connection.effectiveType;
+      if (effectiveType === "4g") {
+        return FAST_NETWORK_RECONNECT_DELAY_MS;
+      }
+      if (effectiveType === "3g") {
+        return MODERATE_NETWORK_RECONNECT_DELAY_MS;
+      }
+      return DEFAULT_RECONNECT_BASE_DELAY_MS;
+    };
+
+    const updateDelay = () => {
+      const nextDelay = deriveDelay();
+      setReconnectBaseDelayMs((current) => (current === nextDelay ? current : nextDelay));
+    };
+
+    updateDelay();
+
+    const handleChange = () => {
+      updateDelay();
+      logEvent("Network change detected", {
+        effectiveType: connection.effectiveType,
+        downlink: connection.downlink,
+        rtt: connection.rtt,
+      });
+      if (!sessionActiveRef.current) {
+        return;
+      }
+      const pc = peerConnectionRef.current;
+      if (!pc) {
+        return;
+      }
+      setIsReconnecting(true);
+      if (participantRole === "host") {
+        resetPeerConnection();
+      } else {
+        schedulePeerConnectionRecovery(pc, "network change", { delayMs: 0 });
+      }
+    };
+
+    connection.addEventListener("change", handleChange);
+
+    return () => {
+      connection.removeEventListener("change", handleChange);
+    };
+  }, [participantRole, resetPeerConnection, schedulePeerConnectionRecovery, setIsReconnecting]);
 
   const sendCapabilities = useCallback(() => {
     const channel = dataChannelRef.current;
