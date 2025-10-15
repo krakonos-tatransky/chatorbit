@@ -254,6 +254,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [draft, setDraft] = useState<string>("");
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const [sessionEnded, setSessionEnded] = useState(false);
+  const [sessionEndedFromStorage, setSessionEndedFromStorage] = useState(false);
   const [tokenCopyState, setTokenCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [socketReconnectNonce, setSocketReconnectNonce] = useState(0);
   const [peerResetNonce, setPeerResetNonce] = useState(0);
@@ -377,6 +378,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     initialMessagesHandledRef.current = false;
     sessionEndedRef.current = false;
     setSessionEnded(false);
+    setSessionEndedFromStorage(false);
   }, [token]);
 
   useEffect(() => {
@@ -1272,6 +1274,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       const storedRemaining: number | null =
         typeof payload.remainingSeconds === "number" ? payload.remainingSeconds : null;
       const ended = Boolean(payload.sessionEnded) || storedStatus === "closed" || storedStatus === "expired";
+      setSessionEndedFromStorage(ended);
       setSessionStatus((prev) =>
         prev ?? {
           token,
@@ -1298,7 +1301,14 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     } catch (cause) {
       console.warn("Failed to parse stored session payload", cause);
     }
-  }, [participantId, setIsReconnecting, setSessionEnded, setSocketReady, token]);
+  }, [
+    participantId,
+    setIsReconnecting,
+    setSessionEnded,
+    setSessionEndedFromStorage,
+    setSocketReady,
+    token,
+  ]);
 
   useEffect(() => {
     if (!participantId || sessionEnded) {
@@ -1583,18 +1593,23 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     return Math.min(connectedIds.size, 2);
   }, [connected, participantId, sessionStatus?.connectedParticipants, sessionStatus?.participants]);
 
+  const hasSessionEnded =
+    sessionEnded || sessionStatus?.status === "closed" || sessionStatus?.status === "expired";
+
   const countdownLabel = useMemo(() => {
+    if (hasSessionEnded) {
+      return "00:00";
+    }
     if (remainingSeconds === null) {
       return sessionStatus?.status === "issued" ? "Waiting for partner…" : "Starting…";
     }
     const minutes = Math.floor(remainingSeconds / 60);
     const seconds = remainingSeconds % 60;
     return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-  }, [remainingSeconds, sessionStatus?.status]);
+  }, [hasSessionEnded, remainingSeconds, sessionStatus?.status]);
 
-  const hasSessionEnded =
-    sessionEnded || sessionStatus?.status === "closed" || sessionStatus?.status === "expired";
-  const showChatPanel = !hasSessionEnded && sessionStatus?.status === "active";
+  const showChatPanel =
+    sessionStatus?.status === "active" || (hasSessionEnded && !sessionEndedFromStorage);
 
   const encryptionAlertMessage = useMemo(() => {
     if (supportsEncryption === false && peerSupportsEncryption === false) {
@@ -1903,7 +1918,12 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       {hasSessionEnded ? (
         <div className="session-alert session-alert--ended">
           <p>Session ended. Request a new token to start over.</p>
-          <Link href="/">Go to main page</Link>
+          <Link href="/" className="session-alert__home-link">
+            <span aria-hidden className="session-alert__home-icon">
+              🏠
+            </span>
+            <span>Return to home</span>
+          </Link>
         </div>
       ) : null}
 
