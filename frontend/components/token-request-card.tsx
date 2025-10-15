@@ -47,6 +47,7 @@ export function TokenRequestCard() {
   const [clientIdentity, setClientIdentity] = useState<string | null>(null);
   const [startSessionLoading, setStartSessionLoading] = useState<boolean>(false);
   const [startSessionError, setStartSessionError] = useState<string | null>(null);
+  const [startSessionAvailable, setStartSessionAvailable] = useState<boolean>(false);
   const router = useRouter();
 
   const ttlHours = useMemo(() => (sessionMinutes / 60).toFixed(1), [sessionMinutes]);
@@ -80,12 +81,15 @@ export function TokenRequestCard() {
     setTokenCopyState("idle");
     setStartSessionError(null);
     setStartSessionLoading(false);
+    setStartSessionAvailable(false);
   }, [result?.token]);
 
   const handleCopyToken = useCallback(async () => {
     if (!result?.token) {
       return;
     }
+
+    setStartSessionAvailable(true);
 
     if (tokenCopyTimeoutRef.current) {
       window.clearTimeout(tokenCopyTimeoutRef.current);
@@ -289,14 +293,16 @@ export function TokenRequestCard() {
               >
                 {tokenCopyState === "copied" ? "Copied" : "Copy"}
               </button>
-              <button
-                type="button"
-                className="session-token-copy session-token-start"
-                onClick={handleStartSession}
-                disabled={startSessionLoading}
-              >
-                {startSessionLoading ? "Starting…" : "Start session"}
-              </button>
+              {startSessionAvailable ? (
+                <button
+                  type="button"
+                  className="session-token-copy session-token-start"
+                  onClick={handleStartSession}
+                  disabled={startSessionLoading}
+                >
+                  {startSessionLoading ? "Starting…" : "Start session"}
+                </button>
+              ) : null}
               <span className="session-token-copy-status" role="status" aria-live="polite">
                 {tokenCopyState === "copied"
                   ? "Token copied to clipboard"
