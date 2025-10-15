@@ -40,11 +40,51 @@ body {
 }
 
 .site-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
   font-size: 1.1rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #bae6fd;
+}
+
+.site-logo__mark {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 12px 25px -15px rgba(8, 145, 178, 0.8);
+}
+
+.site-logo__text {
+  display: inline-block;
+  line-height: 1;
+  letter-spacing: 0.14em;
+}
+
+@media (max-width: 540px) {
+  .site-header__inner {
+    padding: 1rem 1.25rem;
+  }
+
+  .site-logo {
+    gap: 0.5rem;
+    font-size: 1rem;
+  }
+
+  .site-logo__mark {
+    width: 34px;
+    height: 34px;
+    border-radius: 12px;
+  }
+
+  .site-nav {
+    font-size: 0.8rem;
+    gap: 0.75rem;
+  }
 }
 
 .site-nav {

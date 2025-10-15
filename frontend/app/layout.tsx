@@ -1,4 +1,5 @@
 import "./globals.css";
+import Image from "next/image";
 import type { Metadata } from "next";
 import Link from "next/link";
 
@@ -17,7 +18,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <header className="site-header">
             <div className="site-header__inner">
               <Link href="/" className="site-logo">
-                ChatOrbit
+                <span className="site-logo__mark" aria-hidden>
+                  <Image
+                    src="/brand/chat-orbit-shield-logo.svg"
+                    alt=""
+                    width={40}
+                    height={40}
+                    priority
+                  />
+                </span>
+                <span className="site-logo__text">ChatOrbit</span>
               </Link>
               <nav className="site-nav" aria-label="Primary">
                 <Link href="/terms-of-service">Terms of Service</Link>
