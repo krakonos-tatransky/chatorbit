@@ -952,6 +952,10 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         setError(null);
         iceFailureRetriesRef.current = 0;
         setIsReconnecting(false);
+        if (disconnectionRecoveryTimeoutRef.current) {
+          clearTimeout(disconnectionRecoveryTimeoutRef.current);
+          disconnectionRecoveryTimeoutRef.current = null;
+        }
         logEvent("Data channel opened", { label: channel.label });
         capabilityAnnouncedRef.current = false;
         sendCapabilities();
@@ -1129,13 +1133,19 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       const state = peerConnection.connectionState;
       setConnectionState(state);
       if (state === "connected") {
-        setConnected(true);
-        setError(null);
-        setIsReconnecting(false);
         iceFailureRetriesRef.current = 0;
         if (disconnectionRecoveryTimeoutRef.current) {
           clearTimeout(disconnectionRecoveryTimeoutRef.current);
           disconnectionRecoveryTimeoutRef.current = null;
+        }
+        if (dataChannelRef.current?.readyState === "open") {
+          setConnected(true);
+          setError(null);
+          setIsReconnecting(false);
+        } else {
+          logEvent("Peer connection connected but data channel not yet open", {
+            dataChannelState: dataChannelRef.current?.readyState ?? "missing",
+          });
         }
       } else if (state === "failed" || state === "disconnected" || state === "closed") {
         setConnected(false);
