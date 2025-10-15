@@ -1130,11 +1130,12 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     };
 
     peerConnection.addEventListener("icecandidateerror", (event: RTCPeerConnectionIceErrorEvent) => {
+      const { hostCandidate } = event as RTCPeerConnectionIceErrorEvent & { hostCandidate?: string };
       logEvent("ICE candidate error reported", {
         errorCode: event.errorCode,
         errorText: event.errorText,
         url: event.url,
-        hostCandidate: event.hostCandidate,
+        hostCandidate,
       });
       if (event.errorCode === 438 && sessionActiveRef.current) {
         logEvent("Detected stale nonce from TURN server; initiating recovery", { url: event.url });
