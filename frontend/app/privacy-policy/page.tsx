@@ -95,7 +95,7 @@ export default function PrivacyPolicyPage() {
             We strive to comply with applicable data protection laws, including the GDPR and CCPA. ChatOrbit collects only the
             data necessary to establish peer-to-peer sessions and does not use personal data for profiling. If you are in the
             European Union, you may request access to, rectification of, or deletion of identifiable data linked to a session by
-            contacting us at <a href="mailto:privacy@chatorbit.app">privacy@chatorbit.app</a>.
+            contacting us at <a href="mailto:privacy@chatorbit.com">privacy@chatorbit.com</a>.
           </p>
         </section>
 
@@ -140,7 +140,7 @@ export default function PrivacyPolicyPage() {
           <p>
             Questions about this Privacy Policy or our data practices can be sent to
             {" "}
-            <a href="mailto:privacy@chatorbit.app">privacy@chatorbit.app</a>.
+            <a href="mailto:privacy@chatorbit.com">privacy@chatorbit.com</a>.
           </p>
         </section>
       </div>

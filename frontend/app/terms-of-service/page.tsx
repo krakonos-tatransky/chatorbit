@@ -148,7 +148,7 @@ export default function TermsOfServicePage() {
         <section className="legal-section">
           <h2>14. Contact</h2>
           <p>
-            Questions about these terms can be sent to <a href="mailto:legal@chatorbit.app">legal@chatorbit.app</a>.
+            Questions about these terms can be sent to <a href="mailto:legal@chatorbit.com">legal@chatorbit.com</a>.
           </p>
         </section>
       </div>
