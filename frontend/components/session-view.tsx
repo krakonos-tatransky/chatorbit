@@ -4,8 +4,10 @@ import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { TermsConsentModal } from "@/components/terms-consent-modal";
 import { apiUrl, wsUrl } from "@/lib/api";
 import { getClientIdentity } from "@/lib/client-identity";
 import { getIceServers } from "@/lib/webrtc";
@@ -245,6 +247,7 @@ type Props = {
 };
 
 export function SessionView({ token, participantIdFromQuery }: Props) {
+  const router = useRouter();
   const [participantId, setParticipantId] = useState<string | null>(participantIdFromQuery ?? null);
   const [participantRole, setParticipantRole] = useState<string | null>(null);
   const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
@@ -273,6 +276,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [debugEvents, setDebugEvents] = useState<DebugLogEntry[]>([]);
   const [reconnectBaseDelayMs, setReconnectBaseDelayMs] = useState(DEFAULT_RECONNECT_BASE_DELAY_MS);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [lastTermsKeyChecked, setLastTermsKeyChecked] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
@@ -297,6 +302,23 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const initialMessagesHandledRef = useRef(false);
   const notificationSoundRef = useRef<NotificationSoundName>(DEFAULT_NOTIFICATION_SOUND);
   const secretBufferRef = useRef<string>("");
+  const termsStorageKey = useMemo(() => `chatorbit:session:${token}:termsAccepted`, [token]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    let storedAccepted = false;
+    try {
+      storedAccepted = window.localStorage.getItem(termsStorageKey) === "true";
+    } catch (cause) {
+      console.warn("Unable to read stored terms acknowledgment", cause);
+    }
+
+    setTermsAccepted(storedAccepted);
+    setLastTermsKeyChecked(termsStorageKey);
+  }, [termsStorageKey]);
 
   const ensureAudioContext = useCallback(() => {
     if (typeof window === "undefined") {
@@ -1412,109 +1434,143 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     }
 
     let active = true;
+    let socket: WebSocket | null = null;
+    let startTimeout: number | null = null;
 
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
 
-    const url = wsUrl(`/ws/sessions/${token}?participantId=${participantId}`);
-    logEvent("Opening WebSocket", { url });
-    const socket = new WebSocket(url);
-    socketRef.current = socket;
-
-    socket.onopen = () => {
-      if (!active || sessionEndedRef.current) {
-        socket.close();
-        return;
-      }
-      reconnectAttemptsRef.current = 0;
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-      setSocketReady(true);
-      setError(null);
-      iceFailureRetriesRef.current = 0;
-      setIsReconnecting(false);
-      logEvent("WebSocket connection established");
-      resetPeerConnection();
-    };
-
-    socket.onclose = () => {
+    const startConnection = () => {
       if (!active) {
         return;
       }
-      setSocketReady(false);
-      socketRef.current = null;
-      if (sessionEndedRef.current) {
-        logEvent("WebSocket connection closed after session end");
-        return;
-      }
-      setConnected(false);
-      resetPeerConnection({ recreate: false });
-      logEvent("WebSocket connection closed");
-      if (participantId) {
-        const attempt = reconnectAttemptsRef.current + 1;
-        reconnectAttemptsRef.current = attempt;
-        const backoffAttempt = Math.min(attempt, 6);
-        const delay = Math.min(
-          reconnectBaseDelayMs * 2 ** (backoffAttempt - 1),
-          RECONNECT_MAX_DELAY_MS,
-        );
-        reconnectTimeoutRef.current = setTimeout(() => {
-          reconnectTimeoutRef.current = null;
-          setSocketReconnectNonce((value) => value + 1);
-        }, delay);
-        setIsReconnecting(true);
-        logEvent("Scheduling WebSocket reconnect", { attempt, delay });
-      }
-    };
 
-    socket.onerror = (event) => {
-      if (!active || sessionEndedRef.current) {
-        return;
-      }
-      logEvent("WebSocket error", event);
-      setError("WebSocket error");
-    };
+      const url = wsUrl(`/ws/sessions/${token}?participantId=${participantId}`);
+      logEvent("Opening WebSocket", { url });
+      const nextSocket = new WebSocket(url);
+      socket = nextSocket;
+      socketRef.current = nextSocket;
 
-    socket.onmessage = (event) => {
-      if (!active || sessionEndedRef.current) {
-        return;
-      }
-      logEvent("Received WebSocket message", event.data);
-      try {
-        const payload = JSON.parse(event.data);
-        if (payload.type === "status") {
-          setSessionStatus(mapStatus(payload));
-          setRemainingSeconds(payload.remaining_seconds ?? null);
-          logEvent("Updated status from WebSocket", payload);
-        } else if (payload.type === "error") {
-          setError(payload.message);
-          logEvent("Received WebSocket error", payload);
-        } else if (payload.type === "session_closed") {
-          finalizeSession("closed");
-        } else if (payload.type === "session_expired") {
-          finalizeSession("expired");
-        } else if (payload.type === "session_deleted") {
-          finalizeSession("deleted");
-        } else if (payload.type === "signal") {
-          void handleSignal(payload);
+      nextSocket.onopen = () => {
+        if (!active || sessionEndedRef.current) {
+          nextSocket.close();
+          return;
         }
-      } catch (cause) {
-        console.error("Failed to parse WebSocket payload", cause);
-      }
+        reconnectAttemptsRef.current = 0;
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+        setSocketReady(true);
+        setError(null);
+        iceFailureRetriesRef.current = 0;
+        setIsReconnecting(false);
+        logEvent("WebSocket connection established");
+        resetPeerConnection();
+      };
+
+      nextSocket.onclose = () => {
+        if (!active) {
+          return;
+        }
+        setSocketReady(false);
+        if (socketRef.current === nextSocket) {
+          socketRef.current = null;
+        }
+        if (sessionEndedRef.current) {
+          logEvent("WebSocket connection closed after session end");
+          return;
+        }
+        setConnected(false);
+        resetPeerConnection({ recreate: false });
+        logEvent("WebSocket connection closed");
+        if (participantId) {
+          const attempt = reconnectAttemptsRef.current + 1;
+          reconnectAttemptsRef.current = attempt;
+          const backoffAttempt = Math.min(attempt, 6);
+          const delay = Math.min(
+            reconnectBaseDelayMs * 2 ** (backoffAttempt - 1),
+            RECONNECT_MAX_DELAY_MS,
+          );
+          reconnectTimeoutRef.current = setTimeout(() => {
+            reconnectTimeoutRef.current = null;
+            setSocketReconnectNonce((value) => value + 1);
+          }, delay);
+          setIsReconnecting(true);
+          logEvent("Scheduling WebSocket reconnect", { attempt, delay });
+        }
+      };
+
+      nextSocket.onerror = (event) => {
+        if (!active || sessionEndedRef.current) {
+          return;
+        }
+        logEvent("WebSocket error", event);
+        setError("WebSocket error");
+      };
+
+      nextSocket.onmessage = (event) => {
+        if (!active || sessionEndedRef.current) {
+          return;
+        }
+        logEvent("Received WebSocket message", event.data);
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.type === "status") {
+            setSessionStatus(mapStatus(payload));
+            setRemainingSeconds(payload.remaining_seconds ?? null);
+            logEvent("Updated status from WebSocket", payload);
+          } else if (payload.type === "error") {
+            setError(payload.message);
+            logEvent("Received WebSocket error", payload);
+          } else if (payload.type === "session_closed") {
+            finalizeSession("closed");
+          } else if (payload.type === "session_expired") {
+            finalizeSession("expired");
+          } else if (payload.type === "session_deleted") {
+            finalizeSession("deleted");
+          } else if (payload.type === "signal") {
+            void handleSignal(payload);
+          }
+        } catch (cause) {
+          console.error("Failed to parse WebSocket payload", cause);
+        }
+      };
     };
+
+    const scheduleConnection = () => {
+      if (!active) {
+        return;
+      }
+      if (typeof window === "undefined") {
+        startConnection();
+        return;
+      }
+      startTimeout = window.setTimeout(startConnection, 0);
+    };
+
+    scheduleConnection();
 
     return () => {
       active = false;
+      if (startTimeout !== null && typeof window !== "undefined") {
+        window.clearTimeout(startTimeout);
+        startTimeout = null;
+      }
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
-      socketRef.current = null;
-      socket.close();
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
+      } else if (socket && socket.readyState === WebSocket.CONNECTING) {
+        socket.close();
+      }
+      if (socketRef.current === socket) {
+        socketRef.current = null;
+      }
     };
   }, [
     handleSignal,
@@ -1696,6 +1752,31 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     setConfirmEndSessionOpen(false);
   }, []);
 
+  const handleAgreeToTerms = useCallback(() => {
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.setItem(termsStorageKey, "true");
+      } catch (cause) {
+        console.warn("Unable to persist terms acknowledgment", cause);
+      }
+    }
+
+    setTermsAccepted(true);
+    setLastTermsKeyChecked(termsStorageKey);
+  }, [termsStorageKey]);
+
+  const handleDeclineTerms = useCallback(() => {
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.removeItem(termsStorageKey);
+      } catch (cause) {
+        console.warn("Unable to clear stored terms acknowledgment", cause);
+      }
+    }
+
+    router.replace("/");
+  }, [router, termsStorageKey]);
+
   const handleConfirmEndSession = useCallback(() => {
     if (endSessionLoading) {
       return;
@@ -1722,6 +1803,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   }, [hasSessionEnded, remainingSeconds, sessionStatus?.status]);
 
+  const shouldShowTermsModal = lastTermsKeyChecked !== termsStorageKey || !termsAccepted;
+
   const showChatPanel =
     sessionStatus?.status === "active" || (hasSessionEnded && !sessionEndedFromStorage);
 
@@ -1745,6 +1828,10 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
 
   async function handleSend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!termsAccepted) {
+      setError("You must agree to the Terms of Service before sending messages.");
+      return;
+    }
     const channel = dataChannelRef.current;
     if (!channel || channel.readyState !== "open") {
       setError("Connection is not ready yet.");
@@ -2103,7 +2190,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
               onChange={(event) => setDraft(event.target.value)}
               className="textarea"
               placeholder="Type your message…"
-              disabled={sessionStatus?.status !== "active"}
+              disabled={!termsAccepted || sessionStatus?.status !== "active"}
             />
             <div className="composer__footer">
               <span>
@@ -2111,7 +2198,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
               </span>
               <button
                 type="submit"
-                disabled={!connected || sessionStatus?.status !== "active" || peerSupportsEncryption === null}
+                disabled={!termsAccepted || !connected || sessionStatus?.status !== "active" || peerSupportsEncryption === null}
                 className="button button--cyan"
               >
                 Send
@@ -2130,6 +2217,11 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         onConfirm={handleConfirmEndSession}
         onCancel={handleCancelEndSession}
         confirmDisabled={endSessionLoading}
+      />
+      <TermsConsentModal
+        open={shouldShowTermsModal}
+        onAgree={handleAgreeToTerms}
+        onCancel={handleDeclineTerms}
       />
     </div>
   );
