@@ -1351,6 +1351,12 @@ main {
   font-size: 0.92rem;
 }
 
+@media (max-width: 540px) {
+  .message {
+    padding: 0.425rem 0.5rem;
+  }
+}
+
 .message--own {
   border-color: rgba(34, 211, 238, 0.55);
   background: rgba(34, 211, 238, 0.12);
