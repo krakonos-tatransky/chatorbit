@@ -39,6 +39,14 @@ export function TermsConsentModal({ open, onAgree, onCancel }: TermsConsentModal
       const { scrollTop, scrollHeight, clientHeight } = container;
       const distanceFromBottom = scrollHeight - clientHeight - scrollTop;
 
+      console.log("[TermsConsentModal] Scroll metrics", {
+        scrollTop,
+        scrollHeight,
+        clientHeight,
+        distanceFromBottom,
+        tolerance: SCROLL_TOLERANCE_PX,
+      });
+
       if (distanceFromBottom <= SCROLL_TOLERANCE_PX) {
         setHasScrolledToEnd(true);
       }
@@ -59,6 +67,14 @@ export function TermsConsentModal({ open, onAgree, onCancel }: TermsConsentModal
     const container = scrollContainerRef.current;
     container?.focus({ preventScroll: true });
   }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    console.log("[TermsConsentModal] hasScrolledToEnd updated", hasScrolledToEnd);
+  }, [open, hasScrolledToEnd]);
 
   useEffect(() => {
     if (!open) {
