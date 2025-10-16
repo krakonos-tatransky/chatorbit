@@ -43,14 +43,6 @@ export function TermsConsentModal({ open, onAgree, onCancel }: TermsConsentModal
       const { scrollTop, scrollHeight, clientHeight } = container;
       const distanceFromBottom = scrollHeight - clientHeight - scrollTop;
 
-      console.log("[TermsConsentModal] Scroll metrics", {
-        scrollTop,
-        scrollHeight,
-        clientHeight,
-        distanceFromBottom,
-        tolerance: SCROLL_TOLERANCE_PX,
-      });
-
       if (distanceFromBottom <= SCROLL_TOLERANCE_PX) {
         setHasScrolledToEnd((previous) => {
           if (previous) {
