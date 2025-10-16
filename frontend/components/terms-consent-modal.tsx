@@ -30,6 +30,10 @@ export function TermsConsentModal({ open, onAgree, onCancel }: TermsConsentModal
       return;
     }
 
+    if (!mounted) {
+      return;
+    }
+
     const container = scrollContainerRef.current;
     if (!container) {
       return;
@@ -48,25 +52,41 @@ export function TermsConsentModal({ open, onAgree, onCancel }: TermsConsentModal
       });
 
       if (distanceFromBottom <= SCROLL_TOLERANCE_PX) {
-        setHasScrolledToEnd(true);
+        setHasScrolledToEnd((previous) => {
+          if (previous) {
+            return previous;
+          }
+          return true;
+        });
       }
     };
 
-    handleScroll();
+    let animationFrame: number | null = null;
+    if (typeof window !== "undefined") {
+      animationFrame = window.requestAnimationFrame(handleScroll);
+    } else {
+      handleScroll();
+    }
 
-    container.addEventListener("scroll", handleScroll);
+    container.addEventListener("scroll", handleScroll, { passive: true });
     return () => {
+      if (animationFrame !== null && typeof window !== "undefined") {
+        window.cancelAnimationFrame(animationFrame);
+      }
       container.removeEventListener("scroll", handleScroll);
     };
-  }, [open]);
+  }, [mounted, open]);
 
   useEffect(() => {
     if (!open) {
       return;
     }
+    if (!mounted) {
+      return;
+    }
     const container = scrollContainerRef.current;
     container?.focus({ preventScroll: true });
-  }, [open]);
+  }, [mounted, open]);
 
   useEffect(() => {
     if (!open) {

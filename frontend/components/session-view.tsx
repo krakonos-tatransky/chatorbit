@@ -1434,109 +1434,143 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     }
 
     let active = true;
+    let socket: WebSocket | null = null;
+    let startTimeout: number | null = null;
 
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
 
-    const url = wsUrl(`/ws/sessions/${token}?participantId=${participantId}`);
-    logEvent("Opening WebSocket", { url });
-    const socket = new WebSocket(url);
-    socketRef.current = socket;
-
-    socket.onopen = () => {
-      if (!active || sessionEndedRef.current) {
-        socket.close();
-        return;
-      }
-      reconnectAttemptsRef.current = 0;
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-      setSocketReady(true);
-      setError(null);
-      iceFailureRetriesRef.current = 0;
-      setIsReconnecting(false);
-      logEvent("WebSocket connection established");
-      resetPeerConnection();
-    };
-
-    socket.onclose = () => {
+    const startConnection = () => {
       if (!active) {
         return;
       }
-      setSocketReady(false);
-      socketRef.current = null;
-      if (sessionEndedRef.current) {
-        logEvent("WebSocket connection closed after session end");
-        return;
-      }
-      setConnected(false);
-      resetPeerConnection({ recreate: false });
-      logEvent("WebSocket connection closed");
-      if (participantId) {
-        const attempt = reconnectAttemptsRef.current + 1;
-        reconnectAttemptsRef.current = attempt;
-        const backoffAttempt = Math.min(attempt, 6);
-        const delay = Math.min(
-          reconnectBaseDelayMs * 2 ** (backoffAttempt - 1),
-          RECONNECT_MAX_DELAY_MS,
-        );
-        reconnectTimeoutRef.current = setTimeout(() => {
-          reconnectTimeoutRef.current = null;
-          setSocketReconnectNonce((value) => value + 1);
-        }, delay);
-        setIsReconnecting(true);
-        logEvent("Scheduling WebSocket reconnect", { attempt, delay });
-      }
-    };
 
-    socket.onerror = (event) => {
-      if (!active || sessionEndedRef.current) {
-        return;
-      }
-      logEvent("WebSocket error", event);
-      setError("WebSocket error");
-    };
+      const url = wsUrl(`/ws/sessions/${token}?participantId=${participantId}`);
+      logEvent("Opening WebSocket", { url });
+      const nextSocket = new WebSocket(url);
+      socket = nextSocket;
+      socketRef.current = nextSocket;
 
-    socket.onmessage = (event) => {
-      if (!active || sessionEndedRef.current) {
-        return;
-      }
-      logEvent("Received WebSocket message", event.data);
-      try {
-        const payload = JSON.parse(event.data);
-        if (payload.type === "status") {
-          setSessionStatus(mapStatus(payload));
-          setRemainingSeconds(payload.remaining_seconds ?? null);
-          logEvent("Updated status from WebSocket", payload);
-        } else if (payload.type === "error") {
-          setError(payload.message);
-          logEvent("Received WebSocket error", payload);
-        } else if (payload.type === "session_closed") {
-          finalizeSession("closed");
-        } else if (payload.type === "session_expired") {
-          finalizeSession("expired");
-        } else if (payload.type === "session_deleted") {
-          finalizeSession("deleted");
-        } else if (payload.type === "signal") {
-          void handleSignal(payload);
+      nextSocket.onopen = () => {
+        if (!active || sessionEndedRef.current) {
+          nextSocket.close();
+          return;
         }
-      } catch (cause) {
-        console.error("Failed to parse WebSocket payload", cause);
-      }
+        reconnectAttemptsRef.current = 0;
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+        setSocketReady(true);
+        setError(null);
+        iceFailureRetriesRef.current = 0;
+        setIsReconnecting(false);
+        logEvent("WebSocket connection established");
+        resetPeerConnection();
+      };
+
+      nextSocket.onclose = () => {
+        if (!active) {
+          return;
+        }
+        setSocketReady(false);
+        if (socketRef.current === nextSocket) {
+          socketRef.current = null;
+        }
+        if (sessionEndedRef.current) {
+          logEvent("WebSocket connection closed after session end");
+          return;
+        }
+        setConnected(false);
+        resetPeerConnection({ recreate: false });
+        logEvent("WebSocket connection closed");
+        if (participantId) {
+          const attempt = reconnectAttemptsRef.current + 1;
+          reconnectAttemptsRef.current = attempt;
+          const backoffAttempt = Math.min(attempt, 6);
+          const delay = Math.min(
+            reconnectBaseDelayMs * 2 ** (backoffAttempt - 1),
+            RECONNECT_MAX_DELAY_MS,
+          );
+          reconnectTimeoutRef.current = setTimeout(() => {
+            reconnectTimeoutRef.current = null;
+            setSocketReconnectNonce((value) => value + 1);
+          }, delay);
+          setIsReconnecting(true);
+          logEvent("Scheduling WebSocket reconnect", { attempt, delay });
+        }
+      };
+
+      nextSocket.onerror = (event) => {
+        if (!active || sessionEndedRef.current) {
+          return;
+        }
+        logEvent("WebSocket error", event);
+        setError("WebSocket error");
+      };
+
+      nextSocket.onmessage = (event) => {
+        if (!active || sessionEndedRef.current) {
+          return;
+        }
+        logEvent("Received WebSocket message", event.data);
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.type === "status") {
+            setSessionStatus(mapStatus(payload));
+            setRemainingSeconds(payload.remaining_seconds ?? null);
+            logEvent("Updated status from WebSocket", payload);
+          } else if (payload.type === "error") {
+            setError(payload.message);
+            logEvent("Received WebSocket error", payload);
+          } else if (payload.type === "session_closed") {
+            finalizeSession("closed");
+          } else if (payload.type === "session_expired") {
+            finalizeSession("expired");
+          } else if (payload.type === "session_deleted") {
+            finalizeSession("deleted");
+          } else if (payload.type === "signal") {
+            void handleSignal(payload);
+          }
+        } catch (cause) {
+          console.error("Failed to parse WebSocket payload", cause);
+        }
+      };
     };
+
+    const scheduleConnection = () => {
+      if (!active) {
+        return;
+      }
+      if (typeof window === "undefined") {
+        startConnection();
+        return;
+      }
+      startTimeout = window.setTimeout(startConnection, 0);
+    };
+
+    scheduleConnection();
 
     return () => {
       active = false;
+      if (startTimeout !== null && typeof window !== "undefined") {
+        window.clearTimeout(startTimeout);
+        startTimeout = null;
+      }
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
-      socketRef.current = null;
-      socket.close();
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
+      } else if (socket && socket.readyState === WebSocket.CONNECTING) {
+        socket.close();
+      }
+      if (socketRef.current === socket) {
+        socketRef.current = null;
+      }
     };
   }, [
     handleSignal,
