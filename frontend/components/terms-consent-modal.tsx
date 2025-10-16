@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 
 import { TERMS_LAST_UPDATED, TERMS_SECTIONS } from "@/lib/terms-content";
 
-const SCROLL_TOLERANCE_PX = 12;
+const SCROLL_TOLERANCE_PX = 96;
 
 type TermsConsentModalProps = {
   open: boolean;
