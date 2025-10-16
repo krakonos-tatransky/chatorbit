@@ -37,8 +37,11 @@ export function TermsConsentModal({ open, onAgree, onCancel }: TermsConsentModal
 
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = container;
-      const reachedBottom = scrollTop + clientHeight >= scrollHeight - SCROLL_TOLERANCE_PX;
-      setHasScrolledToEnd(reachedBottom);
+      const distanceFromBottom = scrollHeight - clientHeight - scrollTop;
+
+      if (distanceFromBottom <= SCROLL_TOLERANCE_PX) {
+        setHasScrolledToEnd(true);
+      }
     };
 
     handleScroll();
