@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import Link from "next/link";
 
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { apiUrl, wsUrl } from "@/lib/api";
 import { getClientIdentity } from "@/lib/client-identity";
 import { getIceServers } from "@/lib/webrtc";
@@ -256,6 +257,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [sessionEnded, setSessionEnded] = useState(false);
   const [sessionEndedFromStorage, setSessionEndedFromStorage] = useState(false);
   const [endSessionLoading, setEndSessionLoading] = useState(false);
+  const [confirmEndSessionOpen, setConfirmEndSessionOpen] = useState(false);
   const [tokenCopyState, setTokenCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const [socketReconnectNonce, setSocketReconnectNonce] = useState(0);
   const [peerResetNonce, setPeerResetNonce] = useState(0);
@@ -1636,17 +1638,9 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       ? "Ending…"
       : "End session";
 
-  const handleEndSession = useCallback(async () => {
+  const performEndSession = useCallback(async () => {
     if (endSessionLoading || hasSessionEnded) {
       return;
-    }
-    if (typeof window !== "undefined") {
-      const confirmed = window.confirm(
-        "Ending the session will immediately disconnect all participants. Continue?",
-      );
-      if (!confirmed) {
-        return;
-      }
     }
     setEndSessionLoading(true);
     try {
@@ -1690,6 +1684,31 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       setEndSessionLoading(false);
     }
   }, [endSessionLoading, finalizeSession, hasSessionEnded, setError, setSessionStatus, token]);
+
+  const handleEndSessionRequest = useCallback(() => {
+    if (endSessionLoading || hasSessionEnded) {
+      return;
+    }
+    setConfirmEndSessionOpen(true);
+  }, [endSessionLoading, hasSessionEnded]);
+
+  const handleCancelEndSession = useCallback(() => {
+    setConfirmEndSessionOpen(false);
+  }, []);
+
+  const handleConfirmEndSession = useCallback(() => {
+    if (endSessionLoading) {
+      return;
+    }
+    setConfirmEndSessionOpen(false);
+    void performEndSession();
+  }, [endSessionLoading, performEndSession]);
+
+  useEffect(() => {
+    if (hasSessionEnded) {
+      setConfirmEndSessionOpen(false);
+    }
+  }, [hasSessionEnded]);
 
   const countdownLabel = useMemo(() => {
     if (hasSessionEnded) {
@@ -1903,8 +1922,10 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
             <button
               type="button"
               className="session-end-button"
-              onClick={handleEndSession}
+              onClick={handleEndSessionRequest}
               disabled={endSessionLoading || hasSessionEnded}
+              aria-haspopup="dialog"
+              aria-expanded={confirmEndSessionOpen}
             >
               {endSessionButtonLabel}
             </button>
@@ -2099,6 +2120,17 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           </form>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={confirmEndSessionOpen}
+        title="End session"
+        description="Ending the session will immediately disconnect all participants."
+        confirmLabel="End session"
+        cancelLabel="Cancel"
+        onConfirm={handleConfirmEndSession}
+        onCancel={handleCancelEndSession}
+        confirmDisabled={endSessionLoading}
+      />
     </div>
   );
 }
