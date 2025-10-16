@@ -252,6 +252,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [participantRole, setParticipantRole] = useState<string | null>(null);
   const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [reverseMessageOrder, setReverseMessageOrder] = useState(false);
   const [connected, setConnected] = useState<boolean>(false);
   const [socketReady, setSocketReady] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -281,6 +282,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const socketRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  const chatLogRef = useRef<HTMLDivElement | null>(null);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const pendingSignalsRef = useRef<any[]>([]);
   const hasSentOfferRef = useRef<boolean>(false);
@@ -319,6 +321,19 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     setTermsAccepted(storedAccepted);
     setLastTermsKeyChecked(termsStorageKey);
   }, [termsStorageKey]);
+
+  useEffect(() => {
+    const log = chatLogRef.current;
+    if (!log) {
+      return;
+    }
+
+    if (reverseMessageOrder) {
+      log.scrollTop = 0;
+    } else {
+      log.scrollTop = log.scrollHeight;
+    }
+  }, [messages, reverseMessageOrder]);
 
   const ensureAudioContext = useCallback(() => {
     if (typeof window === "undefined") {
@@ -2147,22 +2162,37 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
 
       {showChatPanel ? (
         <div className="chat-panel">
-          <div className="chat-panel__stats">
-            <span>Connected participants: {connectedParticipantCount}/2</span>
-            <span>
-              Limit: {sessionStatus ? sessionStatus.messageCharLimit.toLocaleString() : "—"} chars/message
-            </span>
+          <div className="chat-panel__header">
+            <div className="chat-panel__stats" role="status" aria-live="polite">
+              <span>Connected participants: {connectedParticipantCount}/2</span>
+              <span>
+                Limit: {sessionStatus ? sessionStatus.messageCharLimit.toLocaleString() : "—"} chars/message
+              </span>
+            </div>
+            <button
+              type="button"
+              className="chat-panel__order-toggle"
+              onClick={() => setReverseMessageOrder((previous) => !previous)}
+              aria-pressed={reverseMessageOrder}
+              aria-label={reverseMessageOrder ? "Show newest messages at bottom" : "Show newest messages at top"}
+              title={reverseMessageOrder ? "Newest on top" : "Newest on bottom"}
+            >
+              {reverseMessageOrder ? "↓" : "↑"}
+            </button>
           </div>
 
           {encryptionAlertMessage ? (
             <div className="alert alert--info">{encryptionAlertMessage}</div>
           ) : null}
 
-          <div className="chat-log">
+          <div
+            className={`chat-log${reverseMessageOrder ? " chat-log--reverse" : ""}`}
+            ref={chatLogRef}
+          >
             {messages.length === 0 ? (
               <p>No messages yet. Start the conversation!</p>
             ) : (
-              messages.map((message) => {
+              (reverseMessageOrder ? [...messages].reverse() : messages).map((message) => {
                 const mine = message.participantId === participantId;
                 return (
                   <div key={message.messageId} className={`message${mine ? " message--own" : ""}`}>
