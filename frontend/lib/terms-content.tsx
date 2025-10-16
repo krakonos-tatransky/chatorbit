@@ -23,8 +23,8 @@ export const TERMS_SECTIONS: TermsSection[] = [
       <p>
         ChatOrbit is a peer-to-peer communication platform that connects participants directly using WebRTC technology.
         Messages travel straight between browsers without being stored on our servers. When supported by both browsers,
-        end-to-end encryption using AES-GCM with keys derived from session tokens ensures that only the intended recipients
-        can read the content.
+        end to end encryption using AES-GCM with keys derived from session tokens ensures that only the intended
+        recipients can read the content.
       </p>
     ),
   },
