@@ -283,6 +283,18 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const chatLogRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const focusComposer = useCallback(() => {
+    const composer = composerRef.current;
+    if (!composer) {
+      return;
+    }
+    composer.focus();
+    if (typeof composer.setSelectionRange === "function") {
+      const length = composer.value.length;
+      composer.setSelectionRange(length, length);
+    }
+  }, []);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const pendingSignalsRef = useRef<any[]>([]);
   const hasSentOfferRef = useRef<boolean>(false);
@@ -1823,6 +1835,27 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const showChatPanel =
     sessionStatus?.status === "active" || (hasSessionEnded && !sessionEndedFromStorage);
 
+  useEffect(() => {
+    if (!showChatPanel || hasSessionEnded) {
+      return;
+    }
+    if (sessionStatus?.status !== "active") {
+      return;
+    }
+    if (!connected || !termsAccepted) {
+      return;
+    }
+    focusComposer();
+  }, [
+    connected,
+    focusComposer,
+    hasSessionEnded,
+    reverseMessageOrder,
+    sessionStatus?.status,
+    showChatPanel,
+    termsAccepted,
+  ]);
+
   const encryptionAlertMessage = useMemo(() => {
     if (supportsEncryption === false && peerSupportsEncryption === false) {
       return "Messages are sent without end-to-end encryption because neither browser in this session supports it.";
@@ -1841,31 +1874,42 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     return debugEvents.slice(-limit).reverse();
   }, [debugEvents]);
 
+  const orderedMessages = useMemo(
+    () => (reverseMessageOrder ? [...messages].reverse() : messages),
+    [messages, reverseMessageOrder],
+  );
+
   async function handleSend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!termsAccepted) {
       setError("You must agree to the Terms of Service before sending messages.");
+      focusComposer();
       return;
     }
     const channel = dataChannelRef.current;
     if (!channel || channel.readyState !== "open") {
       setError("Connection is not ready yet.");
+      focusComposer();
       return;
     }
     if (!participantId || !participantRole) {
+      focusComposer();
       return;
     }
     const trimmed = draft.trim();
     if (!trimmed) {
+      focusComposer();
       return;
     }
     if (sessionStatus?.messageCharLimit && trimmed.length > sessionStatus.messageCharLimit) {
       setError(`Messages are limited to ${sessionStatus.messageCharLimit} characters.`);
+      focusComposer();
       return;
     }
 
     if (peerSupportsEncryption === null) {
       setError("Connection is still negotiating. Please wait a moment before sending a message.");
+      focusComposer();
       return;
     }
 
@@ -1929,6 +1973,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     } catch (cause) {
       console.error("Failed to send message", cause);
       setError("Unable to send your message.");
+    } finally {
+      focusComposer();
     }
   }
 
@@ -1962,6 +2008,36 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     );
     setMessages((prev) => prev.filter((item) => item.messageId !== messageId));
   }
+
+  const composer = (
+    <form onSubmit={handleSend} className="composer" key="composer">
+      <textarea
+        ref={composerRef}
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        className="textarea"
+        placeholder="Type your message…"
+        disabled={!termsAccepted || sessionStatus?.status !== "active"}
+      />
+      <div className="composer__footer">
+        <span>
+          {draft.length}/{sessionStatus?.messageCharLimit ?? 0}
+        </span>
+        <button
+          type="submit"
+          disabled={
+            !termsAccepted ||
+            !connected ||
+            sessionStatus?.status !== "active" ||
+            peerSupportsEncryption === null
+          }
+          className="button button--cyan"
+        >
+          Send
+        </button>
+      </div>
+    </form>
+  );
 
   useEffect(() => {
     return () => {
@@ -2189,17 +2265,21 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
             className={`chat-log${reverseMessageOrder ? " chat-log--reverse" : ""}`}
             ref={chatLogRef}
           >
-            {messages.length === 0 ? (
-              <p>No messages yet. Start the conversation!</p>
+            {reverseMessageOrder ? composer : null}
+            {orderedMessages.length === 0 ? (
+              <p className="chat-log__empty">No messages yet. Start the conversation!</p>
             ) : (
-              (reverseMessageOrder ? [...messages].reverse() : messages).map((message) => {
+              orderedMessages.map((message) => {
                 const mine = message.participantId === participantId;
                 return (
                   <div key={message.messageId} className={`message${mine ? " message--own" : ""}`}>
                     <div className="message-meta">
                       <span>{mine ? "You" : message.role}</span>
                       <span className="message__time">
-                        {new Date(message.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        {new Date(message.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
                       </span>
                     </div>
                     <div className="message__body">{message.content}</div>
@@ -2212,29 +2292,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
                 );
               })
             )}
+            {!reverseMessageOrder ? composer : null}
           </div>
-
-          <form onSubmit={handleSend} className="composer">
-            <textarea
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              className="textarea"
-              placeholder="Type your message…"
-              disabled={!termsAccepted || sessionStatus?.status !== "active"}
-            />
-            <div className="composer__footer">
-              <span>
-                {draft.length}/{sessionStatus?.messageCharLimit ?? 0}
-              </span>
-              <button
-                type="submit"
-                disabled={!termsAccepted || !connected || sessionStatus?.status !== "active" || peerSupportsEncryption === null}
-                className="button button--cyan"
-              >
-                Send
-              </button>
-            </div>
-          </form>
         </div>
       ) : null}
 
