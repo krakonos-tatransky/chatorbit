@@ -689,6 +689,112 @@ main {
   color: rgba(148, 163, 184, 0.8);
 }
 
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(2, 6, 23, 0.72);
+  backdrop-filter: blur(14px);
+  z-index: 999;
+}
+
+.modal {
+  width: 100%;
+  max-width: 420px;
+  border-radius: 28px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(15, 23, 42, 0.95);
+  box-shadow: 0 40px 80px rgba(15, 23, 42, 0.55);
+  padding: 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  color: rgba(226, 232, 240, 0.94);
+}
+
+.modal__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.modal__title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: rgba(248, 250, 252, 0.96);
+}
+
+.modal__description {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: rgba(148, 163, 184, 0.88);
+}
+
+.modal__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+@media (min-width: 480px) {
+  .modal__actions {
+    flex-direction: row;
+    justify-content: flex-end;
+  }
+}
+
+.modal__confirm,
+.modal__cancel {
+  border-radius: 999px;
+  padding: 0.6rem 1.4rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+  cursor: pointer;
+}
+
+.modal__confirm {
+  border: 1px solid rgba(248, 113, 113, 0.8);
+  background: rgba(127, 29, 29, 0.55);
+  color: rgba(254, 242, 242, 0.98);
+}
+
+.modal__confirm:hover,
+.modal__confirm:focus-visible {
+  border-color: rgba(248, 113, 113, 0.95);
+  background: rgba(239, 68, 68, 0.65);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.35);
+  transform: translateY(-1px);
+}
+
+.modal__confirm:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  background: rgba(127, 29, 29, 0.35);
+  border-color: rgba(239, 68, 68, 0.45);
+  color: rgba(254, 242, 242, 0.75);
+  transform: none;
+}
+
+.modal__cancel {
+  border: 1px solid rgba(148, 163, 184, 0.5);
+  background: rgba(15, 23, 42, 0.6);
+  color: rgba(226, 232, 240, 0.92);
+}
+
+.modal__cancel:hover,
+.modal__cancel:focus-visible {
+  border-color: rgba(148, 163, 184, 0.8);
+  color: rgba(226, 232, 240, 1);
+  background: rgba(30, 41, 59, 0.75);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.28);
+}
+
 .session-token {
   font-size: 0.7rem;
   letter-spacing: 0.35em;
