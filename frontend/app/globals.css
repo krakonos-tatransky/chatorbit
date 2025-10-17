@@ -1267,13 +1267,49 @@ main {
   flex-direction: column;
   gap: 1.5rem;
   min-height: 420px;
+  max-height: min(700px, 80vh);
+  overflow: hidden;
+}
+
+.chat-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .chat-panel__stats {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  flex: 1;
   font-size: 0.75rem;
   color: rgba(148, 163, 184, 0.8);
+}
+
+.chat-panel__order-toggle {
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.55);
+  color: rgba(224, 242, 254, 0.9);
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.chat-panel__order-toggle:hover,
+.chat-panel__order-toggle:focus-visible {
+  outline: none;
+  border-color: rgba(34, 211, 238, 0.6);
+  background: rgba(34, 211, 238, 0.18);
+  color: rgba(224, 242, 254, 1);
 }
 
 .chat-log {
@@ -1286,6 +1322,22 @@ main {
   border: 1px solid rgba(30, 41, 59, 0.6);
   padding: 1rem;
   background: rgba(15, 23, 42, 0.55);
+  min-height: 0;
+}
+
+.chat-log__empty {
+  margin: 0;
+  text-align: center;
+  color: rgba(148, 163, 184, 0.75);
+  font-size: 0.9rem;
+}
+
+.chat-log .composer {
+  flex-shrink: 0;
+  padding: 1rem;
+  border-radius: 16px;
+  border: 1px solid rgba(30, 41, 59, 0.5);
+  background: rgba(15, 23, 42, 0.8);
 }
 
 .message {
@@ -1297,6 +1349,12 @@ main {
   flex-direction: column;
   gap: 0.5rem;
   font-size: 0.92rem;
+}
+
+@media (max-width: 540px) {
+  .message {
+    padding: 0.425rem 0.5rem;
+  }
 }
 
 .message--own {
@@ -1387,4 +1445,147 @@ main {
   background: rgba(248, 113, 113, 0.92);
   color: #2b0708;
   font-weight: 600;
+}
+
+.legal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.legal-overlay__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  animation: legal-overlay-backdrop-fade 0.32s ease forwards;
+}
+
+.legal-overlay__dialog {
+  position: relative;
+  width: min(960px, 100%);
+  max-height: min(90vh, 760px);
+  background: rgba(2, 6, 23, 0.95);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  border-radius: 26px;
+  box-shadow: 0 28px 70px -28px rgba(56, 189, 248, 0.4);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 0;
+  transform: translate3d(0, -8%, 0);
+  animation: legal-overlay-dialog-enter 0.36s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
+}
+
+.legal-overlay__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  gap: 1rem;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.15);
+}
+
+.legal-overlay__title {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.legal-overlay__close {
+  border: none;
+  border-radius: 9999px;
+  padding: 0.45rem 1.25rem;
+  background: rgba(56, 189, 248, 0.16);
+  color: #e0f2fe;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.legal-overlay__close:hover,
+.legal-overlay__close:focus-visible {
+  background: rgba(125, 211, 252, 0.35);
+  transform: translateY(-1px);
+}
+
+.legal-overlay__close:focus-visible {
+  outline: 2px solid rgba(125, 211, 252, 0.8);
+  outline-offset: 2px;
+}
+
+.legal-overlay__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
+.legal-overlay__content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.5rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.legal-overlay__document {
+  gap: 1.5rem;
+}
+
+@media (max-width: 720px) {
+  .legal-overlay {
+    padding: 1rem;
+  }
+
+  .legal-overlay__dialog {
+    max-height: 92vh;
+    border-radius: 22px;
+    animation-name: legal-overlay-dialog-enter-mobile;
+  }
+
+  .legal-overlay__header {
+    padding: 1rem 1.25rem;
+  }
+
+  .legal-overlay__content {
+    padding: 1rem 1.25rem 1.25rem;
+  }
+}
+
+@keyframes legal-overlay-backdrop-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes legal-overlay-dialog-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -12%, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes legal-overlay-dialog-enter-mobile {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18%, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
 }
