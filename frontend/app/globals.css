@@ -1522,13 +1522,17 @@ main {
 
 .legal-overlay__body {
   flex: 1;
+  min-height: 0;
+  display: flex;
   overflow: hidden;
 }
 
 .legal-overlay__content {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 1.5rem;
+  -webkit-overflow-scrolling: touch;
 }
 
 .legal-overlay__document {
