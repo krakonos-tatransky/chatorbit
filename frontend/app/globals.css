@@ -1462,6 +1462,8 @@ main {
   inset: 0;
   background: rgba(15, 23, 42, 0.82);
   backdrop-filter: blur(6px);
+  opacity: 0;
+  animation: legal-overlay-backdrop-fade 0.32s ease forwards;
 }
 
 .legal-overlay__dialog {
@@ -1475,6 +1477,9 @@ main {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  opacity: 0;
+  transform: translate3d(0, -8%, 0);
+  animation: legal-overlay-dialog-enter 0.36s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
 }
 
 .legal-overlay__header {
@@ -1538,6 +1543,7 @@ main {
   .legal-overlay__dialog {
     max-height: 92vh;
     border-radius: 22px;
+    animation-name: legal-overlay-dialog-enter-mobile;
   }
 
   .legal-overlay__header {
@@ -1546,5 +1552,36 @@ main {
 
   .legal-overlay__content {
     padding: 1rem 1.25rem 1.25rem;
+  }
+}
+
+@keyframes legal-overlay-backdrop-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes legal-overlay-dialog-enter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -12%, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes legal-overlay-dialog-enter-mobile {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18%, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
   }
 }

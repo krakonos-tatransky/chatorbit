@@ -1,6 +1,15 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, useId, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useId,
+  type ReactNode,
+} from "react";
 
 import { PrivacyPolicyContent } from "@/components/legal/privacy-policy-content";
 import { TermsOfServiceContent } from "@/components/legal/terms-of-service-content";
@@ -9,6 +18,7 @@ type LegalDocument = "privacy" | "terms";
 
 type LegalOverlayContextValue = {
   openLegalDocument: (document: LegalDocument) => boolean;
+  setOverlayEnabled: (enabled: boolean) => void;
 };
 
 const LegalOverlayContext = createContext<LegalOverlayContextValue | null>(null);
@@ -23,6 +33,7 @@ type LegalOverlayProviderProps = {
 
 export function LegalOverlayProvider({ children }: LegalOverlayProviderProps) {
   const [activeDocument, setActiveDocument] = useState<LegalDocument | null>(null);
+  const [isOverlayEnabled, setOverlayEnabled] = useState(false);
 
   useEffect(() => {
     if (!activeDocument) {
@@ -43,16 +54,33 @@ export function LegalOverlayProvider({ children }: LegalOverlayProviderProps) {
     };
   }, [activeDocument]);
 
-  const openLegalDocument = useCallback((document: LegalDocument) => {
-    setActiveDocument(document);
-    return true;
+  useEffect(() => {
+    if (!isOverlayEnabled && activeDocument) {
+      setActiveDocument(null);
+    }
+  }, [isOverlayEnabled, activeDocument]);
+
+  const openLegalDocument = useCallback(
+    (document: LegalDocument) => {
+      if (!isOverlayEnabled) {
+        return false;
+      }
+      setActiveDocument(document);
+      return true;
+    },
+    [isOverlayEnabled],
+  );
+
+  const handleSetOverlayEnabled = useCallback((enabled: boolean) => {
+    setOverlayEnabled(enabled);
   }, []);
 
   const contextValue = useMemo<LegalOverlayContextValue>(
     () => ({
       openLegalDocument,
+      setOverlayEnabled: handleSetOverlayEnabled,
     }),
-    [openLegalDocument],
+    [openLegalDocument, handleSetOverlayEnabled],
   );
 
   return (
@@ -61,6 +89,24 @@ export function LegalOverlayProvider({ children }: LegalOverlayProviderProps) {
       <LegalDocumentModal openDocument={activeDocument} onClose={() => setActiveDocument(null)} />
     </LegalOverlayContext.Provider>
   );
+}
+
+type LegalOverlayBoundaryProps = {
+  children: ReactNode;
+};
+
+export function LegalOverlayBoundary({ children }: LegalOverlayBoundaryProps) {
+  const overlay = useLegalOverlay();
+
+  useEffect(() => {
+    if (!overlay) {
+      return;
+    }
+    overlay.setOverlayEnabled(true);
+    return () => overlay.setOverlayEnabled(false);
+  }, [overlay]);
+
+  return <>{children}</>;
 }
 
 type LegalDocumentModalProps = {
