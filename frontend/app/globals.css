@@ -67,35 +67,28 @@ body {
 
 .site-nav__toggle {
   display: none;
-  border: 1px solid rgba(148, 163, 184, 0.35);
-  background: rgba(15, 23, 42, 0.6);
+  border: none;
+  background: none;
   color: inherit;
-  border-radius: 999px;
-  padding: 0.55rem;
+  border-radius: 10px;
+  padding: 0.35rem;
   cursor: pointer;
   align-items: center;
   justify-content: center;
-  gap: 0.3rem;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
 }
 
 .site-nav__toggle:focus-visible,
 .site-nav__toggle:hover {
   outline: none;
-  border-color: rgba(125, 211, 252, 0.6);
   background: rgba(8, 47, 73, 0.65);
+  box-shadow: 0 0 0 1px rgba(125, 211, 252, 0.6);
 }
 
-.site-nav__toggle-bar {
+.site-nav__toggle-icon {
   display: block;
-  width: 18px;
-  height: 2px;
-  background: currentColor;
-  border-radius: 999px;
-}
-
-.site-nav__toggle-bar + .site-nav__toggle-bar {
-  margin-top: 3px;
+  width: 1.5rem;
+  height: 1.5rem;
 }
 
 .site-nav {

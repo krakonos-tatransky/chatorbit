@@ -46,9 +46,14 @@ export function SiteHeader() {
           aria-expanded={isMenuOpen}
           onClick={toggleMenu}
         >
-          <span aria-hidden className="site-nav__toggle-bar" />
-          <span aria-hidden className="site-nav__toggle-bar" />
-          <span aria-hidden className="site-nav__toggle-bar" />
+          <svg
+            aria-hidden
+            className="site-nav__toggle-icon"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+          </svg>
         </button>
         <nav
           className={`site-nav${isMenuOpen ? " site-nav--open" : ""}`}
