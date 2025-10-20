@@ -277,6 +277,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [iceGatheringState, setIceGatheringState] = useState<RTCIceGatheringState | null>(null);
   const [dataChannelState, setDataChannelState] = useState<RTCDataChannelState | null>(null);
   const [callState, setCallState] = useState<CallState>("idle");
+  const callStateRef = useRef<CallState>("idle");
   const [callDialogOpen, setCallDialogOpen] = useState(false);
   const [incomingCallFrom, setIncomingCallFrom] = useState<string | null>(null);
   const [callNotice, setCallNotice] = useState<string | null>(null);
@@ -360,6 +361,10 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       log.scrollTop = log.scrollHeight;
     }
   }, [messages, reverseMessageOrder]);
+
+  useEffect(() => {
+    callStateRef.current = callState;
+  }, [callState]);
 
   useEffect(() => {
     const element = localVideoRef.current;
@@ -2120,9 +2125,26 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       if (!canInitiateCall) {
         return;
       }
-      sendCallMessage("request");
       setCallState("requesting");
-      showCallNotice("Video chat request sent.");
+      showCallNotice("Requesting camera access…");
+      void (async () => {
+        try {
+          await attachLocalMedia();
+        } catch (cause) {
+          console.error("Failed to access local media for video chat request", cause);
+          if (callStateRef.current === "requesting") {
+            stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+            setCallState("idle");
+            showCallNotice("Unable to access camera or microphone.");
+          }
+          return;
+        }
+        if (callStateRef.current !== "requesting") {
+          return;
+        }
+        sendCallMessage("request");
+        showCallNotice("Video chat request sent.");
+      })();
       return;
     }
     if (callState === "requesting") {
@@ -2130,6 +2152,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       setCallState("idle");
       setIncomingCallFrom(null);
       setCallDialogOpen(false);
+      stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
       showCallNotice("Video chat request cancelled.");
       return;
     }
@@ -2144,11 +2167,13 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   }, [
     callState,
     canInitiateCall,
+    attachLocalMedia,
     sendCallMessage,
     setCallDialogOpen,
     setCallState,
     setIncomingCallFrom,
     showCallNotice,
+    stopLocalMediaTracks,
     teardownCall,
   ]);
 
