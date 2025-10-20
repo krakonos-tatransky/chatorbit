@@ -1325,6 +1325,12 @@ main {
   gap: 0.75rem;
 }
 
+.chat-panel__controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .chat-panel__stats {
   display: flex;
   justify-content: space-between;
@@ -1334,6 +1340,50 @@ main {
   flex: 1;
   font-size: 0.75rem;
   color: rgba(148, 163, 184, 0.8);
+}
+
+.chat-panel__call-button {
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(15, 23, 42, 0.55);
+  color: rgba(226, 232, 240, 0.85);
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  cursor: pointer;
+}
+
+.chat-panel__call-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.chat-panel__call-button--pending {
+  border-color: rgba(59, 130, 246, 0.65);
+  background: rgba(37, 99, 235, 0.18);
+  color: rgba(191, 219, 254, 0.95);
+}
+
+.chat-panel__call-button--active {
+  border-color: rgba(34, 197, 94, 0.65);
+  background: rgba(22, 163, 74, 0.22);
+  color: rgba(220, 252, 231, 0.95);
+}
+
+.chat-panel__call-button:hover:not(:disabled),
+.chat-panel__call-button:focus-visible:not(:disabled) {
+  outline: none;
+  border-color: rgba(34, 211, 238, 0.6);
+  background: rgba(34, 211, 238, 0.18);
+  color: rgba(224, 242, 254, 1);
+}
+
+.chat-panel__call-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .chat-panel__order-toggle {
@@ -1357,6 +1407,57 @@ main {
   border-color: rgba(34, 211, 238, 0.6);
   background: rgba(34, 211, 238, 0.18);
   color: rgba(224, 242, 254, 1);
+}
+
+.chat-panel__media {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  border-radius: 20px;
+  border: 1px solid rgba(30, 41, 59, 0.6);
+  background: rgba(15, 23, 42, 0.6);
+  padding: 1rem;
+}
+
+.chat-panel__media-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.chat-panel__media-video {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 16px;
+  background: rgba(2, 6, 23, 0.85);
+  object-fit: cover;
+}
+
+.chat-panel__media-placeholder {
+  border-radius: 16px;
+  border: 1px dashed rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.75);
+  color: rgba(148, 163, 184, 0.75);
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  min-height: 140px;
+  text-align: center;
+}
+
+.chat-panel__media-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(148, 163, 184, 0.7);
+}
+
+.call-panel__notice {
+  margin: 0;
+  font-size: 0.78rem;
 }
 
 .chat-log {

@@ -121,6 +121,8 @@ const DEFAULT_NOTIFICATION_SOUND: NotificationSoundName = "icqInspired";
 
 type TimeoutHandle = ReturnType<typeof setTimeout>;
 
+type CallState = "idle" | "incoming" | "requesting" | "connecting" | "active";
+
 type CryptoLike = {
   subtle: SubtleCrypto;
   getRandomValues<T extends ArrayBufferView | null>(array: T): T;
@@ -274,6 +276,12 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [iceConnectionState, setIceConnectionState] = useState<RTCIceConnectionState | null>(null);
   const [iceGatheringState, setIceGatheringState] = useState<RTCIceGatheringState | null>(null);
   const [dataChannelState, setDataChannelState] = useState<RTCDataChannelState | null>(null);
+  const [callState, setCallState] = useState<CallState>("idle");
+  const [callDialogOpen, setCallDialogOpen] = useState(false);
+  const [incomingCallFrom, setIncomingCallFrom] = useState<string | null>(null);
+  const [callNotice, setCallNotice] = useState<string | null>(null);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [debugEvents, setDebugEvents] = useState<DebugLogEntry[]>([]);
   const [reconnectBaseDelayMs, setReconnectBaseDelayMs] = useState(DEFAULT_RECONNECT_BASE_DELAY_MS);
   const [isReconnecting, setIsReconnecting] = useState(false);
@@ -282,8 +290,12 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const socketRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
   const chatLogRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const focusComposer = useCallback(() => {
     const composer = composerRef.current;
     if (!composer) {
@@ -316,6 +328,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const initialMessagesHandledRef = useRef(false);
   const notificationSoundRef = useRef<NotificationSoundName>(DEFAULT_NOTIFICATION_SOUND);
   const secretBufferRef = useRef<string>("");
+  const negotiationPendingRef = useRef(false);
+  const callNoticeTimeoutRef = useRef<TimeoutHandle | null>(null);
   const termsStorageKey = useMemo(() => `chatorbit:session:${token}:termsAccepted`, [token]);
 
   useEffect(() => {
@@ -346,6 +360,59 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       log.scrollTop = log.scrollHeight;
     }
   }, [messages, reverseMessageOrder]);
+
+  useEffect(() => {
+    const element = localVideoRef.current;
+    if (!element) {
+      return;
+    }
+    if (localStream) {
+      element.srcObject = localStream;
+      const playPromise = element.play();
+      if (playPromise) {
+        void playPromise.catch(() => {});
+      }
+    } else {
+      element.srcObject = null;
+    }
+  }, [localStream]);
+
+  useEffect(() => {
+    const element = remoteVideoRef.current;
+    if (!element) {
+      return;
+    }
+    if (remoteStream) {
+      element.srcObject = remoteStream;
+      const playPromise = element.play();
+      if (playPromise) {
+        void playPromise.catch(() => {});
+      }
+    } else {
+      element.srcObject = null;
+    }
+  }, [remoteStream]);
+
+  useEffect(() => {
+    if (!remoteStream) {
+      return;
+    }
+    setCallState((current) => {
+      if (current === "connecting" || current === "incoming" || current === "requesting") {
+        return "active";
+      }
+      return current;
+    });
+  }, [remoteStream]);
+
+  useEffect(() => {
+    return () => {
+      if (callNoticeTimeoutRef.current && typeof window !== "undefined") {
+        window.clearTimeout(callNoticeTimeoutRef.current);
+        callNoticeTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const ensureAudioContext = useCallback(() => {
     if (typeof window === "undefined") {
@@ -639,6 +706,37 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     tokenCopyTimeoutRef.current = window.setTimeout(() => setTokenCopyState("idle"), 2000);
   }, [token]);
 
+  const stopLocalMediaTracks = useCallback(
+    (pc?: RTCPeerConnection | null) => {
+      const stream = localStreamRef.current;
+      if (!stream) {
+        return;
+      }
+      const senders = pc?.getSenders() ?? [];
+      for (const track of stream.getTracks()) {
+        try {
+          track.stop();
+        } catch (cause) {
+          console.warn("Failed to stop local media track", cause);
+        }
+        if (!pc) {
+          continue;
+        }
+        const sender = senders.find((candidate) => candidate.track && candidate.track.id === track.id);
+        if (sender) {
+          try {
+            pc.removeTrack(sender);
+          } catch (cause) {
+            console.warn("Failed to remove RTCRtpSender", cause);
+          }
+        }
+      }
+      localStreamRef.current = null;
+      setLocalStream(null);
+    },
+    [setLocalStream],
+  );
+
   const resetPeerConnection = useCallback(
     ({ recreate = true, delayMs }: { recreate?: boolean; delayMs?: number } = {}) => {
       if (iceRetryTimeoutRef.current) {
@@ -651,6 +749,9 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       }
       const existing = peerConnectionRef.current;
       if (existing) {
+        stopLocalMediaTracks(existing);
+        remoteStreamRef.current = null;
+        setRemoteStream(null);
         try {
           existing.close();
         } catch (cause) {
@@ -663,6 +764,15 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       setIceConnectionState(null);
       setIceGatheringState(null);
       setDataChannelState(null);
+      setCallState("idle");
+      setIncomingCallFrom(null);
+      setCallDialogOpen(false);
+      negotiationPendingRef.current = false;
+      if (callNoticeTimeoutRef.current) {
+        clearTimeout(callNoticeTimeoutRef.current);
+        callNoticeTimeoutRef.current = null;
+      }
+      setCallNotice(null);
       pendingCandidatesRef.current = [];
       pendingSignalsRef.current = [];
       hasSentOfferRef.current = false;
@@ -693,6 +803,12 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       setIceConnectionState,
       setIceGatheringState,
       setDataChannelState,
+      setCallState,
+      setIncomingCallFrom,
+      setCallDialogOpen,
+      setCallNotice,
+      setRemoteStream,
+      stopLocalMediaTracks,
     ],
   );
 
@@ -882,6 +998,166 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     }
   }, [sendCapabilities, supportsEncryption]);
 
+  const sendSignal = useCallback(
+    (signalType: string, payload: unknown) => {
+      if (!participantId) {
+        return;
+      }
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      logEvent("Sending signal", { signalType, payload });
+      socket.send(
+        JSON.stringify({
+          type: "signal",
+          signalType,
+          payload,
+        }),
+      );
+    },
+    [participantId],
+  );
+
+  const sendCallMessage = useCallback(
+    (action: string, detail: Record<string, unknown> = {}) => {
+      if (!participantId) {
+        return;
+      }
+      const channel = dataChannelRef.current;
+      if (!channel || channel.readyState !== "open") {
+        return;
+      }
+      const payload = { type: "call", action, from: participantId, ...detail };
+      try {
+        channel.send(JSON.stringify(payload));
+        logEvent("Sent call control message", payload);
+      } catch (cause) {
+        console.warn("Failed to send call control message", cause);
+      }
+    },
+    [participantId],
+  );
+
+  const showCallNotice = useCallback(
+    (message: string | null) => {
+      if (typeof window !== "undefined" && callNoticeTimeoutRef.current) {
+        window.clearTimeout(callNoticeTimeoutRef.current);
+        callNoticeTimeoutRef.current = null;
+      }
+      setCallNotice(message);
+      if (message && typeof window !== "undefined") {
+        callNoticeTimeoutRef.current = window.setTimeout(() => {
+          setCallNotice(null);
+          callNoticeTimeoutRef.current = null;
+        }, 4000);
+      }
+    },
+    [setCallNotice],
+  );
+
+  const renegotiate = useCallback(async () => {
+    if (participantRole !== "host") {
+      return;
+    }
+    const pc = peerConnectionRef.current;
+    if (!pc) {
+      return;
+    }
+    if (pc.signalingState !== "stable") {
+      logEvent("Deferring renegotiation until signaling state stabilizes", {
+        signalingState: pc.signalingState,
+      });
+      negotiationPendingRef.current = true;
+      return;
+    }
+    negotiationPendingRef.current = false;
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      sendSignal("offer", offer);
+      logEvent("Sent renegotiation offer for media tracks");
+    } catch (cause) {
+      console.error("Failed to renegotiate media", cause);
+    }
+  }, [participantRole, sendSignal]);
+
+  const requestRenegotiation = useCallback(() => {
+    if (participantRole === "host") {
+      void renegotiate();
+    } else {
+      sendCallMessage("renegotiate");
+    }
+  }, [participantRole, renegotiate, sendCallMessage]);
+
+  const ensureLocalStream = useCallback(async () => {
+    if (localStreamRef.current) {
+      return localStreamRef.current;
+    }
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Media devices are not available.");
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+    localStreamRef.current = stream;
+    setLocalStream(stream);
+    return stream;
+  }, []);
+
+  const attachLocalMedia = useCallback(async () => {
+    const stream = await ensureLocalStream();
+    const pc = peerConnectionRef.current;
+    if (!pc) {
+      throw new Error("Peer connection is not ready.");
+    }
+    const senders = pc.getSenders();
+    for (const track of stream.getTracks()) {
+      const sender = senders.find((candidate) => candidate.track?.kind === track.kind);
+      if (sender) {
+        try {
+          await sender.replaceTrack(track);
+        } catch (cause) {
+          console.warn("Failed to replace track on sender", cause);
+        }
+      } else {
+        pc.addTrack(track, stream);
+      }
+    }
+    return stream;
+  }, [ensureLocalStream]);
+
+  const teardownCall = useCallback(
+    (
+      {
+        notifyPeer = false,
+        renegotiate: shouldRenegotiate = true,
+      }: { notifyPeer?: boolean; renegotiate?: boolean } = {},
+    ) => {
+      const pc = peerConnectionRef.current;
+      stopLocalMediaTracks(pc ?? undefined);
+      remoteStreamRef.current = null;
+      setRemoteStream(null);
+      setCallState("idle");
+      setIncomingCallFrom(null);
+      setCallDialogOpen(false);
+      negotiationPendingRef.current = false;
+      if (notifyPeer) {
+        sendCallMessage("end");
+      }
+      if (shouldRenegotiate) {
+        requestRenegotiation();
+      }
+    },
+    [
+      requestRenegotiation,
+      sendCallMessage,
+      setCallDialogOpen,
+      setCallState,
+      setIncomingCallFrom,
+      setRemoteStream,
+      stopLocalMediaTracks,
+    ],
+  );
+
   const handlePeerMessage = useCallback(
     async (raw: string) => {
       logEvent("Received raw data channel payload", raw);
@@ -893,6 +1169,97 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           setPeerSupportsEncryption(remoteSupports);
           if (!capabilityAnnouncedRef.current) {
             sendCapabilities();
+          }
+          return;
+        }
+        if (payload.type === "call") {
+          const action = typeof payload.action === "string" ? payload.action : null;
+          const fromParticipant = typeof payload.from === "string" ? payload.from : null;
+          if (!action) {
+            return;
+          }
+          if (action === "request") {
+            if (callState === "active" || callState === "connecting") {
+              sendCallMessage("busy");
+              showCallNotice("Peer requested a video chat, but you're already in a call.");
+              return;
+            }
+            if (callState === "requesting") {
+              setCallDialogOpen(false);
+              setCallState("connecting");
+              try {
+                await attachLocalMedia();
+                sendCallMessage("accept");
+                requestRenegotiation();
+                showCallNotice("Video chat request accepted.");
+              } catch (cause) {
+                console.error("Failed to auto-accept video chat", cause);
+                showCallNotice("Unable to start video chat.");
+                setCallState("idle");
+                sendCallMessage("reject");
+                stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+              }
+              return;
+            }
+            setIncomingCallFrom(fromParticipant);
+            setCallDialogOpen(true);
+            setCallState("incoming");
+            showCallNotice("Video chat request received.");
+            return;
+          }
+          if (action === "cancel") {
+            if (callState !== "idle") {
+              const shouldRenegotiate = localStreamRef.current !== null;
+              teardownCall({ notifyPeer: false, renegotiate: shouldRenegotiate });
+              showCallNotice("Video chat request cancelled.");
+            }
+            return;
+          }
+          if (action === "accept") {
+            setCallDialogOpen(false);
+            setIncomingCallFrom(null);
+            setCallState("connecting");
+            try {
+              await attachLocalMedia();
+              requestRenegotiation();
+              showCallNotice("Starting video chat…");
+            } catch (cause) {
+              console.error("Failed to attach local media after acceptance", cause);
+              showCallNotice("Unable to start video chat.");
+              setCallState("idle");
+              sendCallMessage("reject");
+              stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+            }
+            return;
+          }
+          if (action === "reject") {
+            if (callState === "requesting" || callState === "connecting") {
+              const shouldRenegotiate = localStreamRef.current !== null;
+              teardownCall({ notifyPeer: false, renegotiate: shouldRenegotiate });
+              showCallNotice("Video chat request declined.");
+            }
+            return;
+          }
+          if (action === "end") {
+            if (callState !== "idle") {
+              teardownCall({ notifyPeer: false });
+              showCallNotice("Video chat ended.");
+            }
+            return;
+          }
+          if (action === "renegotiate") {
+            if (participantRole === "host") {
+              void renegotiate();
+            }
+            return;
+          }
+          if (action === "busy") {
+            if (callState === "requesting") {
+              const shouldRenegotiate = localStreamRef.current !== null;
+              teardownCall({ notifyPeer: false, renegotiate: shouldRenegotiate });
+              showCallNotice("Peer is already in a video chat.");
+            }
+            return;
           }
           return;
         }
@@ -1055,27 +1422,6 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       setIsReconnecting,
       setDataChannelState,
     ],
-  );
-
-  const sendSignal = useCallback(
-    (signalType: string, payload: unknown) => {
-      if (!participantId) {
-        return;
-      }
-      const socket = socketRef.current;
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        return;
-      }
-      logEvent("Sending signal", { signalType, payload });
-      socket.send(
-        JSON.stringify({
-          type: "signal",
-          signalType,
-          payload,
-        }),
-      );
-    },
-    [participantId],
   );
 
   const processSignalPayload = useCallback(
@@ -1249,6 +1595,52 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       }
     };
 
+    peerConnection.ontrack = (event) => {
+      const [stream] = event.streams;
+      if (!stream) {
+        return;
+      }
+      remoteStreamRef.current = stream;
+      setRemoteStream(stream);
+      setCallState((current) => {
+        if (current === "connecting" || current === "incoming" || current === "requesting") {
+          return "active";
+        }
+        return current;
+      });
+      const handleTrackUpdate = () => {
+        const currentStream = remoteStreamRef.current;
+        if (!currentStream) {
+          return;
+        }
+        const hasLiveTrack = currentStream.getTracks().some((track) => track.readyState !== "ended");
+        if (!hasLiveTrack) {
+          const hadStream = remoteStreamRef.current !== null;
+          remoteStreamRef.current = null;
+          setRemoteStream(null);
+          if (hadStream) {
+            teardownCall({ notifyPeer: false });
+            showCallNotice("Video chat ended.");
+          }
+        }
+      };
+      stream.addEventListener("removetrack", handleTrackUpdate);
+      for (const track of stream.getTracks()) {
+        track.addEventListener("ended", handleTrackUpdate);
+      }
+    };
+
+    peerConnection.onsignalingstatechange = () => {
+      if (
+        peerConnection.signalingState === "stable" &&
+        negotiationPendingRef.current &&
+        participantRole === "host"
+      ) {
+        negotiationPendingRef.current = false;
+        void renegotiate();
+      }
+    };
+
     peerConnection.addEventListener("icecandidateerror", (event: RTCPeerConnectionIceErrorEvent) => {
       const { hostCandidate } = event as RTCPeerConnectionIceErrorEvent & { hostCandidate?: string };
       logEvent("ICE candidate error reported", {
@@ -1303,10 +1695,15 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     participantRole,
     peerResetNonce,
     processSignalPayload,
+    renegotiate,
     resetPeerConnection,
     reconnectBaseDelayMs,
     schedulePeerConnectionRecovery,
     sendSignal,
+    setCallState,
+    setRemoteStream,
+    showCallNotice,
+    teardownCall,
   ]);
 
   useEffect(() => {
@@ -1695,6 +2092,102 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     }, 1000);
     return () => window.clearInterval(interval);
   }, [remainingSeconds]);
+
+  const sessionIsActive = sessionStatus?.status === "active";
+  const canInitiateCall = connected && dataChannelState === "open" && sessionIsActive === true;
+  const shouldShowCallButton = canInitiateCall || callState !== "idle";
+  const callButtonVariant =
+    callState === "active"
+      ? "active"
+      : callState === "incoming" || callState === "requesting" || callState === "connecting"
+        ? "pending"
+        : "idle";
+  const callButtonTitle =
+    callState === "idle"
+      ? "Request a video chat"
+      : callState === "requesting"
+        ? "Cancel video chat request"
+        : callState === "incoming"
+          ? "Respond to video chat request"
+          : callState === "connecting"
+            ? "Cancel video chat connection"
+            : "Leave video chat";
+  const callButtonDisabled = callState === "idle" && !canInitiateCall;
+  const shouldShowMediaPanel = callState !== "idle" || Boolean(localStream) || Boolean(remoteStream);
+
+  const handleCallButtonClick = useCallback(() => {
+    if (callState === "idle") {
+      if (!canInitiateCall) {
+        return;
+      }
+      sendCallMessage("request");
+      setCallState("requesting");
+      showCallNotice("Video chat request sent.");
+      return;
+    }
+    if (callState === "requesting") {
+      sendCallMessage("cancel");
+      setCallState("idle");
+      setIncomingCallFrom(null);
+      setCallDialogOpen(false);
+      showCallNotice("Video chat request cancelled.");
+      return;
+    }
+    if (callState === "incoming") {
+      setCallDialogOpen(true);
+      return;
+    }
+    if (callState === "connecting" || callState === "active") {
+      teardownCall({ notifyPeer: true });
+      showCallNotice("Video chat ended.");
+    }
+  }, [
+    callState,
+    canInitiateCall,
+    sendCallMessage,
+    setCallDialogOpen,
+    setCallState,
+    setIncomingCallFrom,
+    showCallNotice,
+    teardownCall,
+  ]);
+
+  const handleCallAccept = useCallback(async () => {
+    setCallDialogOpen(false);
+    setIncomingCallFrom(null);
+    setCallState("connecting");
+    try {
+      await attachLocalMedia();
+      sendCallMessage("accept");
+      requestRenegotiation();
+      showCallNotice("Starting video chat…");
+    } catch (cause) {
+      console.error("Failed to accept video chat", cause);
+      showCallNotice("Unable to access camera or microphone.");
+      setCallState("idle");
+      sendCallMessage("reject");
+      stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+    }
+  }, [
+    attachLocalMedia,
+    requestRenegotiation,
+    sendCallMessage,
+    setCallDialogOpen,
+    setCallState,
+    setIncomingCallFrom,
+    showCallNotice,
+    stopLocalMediaTracks,
+  ]);
+
+  const handleCallDecline = useCallback(() => {
+    setCallDialogOpen(false);
+    setIncomingCallFrom(null);
+    if (callState !== "idle") {
+      setCallState("idle");
+    }
+    sendCallMessage("reject");
+    showCallNotice("Declined video chat request.");
+  }, [callState, sendCallMessage, setCallDialogOpen, setCallState, setIncomingCallFrom, showCallNotice]);
 
   const connectedParticipantCount = useMemo(() => {
     const connectedIds = new Set(sessionStatus?.connectedParticipants ?? []);
@@ -2245,17 +2738,87 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
                 Limit: {sessionStatus ? sessionStatus.messageCharLimit.toLocaleString() : "—"} chars/message
               </span>
             </div>
-            <button
-              type="button"
-              className="chat-panel__order-toggle"
-              onClick={() => setReverseMessageOrder((previous) => !previous)}
-              aria-pressed={reverseMessageOrder}
-              aria-label={reverseMessageOrder ? "Show newest messages at bottom" : "Show newest messages at top"}
-              title={reverseMessageOrder ? "Newest on top" : "Newest on bottom"}
-            >
-              {reverseMessageOrder ? "↓" : "↑"}
-            </button>
+            <div className="chat-panel__controls">
+              {shouldShowCallButton ? (
+                <button
+                  type="button"
+                  className={`chat-panel__call-button chat-panel__call-button--${callButtonVariant}`}
+                  onClick={handleCallButtonClick}
+                  aria-label={callButtonTitle}
+                  title={callButtonTitle}
+                  disabled={callButtonDisabled}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path
+                      fill="currentColor"
+                      d="M15 10.5V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-3.5l5 3.5V7l-5 3.5z"
+                    />
+                  </svg>
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="chat-panel__order-toggle"
+                onClick={() => setReverseMessageOrder((previous) => !previous)}
+                aria-pressed={reverseMessageOrder}
+                aria-label={reverseMessageOrder ? "Show newest messages at bottom" : "Show newest messages at top"}
+                title={reverseMessageOrder ? "Newest on top" : "Newest on bottom"}
+              >
+                {reverseMessageOrder ? "↓" : "↑"}
+              </button>
+            </div>
           </div>
+
+          {callNotice ? (
+            <div className="alert alert--info call-panel__notice" role="status" aria-live="polite">
+              {callNotice}
+            </div>
+          ) : null}
+
+          {shouldShowMediaPanel ? (
+            <div className="chat-panel__media" aria-live="polite">
+              <div className="chat-panel__media-item">
+                {localStream ? (
+                  <video
+                    ref={localVideoRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    className="chat-panel__media-video"
+                  />
+                ) : (
+                  <div className="chat-panel__media-placeholder">
+                    {callState === "incoming"
+                      ? "Accept to share your camera."
+                      : callState === "requesting"
+                        ? "Waiting for peer to accept…"
+                        : callState === "connecting"
+                          ? "Connecting camera…"
+                          : "Camera preview unavailable"}
+                  </div>
+                )}
+                <span className="chat-panel__media-label">You</span>
+              </div>
+              <div className="chat-panel__media-item">
+                {remoteStream ? (
+                  <video ref={remoteVideoRef} autoPlay playsInline className="chat-panel__media-video" />
+                ) : (
+                  <div className="chat-panel__media-placeholder">
+                    {callState === "active"
+                      ? "Waiting for peer video…"
+                      : callState === "incoming"
+                        ? "Incoming video chat request"
+                        : callState === "requesting"
+                          ? "Awaiting peer response…"
+                          : callState === "connecting"
+                            ? "Connecting to peer…"
+                            : "Remote video unavailable"}
+                  </div>
+                )}
+                <span className="chat-panel__media-label">Partner</span>
+              </div>
+            </div>
+          ) : null}
 
           {encryptionAlertMessage ? (
             <div className="alert alert--info">{encryptionAlertMessage}</div>
@@ -2296,6 +2859,23 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           </div>
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={callDialogOpen}
+        title="Incoming video chat"
+        description={
+          incomingCallFrom
+            ? `${incomingCallFrom} wants to start a video chat.`
+            : "Your peer wants to start a video chat."
+        }
+        confirmLabel="Accept"
+        cancelLabel="Decline"
+        onConfirm={() => {
+          void handleCallAccept();
+        }}
+        onCancel={handleCallDecline}
+        confirmDisabled={callState === "connecting"}
+      />
 
       <ConfirmDialog
         open={confirmEndSessionOpen}
