@@ -2147,6 +2147,11 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           : callState === "requesting"
             ? "Awaiting peer response"
             : "Video chat ready";
+  const hasSessionEnded =
+    sessionEnded ||
+    sessionStatus?.status === "closed" ||
+    sessionStatus?.status === "expired" ||
+    sessionStatus?.status === "deleted";
   const sessionStatusLabel = hasSessionEnded ? "Ended" : connected ? "Connected" : "Waiting";
   const sessionStatusIndicatorClass = hasSessionEnded
     ? " status-indicator--ended"
@@ -2300,12 +2305,6 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     }
     return Math.min(connectedIds.size, 2);
   }, [connected, participantId, sessionStatus?.connectedParticipants, sessionStatus?.participants]);
-
-  const hasSessionEnded =
-    sessionEnded ||
-    sessionStatus?.status === "closed" ||
-    sessionStatus?.status === "expired" ||
-    sessionStatus?.status === "deleted";
 
   const endSessionButtonLabel = hasSessionEnded
     ? "Session ended"
