@@ -119,7 +119,7 @@ export const NOTIFICATION_SOUNDS = {
 export type NotificationSoundName = keyof typeof NOTIFICATION_SOUNDS;
 const DEFAULT_NOTIFICATION_SOUND: NotificationSoundName = "icqInspired";
 
-type TimeoutHandle = ReturnType<typeof setTimeout>;
+type TimeoutHandle = ReturnType<typeof setTimeout> | number;
 
 type CallState = "idle" | "incoming" | "requesting" | "connecting" | "active";
 
