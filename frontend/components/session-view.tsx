@@ -281,6 +281,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [callDialogOpen, setCallDialogOpen] = useState(false);
   const [incomingCallFrom, setIncomingCallFrom] = useState<string | null>(null);
   const [callNotice, setCallNotice] = useState<string | null>(null);
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [debugEvents, setDebugEvents] = useState<DebugLogEntry[]>([]);
@@ -318,6 +319,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const capabilityAnnouncedRef = useRef(false);
   const peerSupportsEncryptionRef = useRef<boolean | null>(null);
   const reconnectAttemptsRef = useRef(0);
+  const headerRevealTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const previousMediaPanelVisibleRef = useRef(false);
   const reconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
   const iceFailureRetriesRef = useRef(0);
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
@@ -2118,7 +2121,78 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
             ? "Cancel video chat connection"
             : "Leave video chat";
   const callButtonDisabled = callState === "idle" && !canInitiateCall;
-  const shouldShowMediaPanel = callState !== "idle" || Boolean(localStream) || Boolean(remoteStream);
+  const shouldShowMediaPanel =
+    callState === "connecting" ||
+    callState === "active" ||
+    callState === "requesting" ||
+    Boolean(localStream) ||
+    Boolean(remoteStream);
+  const callPanelStatusVariant =
+    callState === "active"
+      ? "active"
+      : callState === "connecting"
+        ? "connecting"
+        : callState === "incoming"
+          ? "incoming"
+          : callState === "requesting"
+            ? "pending"
+            : "idle";
+  const callPanelStatusLabel =
+    callState === "active"
+      ? "Video chat active"
+      : callState === "connecting"
+        ? "Connecting video chat"
+        : callState === "incoming"
+          ? "Incoming video chat"
+          : callState === "requesting"
+            ? "Awaiting peer response"
+            : "Video chat ready";
+  const sessionStatusLabel = hasSessionEnded ? "Ended" : connected ? "Connected" : "Waiting";
+  const sessionStatusIndicatorClass = hasSessionEnded
+    ? " status-indicator--ended"
+    : connected
+      ? " status-indicator--active"
+      : "";
+
+  const handleHeaderReveal = useCallback(() => {
+    setHeaderCollapsed(false);
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (headerRevealTimeoutRef.current) {
+      window.clearTimeout(headerRevealTimeoutRef.current);
+      headerRevealTimeoutRef.current = null;
+    }
+    headerRevealTimeoutRef.current = window.setTimeout(() => {
+      headerRevealTimeoutRef.current = null;
+      if (previousMediaPanelVisibleRef.current) {
+        setHeaderCollapsed(true);
+      }
+    }, 5000);
+  }, []);
+
+  const handleHeaderCollapse = useCallback(() => {
+    if (typeof window !== "undefined" && headerRevealTimeoutRef.current) {
+      window.clearTimeout(headerRevealTimeoutRef.current);
+      headerRevealTimeoutRef.current = null;
+    }
+    setHeaderCollapsed(true);
+  }, []);
+
+  useEffect(() => {
+    const wasVisible = previousMediaPanelVisibleRef.current;
+    if (shouldShowMediaPanel && !wasVisible) {
+      setHeaderCollapsed(true);
+    }
+    if (!shouldShowMediaPanel && wasVisible) {
+      setHeaderCollapsed(false);
+      if (typeof window !== "undefined" && headerRevealTimeoutRef.current) {
+        window.clearTimeout(headerRevealTimeoutRef.current);
+        headerRevealTimeoutRef.current = null;
+      }
+    }
+    previousMediaPanelVisibleRef.current = shouldShowMediaPanel;
+  }, [shouldShowMediaPanel]);
 
   const handleCallButtonClick = useCallback(() => {
     if (callState === "idle") {
@@ -2563,6 +2637,10 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         window.clearTimeout(tokenCopyTimeoutRef.current);
         tokenCopyTimeoutRef.current = null;
       }
+      if (typeof window !== "undefined" && headerRevealTimeoutRef.current) {
+        window.clearTimeout(headerRevealTimeoutRef.current);
+        headerRevealTimeoutRef.current = null;
+      }
       resetPeerConnection({ recreate: false });
       if (iceRetryTimeoutRef.current) {
         clearTimeout(iceRetryTimeoutRef.current);
@@ -2592,149 +2670,169 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
 
   return (
     <div className="session-shell">
-      <div className="session-header">
-        <div className="session-header__content">
-          <div className="session-header__top">
-            <div className="session-token-header">
-              <p className="session-token">Token</p>
-              <button
-                type="button"
-                className={`session-token-copy${
-                  tokenCopyState === "copied" ? " session-token-copy--success" : ""
-                }${tokenCopyState === "failed" ? " session-token-copy--error" : ""}`}
-                onClick={handleCopyToken}
-                aria-label="Copy session token"
-              >
-                {tokenCopyState === "copied" ? "Copied" : "Copy"}
-              </button>
-              <span className="session-token-copy-status" role="status" aria-live="polite">
-                {tokenCopyState === "copied"
-                  ? "Token copied to clipboard"
-                  : tokenCopyState === "failed"
-                    ? "Unable to copy token"
-                    : ""}
+      <div className={`session-header${headerCollapsed ? " session-header--collapsed" : ""}`}>
+        {headerCollapsed ? (
+          <button
+            type="button"
+            className="session-header__collapsed-button"
+            onClick={handleHeaderReveal}
+            aria-expanded={!headerCollapsed}
+          >
+            <div className="session-header__collapsed-meta">
+              <span className="session-header__collapsed-status">
+                <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
+                <span>{sessionStatusLabel}</span>
               </span>
+              <span className="session-header__collapsed-hint">Show session details</span>
             </div>
-            <button
-              type="button"
-              className="session-end-button"
-              onClick={handleEndSessionRequest}
-              disabled={endSessionLoading || hasSessionEnded}
-              aria-haspopup="dialog"
-              aria-expanded={confirmEndSessionOpen}
-            >
-              {endSessionButtonLabel}
-            </button>
-          </div>
-          <p className="session-token-value">{token}</p>
-          <p className="session-role">
-            You are signed in as
-            <span>
-              {" "}
-              {sessionStatus?.participants.find((p) => p.participantId === participantId)?.role ?? "guest"}
+            <span className="session-header__collapsed-time" aria-live="polite">
+              {countdownLabel}
             </span>
-            .
-          </p>
-          {showDebugPanel ? (
-            <div className="session-debug" data-test="session-debug-panel">
-              <div className="session-debug__header">
-                <p className="session-debug__title">Client debug</p>
-                {isTouchDevice ? (
+          </button>
+        ) : (
+          <>
+            <div className="session-header__content">
+              <div className="session-header__top">
+                <div className="session-token-header">
+                  <p className="session-token">Token</p>
                   <button
                     type="button"
-                    className="session-debug__hide-button"
-                    onClick={() => {
-                      setShowDebugPanel(false);
-                    }}
-                    aria-label="Hide debug panel"
+                    className={`session-token-copy${
+                      tokenCopyState === "copied" ? " session-token-copy--success" : ""
+                    }${tokenCopyState === "failed" ? " session-token-copy--error" : ""}`}
+                    onClick={handleCopyToken}
+                    aria-label="Copy session token"
                   >
-                    Hide
+                    {tokenCopyState === "copied" ? "Copied" : "Copy"}
                   </button>
-                ) : (
-                  <p className="session-debug__hint">Press Esc to hide</p>
-                )}
+                  <span className="session-token-copy-status" role="status" aria-live="polite">
+                    {tokenCopyState === "copied"
+                      ? "Token copied to clipboard"
+                      : tokenCopyState === "failed"
+                        ? "Unable to copy token"
+                        : ""}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="session-end-button"
+                  onClick={handleEndSessionRequest}
+                  disabled={endSessionLoading || hasSessionEnded}
+                  aria-haspopup="dialog"
+                  aria-expanded={confirmEndSessionOpen}
+                >
+                  {endSessionButtonLabel}
+                </button>
               </div>
-              <dl className="session-debug__list">
-                <div className="session-debug__item">
-                  <dt>Identity</dt>
-                  <dd>{clientIdentity ?? "Gathering…"}</dd>
+              <p className="session-token-value">{token}</p>
+              <p className="session-role">
+                You are signed in as
+                <span>
+                  {" "}
+                  {sessionStatus?.participants.find((p) => p.participantId === participantId)?.role ?? "guest"}
+                </span>
+                .
+              </p>
+              {showDebugPanel ? (
+                <div className="session-debug" data-test="session-debug-panel">
+                  <div className="session-debug__header">
+                    <p className="session-debug__title">Client debug</p>
+                    {isTouchDevice ? (
+                      <button
+                        type="button"
+                        className="session-debug__hide-button"
+                        onClick={() => {
+                          setShowDebugPanel(false);
+                        }}
+                        aria-label="Hide debug panel"
+                      >
+                        Hide
+                      </button>
+                    ) : (
+                      <p className="session-debug__hint">Press Esc to hide</p>
+                    )}
+                  </div>
+                  <dl className="session-debug__list">
+                    <div className="session-debug__item">
+                      <dt>Identity</dt>
+                      <dd>{clientIdentity ?? "Gathering…"}</dd>
+                    </div>
+                    <div className="session-debug__item">
+                      <dt>Peer state</dt>
+                      <dd>{connectionState ?? "—"}</dd>
+                    </div>
+                    <div className="session-debug__item">
+                      <dt>ICE connection</dt>
+                      <dd>{iceConnectionState ?? "—"}</dd>
+                    </div>
+                    <div className="session-debug__item">
+                      <dt>ICE gathering</dt>
+                      <dd>{iceGatheringState ?? "—"}</dd>
+                    </div>
+                    <div className="session-debug__item">
+                      <dt>Data channel</dt>
+                      <dd>{dataChannelState ?? "—"}</dd>
+                    </div>
+                  </dl>
+                  <div className="session-debug__events">
+                    <p className="session-debug__subtitle">Recent events</p>
+                    {recentDebugEvents.length === 0 ? (
+                      <p className="session-debug__empty">Watching for new logs…</p>
+                    ) : (
+                      <ul className="session-debug__event-list">
+                        {recentDebugEvents.map((entry, index) => {
+                          const detail = entry.details[0];
+                          let detailSnippet: string | null = null;
+                          if (detail !== undefined) {
+                            try {
+                              detailSnippet = JSON.stringify(detail);
+                            } catch (error) {
+                              detailSnippet = String(detail);
+                            }
+                            if (detailSnippet && detailSnippet.length > 160) {
+                              detailSnippet = `${detailSnippet.slice(0, 157)}…`;
+                            }
+                          }
+                          const timestamp = new Date(entry.timestamp).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          });
+                          return (
+                            <li key={`${entry.timestamp}-${index}`} className="session-debug__event">
+                              <span className="session-debug__event-time">{timestamp}</span>
+                              <span className="session-debug__event-message">{entry.message}</span>
+                              {detailSnippet ? (
+                                <code className="session-debug__event-detail">{detailSnippet}</code>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
                 </div>
-                <div className="session-debug__item">
-                  <dt>Peer state</dt>
-                  <dd>{connectionState ?? "—"}</dd>
-                </div>
-                <div className="session-debug__item">
-                  <dt>ICE connection</dt>
-                  <dd>{iceConnectionState ?? "—"}</dd>
-                </div>
-                <div className="session-debug__item">
-                  <dt>ICE gathering</dt>
-                  <dd>{iceGatheringState ?? "—"}</dd>
-                </div>
-                <div className="session-debug__item">
-                  <dt>Data channel</dt>
-                  <dd>{dataChannelState ?? "—"}</dd>
-                </div>
-              </dl>
-              <div className="session-debug__events">
-                <p className="session-debug__subtitle">Recent events</p>
-                {recentDebugEvents.length === 0 ? (
-                  <p className="session-debug__empty">Watching for new logs…</p>
-                ) : (
-                  <ul className="session-debug__event-list">
-                    {recentDebugEvents.map((entry, index) => {
-                      const detail = entry.details[0];
-                      let detailSnippet: string | null = null;
-                      if (detail !== undefined) {
-                        try {
-                          detailSnippet = JSON.stringify(detail);
-                        } catch (error) {
-                          detailSnippet = String(detail);
-                        }
-                        if (detailSnippet && detailSnippet.length > 160) {
-                          detailSnippet = `${detailSnippet.slice(0, 157)}…`;
-                        }
-                      }
-                      const timestamp = new Date(entry.timestamp).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        second: "2-digit",
-                      });
-                      return (
-                        <li key={`${entry.timestamp}-${index}`} className="session-debug__event">
-                          <span className="session-debug__event-time">{timestamp}</span>
-                          <span className="session-debug__event-message">{entry.message}</span>
-                          {detailSnippet ? (
-                            <code className="session-debug__event-detail">{detailSnippet}</code>
-                          ) : null}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
+              ) : null}
             </div>
-          ) : null}
-        </div>
-        <div className="countdown">
-          <div className="status-pill">
-            <span
-              className={`status-indicator${
-                hasSessionEnded
-                  ? " status-indicator--ended"
-                  : connected
-                    ? " status-indicator--active"
-                    : ""
-              }`}
-              aria-hidden
-            />
-            <span>
-              {hasSessionEnded ? "Ended" : connected ? "Connected" : "Waiting"}
-            </span>
-          </div>
-          <p className="countdown-label">Session timer</p>
-          <p className="countdown-time">{countdownLabel}</p>
-        </div>
+            <div className="countdown">
+              <div className="status-pill">
+                <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
+                <span>{sessionStatusLabel}</span>
+              </div>
+              <p className="countdown-label">Session timer</p>
+              <p className="countdown-time">{countdownLabel}</p>
+              {shouldShowMediaPanel ? (
+                <button
+                  type="button"
+                  className="session-header__collapse-button"
+                  onClick={handleHeaderCollapse}
+                >
+                  Hide details
+                </button>
+              ) : null}
+            </div>
+          </>
+        )}
       </div>
 
       {hasSessionEnded ? (
@@ -2751,6 +2849,71 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       {isReconnecting && !connected && sessionStatus?.status === "active" ? (
         <div className="alert alert--info" role="status" aria-live="polite">
           Reconnecting…
+        </div>
+      ) : null}
+
+      {shouldShowMediaPanel ? (
+        <div className="call-panel">
+          <div className="call-panel__header">
+            <div
+              className={`call-panel__status call-panel__status--${callPanelStatusVariant}`}
+              role="status"
+              aria-live="polite"
+            >
+              <span
+                className={`call-panel__status-indicator call-panel__status-indicator--${callPanelStatusVariant}`}
+                aria-hidden
+              />
+              <span>{callPanelStatusLabel}</span>
+            </div>
+          </div>
+          {callNotice ? (
+            <div className="alert alert--info call-panel__notice" role="status" aria-live="polite">
+              {callNotice}
+            </div>
+          ) : null}
+          <div className="call-panel__media" aria-live="polite">
+            <div className="call-panel__media-item">
+              {localStream ? (
+                <video
+                  ref={localVideoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="call-panel__media-video"
+                />
+              ) : (
+                <div className="call-panel__media-placeholder">
+                  {callState === "incoming"
+                    ? "Accept to share your camera."
+                    : callState === "requesting"
+                      ? "Waiting for peer to accept…"
+                      : callState === "connecting"
+                        ? "Connecting camera…"
+                        : "Camera preview unavailable"}
+                </div>
+              )}
+              <span className="call-panel__media-label">You</span>
+            </div>
+            <div className="call-panel__media-item">
+              {remoteStream ? (
+                <video ref={remoteVideoRef} autoPlay playsInline className="call-panel__media-video" />
+              ) : (
+                <div className="call-panel__media-placeholder">
+                  {callState === "active"
+                    ? "Waiting for peer video…"
+                    : callState === "incoming"
+                      ? "Incoming video chat request"
+                      : callState === "requesting"
+                        ? "Awaiting peer response…"
+                        : callState === "connecting"
+                          ? "Connecting to peer…"
+                          : "Remote video unavailable"}
+                </div>
+              )}
+              <span className="call-panel__media-label">Partner</span>
+            </div>
+          </div>
         </div>
       ) : null}
 
@@ -2794,54 +2957,9 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
             </div>
           </div>
 
-          {callNotice ? (
+          {!shouldShowMediaPanel && callNotice ? (
             <div className="alert alert--info call-panel__notice" role="status" aria-live="polite">
               {callNotice}
-            </div>
-          ) : null}
-
-          {shouldShowMediaPanel ? (
-            <div className="chat-panel__media" aria-live="polite">
-              <div className="chat-panel__media-item">
-                {localStream ? (
-                  <video
-                    ref={localVideoRef}
-                    autoPlay
-                    muted
-                    playsInline
-                    className="chat-panel__media-video"
-                  />
-                ) : (
-                  <div className="chat-panel__media-placeholder">
-                    {callState === "incoming"
-                      ? "Accept to share your camera."
-                      : callState === "requesting"
-                        ? "Waiting for peer to accept…"
-                        : callState === "connecting"
-                          ? "Connecting camera…"
-                          : "Camera preview unavailable"}
-                  </div>
-                )}
-                <span className="chat-panel__media-label">You</span>
-              </div>
-              <div className="chat-panel__media-item">
-                {remoteStream ? (
-                  <video ref={remoteVideoRef} autoPlay playsInline className="chat-panel__media-video" />
-                ) : (
-                  <div className="chat-panel__media-placeholder">
-                    {callState === "active"
-                      ? "Waiting for peer video…"
-                      : callState === "incoming"
-                        ? "Incoming video chat request"
-                        : callState === "requesting"
-                          ? "Awaiting peer response…"
-                          : callState === "connecting"
-                            ? "Connecting to peer…"
-                            : "Remote video unavailable"}
-                  </div>
-                )}
-                <span className="chat-panel__media-label">Partner</span>
-              </div>
             </div>
           ) : null}
 
