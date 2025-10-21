@@ -2711,28 +2711,28 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const showCompactHeader = headerCollapsed && !shouldForceExpandedHeader;
 
   const headerExpanded = !headerCollapsed || shouldForceExpandedHeader;
-  const headerTimerPortal =
-    headerTimerContainer && countdownLabel
-      ? createPortal(
-          <button
-            type="button"
-            className={`site-header-timer${showFullStatusHeader ? " site-header-timer--waiting" : ""}`}
-            onClick={handleHeaderReveal}
-            aria-expanded={headerExpanded}
-            aria-controls={sessionHeaderId}
-            aria-label={headerExpanded ? "Session details visible" : "Show session details"}
-            title={headerExpanded ? "Session details visible" : "Show session details"}
-            aria-live="polite"
-          >
-            <span className="site-header-timer__status">
-              <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
-              <span>{sessionStatusLabel}</span>
-            </span>
-            <span className="site-header-timer__time">{countdownLabel}</span>
-          </button>,
-          headerTimerContainer,
-        )
-      : null;
+  let headerTimerPortal: React.ReactNode = null;
+  if (headerTimerContainer && countdownLabel) {
+    headerTimerPortal = createPortal(
+      <button
+        type="button"
+        className={`site-header-timer${showFullStatusHeader ? " site-header-timer--waiting" : ""}`}
+        onClick={handleHeaderReveal}
+        aria-expanded={headerExpanded}
+        aria-controls={sessionHeaderId}
+        aria-label={headerExpanded ? "Session details visible" : "Show session details"}
+        title={headerExpanded ? "Session details visible" : "Show session details"}
+        aria-live="polite"
+      >
+        <span className="site-header-timer__status">
+          <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
+          <span>{sessionStatusLabel}</span>
+        </span>
+        <span className="site-header-timer__time">{countdownLabel}</span>
+      </button>,
+      headerTimerContainer,
+    );
+  }
 
   return (
     <>
