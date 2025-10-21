@@ -2667,8 +2667,10 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     );
   }
 
+  const showCompactHeader = headerCollapsed && shouldShowMediaPanel;
+
   return (
-    <div className="session-shell">
+    <div className={`session-shell${showCompactHeader ? " session-shell--compact" : ""}`}>
       <div className={`session-header${headerCollapsed ? " session-header--collapsed" : ""}`}>
         {headerCollapsed ? (
           <button

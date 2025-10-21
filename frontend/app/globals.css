@@ -764,6 +764,11 @@ main {
   gap: 2rem;
 }
 
+.session-shell--compact {
+  padding-top: 1.25rem;
+  gap: 1.5rem;
+}
+
 .session-header {
   border-radius: 28px;
   border: 1px solid rgba(30, 41, 59, 0.6);
