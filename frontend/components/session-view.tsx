@@ -320,6 +320,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const peerSupportsEncryptionRef = useRef<boolean | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const headerRevealTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const wasConnectedRef = useRef(false);
   const previousMediaPanelVisibleRef = useRef(false);
   const reconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
   const iceFailureRetriesRef = useRef(0);
@@ -2159,45 +2160,72 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       ? " status-indicator--active"
       : "";
 
+  const clearHeaderRevealTimeout = useCallback(() => {
+    if (typeof window !== "undefined" && headerRevealTimeoutRef.current) {
+      window.clearTimeout(headerRevealTimeoutRef.current);
+      headerRevealTimeoutRef.current = null;
+    }
+  }, []);
+
   const handleHeaderReveal = useCallback(() => {
     setHeaderCollapsed(false);
     if (typeof window === "undefined") {
       return;
     }
-    if (headerRevealTimeoutRef.current) {
-      window.clearTimeout(headerRevealTimeoutRef.current);
-      headerRevealTimeoutRef.current = null;
-    }
+    clearHeaderRevealTimeout();
     headerRevealTimeoutRef.current = window.setTimeout(() => {
       headerRevealTimeoutRef.current = null;
-      if (previousMediaPanelVisibleRef.current) {
+      if (previousMediaPanelVisibleRef.current || wasConnectedRef.current) {
         setHeaderCollapsed(true);
       }
     }, 5000);
-  }, []);
+  }, [clearHeaderRevealTimeout]);
 
   const handleHeaderCollapse = useCallback(() => {
-    if (typeof window !== "undefined" && headerRevealTimeoutRef.current) {
-      window.clearTimeout(headerRevealTimeoutRef.current);
-      headerRevealTimeoutRef.current = null;
-    }
+    clearHeaderRevealTimeout();
     setHeaderCollapsed(true);
-  }, []);
+  }, [clearHeaderRevealTimeout]);
+
+  const shouldForceExpandedHeader = !connected && !hasSessionEnded;
+  const showFullStatusHeader = !connected || hasSessionEnded;
 
   useEffect(() => {
     const wasVisible = previousMediaPanelVisibleRef.current;
+    if (shouldForceExpandedHeader) {
+      if (headerCollapsed) {
+        setHeaderCollapsed(false);
+      }
+      clearHeaderRevealTimeout();
+      previousMediaPanelVisibleRef.current = shouldShowMediaPanel;
+      return;
+    }
     if (shouldShowMediaPanel && !wasVisible) {
       setHeaderCollapsed(true);
     }
-    if (!shouldShowMediaPanel && wasVisible) {
+    if (!shouldShowMediaPanel && wasVisible && !connected) {
       setHeaderCollapsed(false);
-      if (typeof window !== "undefined" && headerRevealTimeoutRef.current) {
-        window.clearTimeout(headerRevealTimeoutRef.current);
-        headerRevealTimeoutRef.current = null;
-      }
+      clearHeaderRevealTimeout();
     }
     previousMediaPanelVisibleRef.current = shouldShowMediaPanel;
-  }, [shouldShowMediaPanel]);
+  }, [
+    clearHeaderRevealTimeout,
+    connected,
+    headerCollapsed,
+    shouldForceExpandedHeader,
+    shouldShowMediaPanel,
+  ]);
+
+  useEffect(() => {
+    const wasConnected = wasConnectedRef.current;
+    if (!shouldForceExpandedHeader && connected && !wasConnected) {
+      setHeaderCollapsed(true);
+    }
+    if ((!connected || shouldForceExpandedHeader) && wasConnected) {
+      setHeaderCollapsed(false);
+      clearHeaderRevealTimeout();
+    }
+    wasConnectedRef.current = connected;
+  }, [clearHeaderRevealTimeout, connected, shouldForceExpandedHeader]);
 
   const handleCallButtonClick = useCallback(() => {
     if (callState === "idle") {
@@ -2636,10 +2664,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         window.clearTimeout(tokenCopyTimeoutRef.current);
         tokenCopyTimeoutRef.current = null;
       }
-      if (typeof window !== "undefined" && headerRevealTimeoutRef.current) {
-        window.clearTimeout(headerRevealTimeoutRef.current);
-        headerRevealTimeoutRef.current = null;
-      }
+      clearHeaderRevealTimeout();
       resetPeerConnection({ recreate: false });
       if (iceRetryTimeoutRef.current) {
         clearTimeout(iceRetryTimeoutRef.current);
@@ -2655,7 +2680,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         socketRef.current = null;
       }
     };
-  }, [resetPeerConnection]);
+  }, [clearHeaderRevealTimeout, resetPeerConnection]);
 
   if (!participantId) {
     return (
@@ -2667,7 +2692,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     );
   }
 
-  const showCompactHeader = headerCollapsed && shouldShowMediaPanel;
+  const showCompactHeader = headerCollapsed;
 
   return (
     <div className={`session-shell${showCompactHeader ? " session-shell--compact" : ""}`}>
@@ -2675,7 +2700,11 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         {headerCollapsed ? (
           <button
             type="button"
-            className="session-header__collapsed-button"
+            className={`session-header__collapsed-button${
+              showFullStatusHeader
+                ? " session-header__collapsed-button--waiting"
+                : " session-header__collapsed-button--compact"
+            }`}
             onClick={handleHeaderReveal}
             aria-expanded={!headerCollapsed}
           >
