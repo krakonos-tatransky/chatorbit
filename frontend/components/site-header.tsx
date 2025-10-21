@@ -40,36 +40,39 @@ export function SiteHeader() {
           </span>
           <span className="site-logo__text">ChatOrbit</span>
         </LegalAwareLink>
-        <button
-          type="button"
-          className="site-nav__toggle"
-          aria-label={isMenuOpen ? "Close menu" : "Open menu"}
-          aria-expanded={isMenuOpen}
-          onClick={toggleMenu}
-        >
-          <svg
-            aria-hidden
-            className="site-nav__toggle-icon"
-            viewBox="0 0 24 24"
-            xmlns="http://www.w3.org/2000/svg"
+        <div className="site-header__timer-slot" id="site-header-timer" />
+        <div className="site-header__nav-group">
+          <button
+            type="button"
+            className="site-nav__toggle"
+            aria-label={isMenuOpen ? "Close menu" : "Open menu"}
+            aria-expanded={isMenuOpen}
+            onClick={toggleMenu}
           >
-            <path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
-          </svg>
-        </button>
-        <nav
-          className={`site-nav${isMenuOpen ? " site-nav--open" : ""}`}
-          aria-label="Primary"
-        >
-          {NAV_ITEMS.map((item) => (
-            <LegalAwareLink
-              key={item.href}
-              href={item.href}
-              onClick={closeMenu}
+            <svg
+              aria-hidden
+              className="site-nav__toggle-icon"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
             >
-              {item.label}
-            </LegalAwareLink>
-          ))}
-        </nav>
+              <path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+            </svg>
+          </button>
+          <nav
+            className={`site-nav${isMenuOpen ? " site-nav--open" : ""}`}
+            aria-label="Primary"
+          >
+            {NAV_ITEMS.map((item) => (
+              <LegalAwareLink
+                key={item.href}
+                href={item.href}
+                onClick={closeMenu}
+              >
+                {item.label}
+              </LegalAwareLink>
+            ))}
+          </nav>
+        </div>
       </div>
     </header>
   );

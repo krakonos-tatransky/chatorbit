@@ -2,6 +2,7 @@
 
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -282,6 +283,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [incomingCallFrom, setIncomingCallFrom] = useState<string | null>(null);
   const [callNotice, setCallNotice] = useState<string | null>(null);
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  const [headerTimerContainer, setHeaderTimerContainer] = useState<Element | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [debugEvents, setDebugEvents] = useState<DebugLogEntry[]>([]);
@@ -515,6 +517,19 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
 
   useEffect(() => {
     setSupportsEncryption(resolveCrypto() !== null);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const slot = document.getElementById("site-header-timer");
+    setHeaderTimerContainer(slot);
+
+    return () => {
+      setHeaderTimerContainer(null);
+    };
   }, []);
 
   useEffect(() => {
@@ -2694,13 +2709,33 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
 
   const showCompactHeader = headerCollapsed;
 
+  const headerTimerPortal =
+    headerTimerContainer && countdownLabel
+      ? createPortal(
+          <div
+            className={`site-header-timer${showFullStatusHeader ? " site-header-timer--waiting" : ""}`}
+            role="status"
+            aria-live="polite"
+          >
+            <span className="site-header-timer__status">
+              <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
+              <span>{sessionStatusLabel}</span>
+            </span>
+            <span className="site-header-timer__time">{countdownLabel}</span>
+          </div>,
+          headerTimerContainer,
+        )
+      : null;
+
   return (
-    <div className={`session-shell${showCompactHeader ? " session-shell--compact" : ""}`}>
-      <div className={`session-header${headerCollapsed ? " session-header--collapsed" : ""}`}>
-        {headerCollapsed ? (
-          <button
-            type="button"
-            className={`session-header__collapsed-button${
+    <>
+      {headerTimerPortal}
+      <div className={`session-shell${showCompactHeader ? " session-shell--compact" : ""}`}>
+        <div className={`session-header${headerCollapsed ? " session-header--collapsed" : ""}`}>
+          {headerCollapsed ? (
+            <button
+              type="button"
+              className={`session-header__collapsed-button${
               showFullStatusHeader
                 ? " session-header__collapsed-button--waiting"
                 : " session-header__collapsed-button--compact"
@@ -3084,7 +3119,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         onAgree={handleAgreeToTerms}
         onCancel={handleDeclineTerms}
       />
-    </div>
+      </div>
+    </>
   );
 }
 
