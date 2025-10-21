@@ -2896,6 +2896,25 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
               />
               <span>{callPanelStatusLabel}</span>
             </div>
+            {shouldShowCallButton ? (
+              <div className="call-panel__actions">
+                <button
+                  type="button"
+                  className={`chat-panel__call-button call-panel__call-button chat-panel__call-button--${callButtonVariant}`}
+                  onClick={handleCallButtonClick}
+                  aria-label={callButtonTitle}
+                  title={callButtonTitle}
+                  disabled={callButtonDisabled}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path
+                      fill="currentColor"
+                      d="M15 10.5V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-3.5l5 3.5V7l-5 3.5z"
+                    />
+                  </svg>
+                </button>
+              </div>
+            ) : null}
           </div>
           {callNotice ? (
             <div className="alert alert--info call-panel__notice" role="status" aria-live="polite">
@@ -2957,7 +2976,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
               </span>
             </div>
             <div className="chat-panel__controls">
-              {shouldShowCallButton ? (
+              {shouldShowCallButton && !shouldShowMediaPanel ? (
                 <button
                   type="button"
                   className={`chat-panel__call-button chat-panel__call-button--${callButtonVariant}`}

@@ -247,6 +247,20 @@ main {
   margin: 0 auto;
 }
 
+.help-page--overlay {
+  padding: 2rem 1.5rem 2.5rem;
+  gap: 2rem;
+  max-width: 960px;
+}
+
+.help-page--overlay .help-page__intro p {
+  color: rgba(203, 213, 225, 0.92);
+}
+
+.help-page--overlay .help-page__topic > p {
+  max-width: none;
+}
+
 .help-page__intro {
   display: flex;
   flex-direction: column;
@@ -1650,6 +1664,16 @@ main {
   gap: 0.75rem;
 }
 
+.call-panel__actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+.call-panel__call-button {
+  box-shadow: 0 8px 20px -12px rgba(56, 189, 248, 0.65);
+}
+
 .call-panel__status {
   display: inline-flex;
   align-items: center;
@@ -1959,6 +1983,14 @@ main {
   overflow-y: auto;
   padding: 1.5rem;
   -webkit-overflow-scrolling: touch;
+}
+
+.legal-overlay__content--help {
+  padding: 0;
+}
+
+.legal-overlay__content--help .help-page--overlay {
+  padding: 1.75rem 1.75rem 2.25rem;
 }
 
 .legal-overlay__document {

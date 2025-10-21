@@ -11,10 +11,11 @@ import {
   type ReactNode,
 } from "react";
 
+import { HelpContent } from "@/components/help/help-content";
 import { PrivacyPolicyContent } from "@/components/legal/privacy-policy-content";
 import { TermsOfServiceContent } from "@/components/legal/terms-of-service-content";
 
-type LegalDocument = "privacy" | "terms";
+type LegalDocument = "privacy" | "terms" | "help";
 
 type LegalOverlayContextValue = {
   openLegalDocument: (document: LegalDocument) => boolean;
@@ -130,7 +131,12 @@ function LegalDocumentModal({ openDocument, onClose }: LegalDocumentModalProps) 
     return null;
   }
 
-  const title = openDocument === "privacy" ? "Privacy Policy" : "Terms of Service";
+  const title =
+    openDocument === "privacy"
+      ? "Privacy Policy"
+      : openDocument === "terms"
+        ? "Terms of Service"
+        : "Help & FAQ";
 
   return (
     <div className="legal-overlay" role="presentation">
@@ -151,11 +157,17 @@ function LegalDocumentModal({ openDocument, onClose }: LegalDocumentModalProps) 
           </button>
         </header>
         <div id={descriptionId} className="legal-overlay__body" role="document">
-          <div className="legal-overlay__content">
+          <div
+            className={`legal-overlay__content${openDocument === "help" ? " legal-overlay__content--help" : ""}`}
+          >
             {openDocument === "privacy" ? (
               <PrivacyPolicyContent className="legal-page__inner legal-overlay__document" headingLevel="h2" showHeading={false} />
-            ) : (
+            ) : openDocument === "terms" ? (
               <TermsOfServiceContent className="legal-page__inner legal-overlay__document" headingLevel="h2" showHeading={false} />
+            ) : (
+              <div className="help-page help-page--overlay">
+                <HelpContent headingLevel="h3" showHeading={false} />
+              </div>
             )}
           </div>
         </div>

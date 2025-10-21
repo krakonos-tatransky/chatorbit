@@ -22,6 +22,9 @@ export function LegalAwareLink({ href, children, className, onClick, ...rest }: 
       if (href === "/terms-of-service") {
         return "terms" as const;
       }
+      if (href === "/help") {
+        return "help" as const;
+      }
     }
     return null;
   }, [href]);
