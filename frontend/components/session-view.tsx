@@ -2711,28 +2711,28 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const showCompactHeader = headerCollapsed && !shouldForceExpandedHeader;
 
   const headerExpanded = !headerCollapsed || shouldForceExpandedHeader;
-  let headerTimerPortal: React.ReactNode = null;
-  if (headerTimerContainer && countdownLabel) {
-    headerTimerPortal = createPortal(
-      <button
-        type="button"
-        className={`site-header-timer${showFullStatusHeader ? " site-header-timer--waiting" : ""}`}
-        onClick={handleHeaderReveal}
-        aria-expanded={headerExpanded}
-        aria-controls={sessionHeaderId}
-        aria-label={headerExpanded ? "Session details visible" : "Show session details"}
-        title={headerExpanded ? "Session details visible" : "Show session details"}
-        aria-live="polite"
-      >
-        <span className="site-header-timer__status">
-          <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
-          <span>{sessionStatusLabel}</span>
-        </span>
-        <span className="site-header-timer__time">{countdownLabel}</span>
-      </button>,
-      headerTimerContainer
-    );
-  }
+  const headerTimerPortal =
+    headerTimerContainer && countdownLabel
+      ? createPortal(
+          <button
+            type="button"
+            className={`site-header-timer${showFullStatusHeader ? " site-header-timer--waiting" : ""}`}
+            onClick={handleHeaderReveal}
+            aria-expanded={headerExpanded}
+            aria-controls={sessionHeaderId}
+            aria-label={headerExpanded ? "Session details visible" : "Show session details"}
+            title={headerExpanded ? "Session details visible" : "Show session details"}
+            aria-live="polite"
+          >
+            <span className="site-header-timer__status">
+              <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
+              <span>{sessionStatusLabel}</span>
+            </span>
+            <span className="site-header-timer__time">{countdownLabel}</span>
+          </button>,
+          headerTimerContainer
+        )
+      : null;
 
   return (
     <>
@@ -2890,10 +2890,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
             </div>
           </div>
         </div>
-      </div>
-
-      {hasSessionEnded ? (
-        <div className="session-alert session-alert--ended">
+        {hasSessionEnded ? (
+          <div className="session-alert session-alert--ended">
           <p>Session ended. Request a new token to start over.</p>
           <Link href="/" className="session-alert__home-link">
             Leave room
