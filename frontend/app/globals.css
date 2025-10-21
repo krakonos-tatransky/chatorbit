@@ -238,6 +238,100 @@ main {
   font-size: 0.95rem;
 }
 
+.help-page {
+  padding: 4rem 1.5rem 6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 3rem;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.help-page__intro {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 760px;
+}
+
+.help-page__intro h1 {
+  margin: 0;
+  font-size: clamp(2.25rem, 5vw, 3rem);
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.help-page__intro p {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: rgba(148, 163, 184, 0.95);
+}
+
+.help-page__topic {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.help-page__topic > h2 {
+  margin: 0;
+  font-size: clamp(1.6rem, 3vw, 2rem);
+  font-weight: 600;
+  color: #bae6fd;
+}
+
+.help-page__topic > p {
+  margin: 0;
+  max-width: 760px;
+  line-height: 1.7;
+  color: rgba(203, 213, 225, 0.92);
+}
+
+.help-page__topics {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.help-page__card {
+  background: rgba(2, 6, 23, 0.7);
+  border: 1px solid rgba(30, 41, 59, 0.65);
+  border-radius: 20px;
+  padding: 1.5rem;
+  box-shadow: 0 24px 50px -40px rgba(59, 130, 246, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.help-page__card h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: rgba(94, 234, 212, 0.95);
+}
+
+.help-page__card ol {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  color: rgba(203, 213, 225, 0.92);
+  line-height: 1.7;
+  font-size: 0.95rem;
+}
+
+.help-page__card li strong {
+  color: rgba(165, 243, 252, 0.95);
+}
+
+@media (min-width: 768px) {
+  .help-page__topics {
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  }
+}
+
 .legal-section {
   display: flex;
   flex-direction: column;

@@ -8,6 +8,7 @@ import { LegalAwareLink } from "@/components/legal/legal-aware-link";
 const CHAT_ORBIT_LOGO_URL = "/brand/chat-orbit-logo.svg";
 
 const NAV_ITEMS = [
+  { href: "/help", label: "Help & FAQ" },
   { href: "/terms-of-service", label: "Terms of Service" },
   { href: "/privacy-policy", label: "Privacy Policy" },
 ];
