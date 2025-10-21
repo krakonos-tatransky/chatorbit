@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useId } from "react";
 import { createPortal } from "react-dom";
 
 import Link from "next/link";
@@ -284,6 +284,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [callNotice, setCallNotice] = useState<string | null>(null);
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [headerTimerContainer, setHeaderTimerContainer] = useState<Element | null>(null);
+  const sessionHeaderId = useId();
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [debugEvents, setDebugEvents] = useState<DebugLogEntry[]>([]);
@@ -2457,7 +2458,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       return "00:00";
     }
     if (remainingSeconds === null) {
-      return sessionStatus?.status === "issued" ? "Waiting for partner…" : "Starting…";
+      return sessionStatus?.status === "issued" ? "Waiting…" : "Starting…";
     }
     const minutes = Math.floor(remainingSeconds / 60);
     const seconds = remainingSeconds % 60;
@@ -2707,14 +2708,20 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     );
   }
 
-  const showCompactHeader = headerCollapsed;
+  const showCompactHeader = headerCollapsed && !shouldForceExpandedHeader;
 
+  const headerExpanded = !headerCollapsed || shouldForceExpandedHeader;
   const headerTimerPortal =
     headerTimerContainer && countdownLabel
       ? createPortal(
-          <div
+          <button
+            type="button"
             className={`site-header-timer${showFullStatusHeader ? " site-header-timer--waiting" : ""}`}
-            role="status"
+            onClick={handleHeaderReveal}
+            aria-expanded={headerExpanded}
+            aria-controls={sessionHeaderId}
+            aria-label={headerExpanded ? "Session details visible" : "Show session details"}
+            title={headerExpanded ? "Session details visible" : "Show session details"}
             aria-live="polite"
           >
             <span className="site-header-timer__status">
@@ -2722,7 +2729,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
               <span>{sessionStatusLabel}</span>
             </span>
             <span className="site-header-timer__time">{countdownLabel}</span>
-          </div>,
+          </button>,
           headerTimerContainer,
         )
       : null;
@@ -2731,31 +2738,18 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     <>
       {headerTimerPortal}
       <div className={`session-shell${showCompactHeader ? " session-shell--compact" : ""}`}>
-        <div className={`session-header${headerCollapsed ? " session-header--collapsed" : ""}`}>
-          {headerCollapsed ? (
-            <button
-              type="button"
-              className={`session-header__collapsed-button${
-              showFullStatusHeader
-                ? " session-header__collapsed-button--waiting"
-                : " session-header__collapsed-button--compact"
-            }`}
-            onClick={handleHeaderReveal}
-            aria-expanded={!headerCollapsed}
+        <div
+          className={`session-header-wrapper${
+            headerExpanded ? " session-header-wrapper--visible" : " session-header-wrapper--hidden"
+          }`}
+          aria-hidden={!headerExpanded}
+        >
+          <div
+            id={sessionHeaderId}
+            className={`session-header${headerExpanded ? " session-header--revealed" : ""}`}
+            role="region"
+            aria-label="Session details"
           >
-            <div className="session-header__collapsed-meta">
-              <span className="session-header__collapsed-status">
-                <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
-                <span>{sessionStatusLabel}</span>
-              </span>
-              <span className="session-header__collapsed-hint">Show session details</span>
-            </div>
-            <span className="session-header__collapsed-time" aria-live="polite">
-              {countdownLabel}
-            </span>
-          </button>
-        ) : (
-          <>
             <div className="session-header__content">
               <div className="session-header__top">
                 <div className="session-token-header">
@@ -2886,18 +2880,16 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
               </div>
               <p className="countdown-label">Session timer</p>
               <p className="countdown-time">{countdownLabel}</p>
-              {shouldShowMediaPanel ? (
-                <button
-                  type="button"
-                  className="session-header__collapse-button"
-                  onClick={handleHeaderCollapse}
-                >
-                  Hide details
-                </button>
-              ) : null}
+              <button
+                type="button"
+                className="session-header__collapse-button"
+                onClick={handleHeaderCollapse}
+              >
+                Hide details
+              </button>
             </div>
-          </>
-        )}
+          </div>
+        </div>
       </div>
 
       {hasSessionEnded ? (
