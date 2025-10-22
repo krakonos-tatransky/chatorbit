@@ -34,6 +34,16 @@ an elegant control surface for the host and guest.
    uvicorn app.main:app --host 0.0.0.0 --port 50001 --reload
    ```
    Exposing on `0.0.0.0` lets other machines on your LAN reach the API at `http://localhost:50001`.
+   When you want browsers on a second device to talk to the API, also allow that device's origin in
+   FastAPI by exporting an explicit list instead of the default wildcard:
+
+   ```bash
+   export CHAT_CORS_ALLOWED_ORIGINS='["http://localhost:3000", "http://192.168.1.16:3000"]'
+   ```
+
+   Replace `192.168.1.16` with the LAN IP of the machine running the dev servers. Using explicit
+   origins keeps credentialed requests working while still letting the wildcard (`*`) cover quick
+   same-machine tests.
 4. **Run the frontend**
    ```bash
    cd ../frontend
@@ -41,6 +51,10 @@ an elegant control surface for the host and guest.
    NEXT_PUBLIC_WS_BASE_URL=ws://localhost:50001 \
    pnpm dev --hostname 0.0.0.0 --port 80
    ```
+   If you're loading the UI from another device, point the frontend at the same LAN IP that the
+   API advertises (e.g., `NEXT_PUBLIC_API_BASE_URL=http://192.168.1.16:50001` and
+   `NEXT_PUBLIC_WS_BASE_URL=ws://192.168.1.16:50001`). Pair this with the updated
+   `CHAT_CORS_ALLOWED_ORIGINS` above so the browser sees matching origins.
 5. Open http://localhost from any device on the same network to mint tokens and join sessions.
 
 ### Dockerized workflow

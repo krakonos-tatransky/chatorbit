@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Set
 from uuid import uuid4
@@ -20,9 +21,10 @@ from fastapi import (
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
+from fastapi.security import OAuth2PasswordRequestForm
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from .config import get_settings
 from .database import (
@@ -32,17 +34,37 @@ from .database import (
     get_session,
     init_db,
 )
-from .models import SessionParticipant, SessionStatus, TokenRequestLog, TokenSession
+from .email_utils import create_email_message, send_email
+from .models import (
+    AbuseReport,
+    AbuseReportStatus,
+    SessionParticipant,
+    SessionStatus,
+    TokenRequestLog,
+    TokenSession,
+)
 from .schemas import (
+    AdminAbuseReport,
+    AdminAbuseReportListResponse,
+    AdminAbuseReportParticipant,
+    AdminSessionListResponse,
+    AdminSessionParticipant,
+    AdminSessionSummary,
+    AdminTokenResponse,
+    AdminUpdateAbuseReportRequest,
     CreateTokenRequest,
     JoinSessionRequest,
     JoinSessionResponse,
     ParticipantPublic,
+    ReportAbuseRequest,
+    ReportAbuseResponse,
     SessionStatusResponse,
     TokenResponse,
 )
+from .security import authenticate_admin, create_access_token, get_current_admin
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 app = FastAPI(
     title="ChatOrbit Minimal API",
     version="0.1.0",
@@ -202,6 +224,115 @@ def _not_found(detail: str) -> HTTPException:
         detail=detail,
         headers={"msg-app": detail},
     )
+
+
+def _serialize_admin_participant(participant: SessionParticipant) -> AdminSessionParticipant:
+    return AdminSessionParticipant(
+        participant_id=participant.id,
+        role=participant.role,
+        ip_address=participant.ip_address,
+        client_identity=participant.client_identity,
+        joined_at=participant.joined_at,
+    )
+
+
+def _serialize_admin_session(session_model: TokenSession) -> AdminSessionSummary:
+    ensure_session_state(session_model)
+    return AdminSessionSummary(
+        token=session_model.token,
+        status=session_model.status.value,
+        validity_expires_at=session_model.validity_expires_at,
+        session_started_at=session_model.started_at,
+        session_expires_at=session_model.ended_at,
+        message_char_limit=session_model.message_char_limit,
+        participants=[_serialize_admin_participant(participant) for participant in session_model.participants],
+    )
+
+
+def _deserialize_json(value: Optional[str]) -> Optional[Any]:
+    if not value:
+        return None
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        logger.warning("Failed to decode stored JSON payload", exc_info=True)
+        return None
+
+
+def _parse_datetime(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            logger.debug("Invalid datetime format encountered while parsing JSON payload.")
+            return None
+    return None
+
+
+def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _serialize_admin_report(report: AbuseReport) -> AdminAbuseReport:
+    questionnaire_raw = _deserialize_json(report.questionnaire)
+    questionnaire = questionnaire_raw if isinstance(questionnaire_raw, dict) else None
+    remote_participants_raw = _deserialize_json(report.remote_participants)
+    remote_participants: List[AdminAbuseReportParticipant] = []
+    if isinstance(remote_participants_raw, list):
+        for entry in remote_participants_raw:
+            if not isinstance(entry, dict):
+                continue
+            remote_participants.append(
+                AdminAbuseReportParticipant(
+                    participant_id=entry.get("participant_id"),
+                    role=entry.get("role"),
+                    ip_address=entry.get("ip_address"),
+                    client_identity=entry.get("client_identity"),
+                    joined_at=_parse_datetime(entry.get("joined_at")),
+                )
+            )
+    return AdminAbuseReport(
+        id=report.id,
+        status=report.status,
+        created_at=report.created_at,
+        updated_at=report.updated_at,
+        session_token=report.session_token,
+        reporter_email=report.reporter_email,
+        reporter_ip=report.reporter_ip,
+        participant_id=report.participant_id,
+        summary=report.summary,
+        questionnaire=questionnaire,
+        escalation_step=report.escalation_step,
+        admin_notes=report.admin_notes,
+        remote_participants=remote_participants,
+    )
+
+
+def _collect_remote_participants(
+    session_model: TokenSession,
+    reporter_id: Optional[str],
+) -> List[Dict[str, Any]]:
+    participants: List[Dict[str, Any]] = []
+    for participant in session_model.participants:
+        if reporter_id and participant.id == reporter_id:
+            continue
+        participants.append(
+            {
+                "participant_id": participant.id,
+                "role": participant.role,
+                "ip_address": participant.ip_address,
+                "client_identity": participant.client_identity,
+                "joined_at": participant.joined_at.isoformat(),
+            }
+        )
+    return participants
 
 
 def _get_session_by_token(db: Session, token: str) -> TokenSession:
@@ -376,6 +507,102 @@ def session_status(token: str, db: Session = Depends(get_session)) -> SessionSta
     return serialize_session(session_model)
 
 
+@router.post("/sessions/{token}/report-abuse", response_model=ReportAbuseResponse)
+def report_abuse(
+    token: str,
+    report: ReportAbuseRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_session),
+    http_request: Request = None,
+) -> ReportAbuseResponse:
+    session_model = _get_session_by_token(db, token)
+    ensure_session_state(session_model)
+
+    reporter_id = report.participant_id
+    if reporter_id and not any(p.id == reporter_id for p in session_model.participants):
+        logger.warning("Participant %s not found in session %s during abuse report.", reporter_id, token)
+        reporter_id = None
+
+    remote_participants = _collect_remote_participants(session_model, reporter_id)
+    questionnaire_payload = report.questionnaire.model_dump()
+    reporter_ip = get_client_ip(http_request) if http_request else None
+
+    abuse_record = AbuseReport(
+        session_id=session_model.id,
+        session_token=session_model.token,
+        reporter_email=str(report.reporter_email),
+        reporter_ip=reporter_ip,
+        participant_id=reporter_id,
+        remote_participants=json.dumps(remote_participants),
+        summary=report.summary,
+        questionnaire=json.dumps(questionnaire_payload),
+        status=AbuseReportStatus.OPEN,
+    )
+    db.add(abuse_record)
+
+    now = utcnow()
+    if session_model.status not in {SessionStatus.CLOSED, SessionStatus.EXPIRED, SessionStatus.DELETED}:
+        if session_model.started_at is None:
+            session_model.started_at = now
+        session_model.ended_at = now
+        session_model.status = SessionStatus.DELETED
+        db.add(session_model)
+
+    db.commit()
+    db.refresh(abuse_record)
+    db.refresh(session_model)
+
+    sender = settings.smtp_sender or settings.smtp_username or "no-reply@chatorbit"
+
+    if settings.smtp_host:
+        acknowledgement_body = (
+            "Thank you for letting us know.\n\n"
+            "We received your abuse report for session {token} and our team will review it shortly. "
+            "The session has been terminated and you will receive further communication "
+            "if additional information is required."
+        ).format(token=session_model.token)
+        acknowledgement = create_email_message(
+            subject="We have received your abuse report",
+            body=acknowledgement_body,
+            recipients=str(report.reporter_email),
+            sender=sender,
+        )
+        background_tasks.add_task(send_email, acknowledgement)
+
+        admin_recipient = settings.abuse_notifications_email or settings.smtp_username
+        if admin_recipient:
+            admin_body = (
+                "A new abuse report has been submitted.\n\n"
+                f"Session token: {session_model.token}\n"
+                f"Report ID: {abuse_record.id}\n"
+                f"Reporter email: {report.reporter_email}\n"
+                f"Reporter IP: {reporter_ip or 'unknown'}\n"
+                f"Participant ID: {reporter_id or 'not provided'}\n"
+                f"Summary:\n{report.summary}\n\n"
+                f"Questionnaire:\n{json.dumps(questionnaire_payload, indent=2)}\n"
+            )
+            admin_message = create_email_message(
+                subject=f"Abuse report {abuse_record.id} for session {session_model.token}",
+                body=admin_body,
+                recipients=admin_recipient,
+                sender=sender,
+            )
+            background_tasks.add_task(send_email, admin_message)
+        else:
+            logger.warning("Abuse notification email is not configured; skipping admin alert.")
+    else:
+        logger.warning("SMTP host is not configured; skipping abuse report email notifications.")
+
+    background_tasks.add_task(manager.broadcast, token, {"type": "abuse_reported"})
+    background_tasks.add_task(broadcast_status, token)
+
+    return ReportAbuseResponse(
+        report_id=abuse_record.id,
+        status=abuse_record.status.value,
+        session_status=session_model.status.value,
+    )
+
+
 @router.delete("/sessions/{token}", response_model=SessionStatusResponse)
 def delete_session(
     token: str,
@@ -397,6 +624,149 @@ def delete_session(
     background_tasks.add_task(manager.broadcast, token, {"type": "session_deleted"})
     background_tasks.add_task(broadcast_status, token)
     return response
+
+
+@router.post("/admin/token", response_model=AdminTokenResponse)
+def issue_admin_token(form_data: OAuth2PasswordRequestForm = Depends()) -> AdminTokenResponse:
+    if not settings.admin_username or not settings.admin_password_hash:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin authentication is not configured.",
+        )
+    if not settings.admin_token_secret_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Admin token secret is not configured.",
+        )
+    if not authenticate_admin(form_data.username, form_data.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    token = create_access_token({"sub": settings.admin_username})
+    return AdminTokenResponse(access_token=token)
+
+
+@router.get("/admin/sessions", response_model=AdminSessionListResponse)
+def list_admin_sessions(
+    status_filter: Optional[str] = None,
+    token_query: Optional[str] = None,
+    ip: Optional[str] = None,
+    db: Session = Depends(get_session),
+    _: str = Depends(get_current_admin),
+) -> AdminSessionListResponse:
+    stmt = (
+        select(TokenSession)
+        .options(selectinload(TokenSession.participants))
+        .order_by(TokenSession.created_at.desc())
+    )
+
+    if status_filter == "active":
+        stmt = stmt.where(TokenSession.status == SessionStatus.ACTIVE)
+    elif status_filter == "inactive":
+        stmt = stmt.where(
+            TokenSession.status.in_(
+                [SessionStatus.CLOSED, SessionStatus.EXPIRED, SessionStatus.DELETED]
+            )
+        )
+
+    if token_query:
+        stmt = stmt.where(TokenSession.token.ilike(f"%{token_query}%"))
+
+    if ip:
+        stmt = (
+            stmt.join(SessionParticipant)
+            .where(SessionParticipant.ip_address.ilike(f"%{ip}%"))
+            .distinct()
+        )
+
+    stmt = stmt.limit(200)
+    sessions = db.execute(stmt).scalars().unique().all()
+    return AdminSessionListResponse(sessions=[_serialize_admin_session(session) for session in sessions])
+
+
+@router.get("/admin/reports", response_model=AdminAbuseReportListResponse)
+def list_admin_reports(
+    status_filter: Optional[str] = None,
+    db: Session = Depends(get_session),
+    _: str = Depends(get_current_admin),
+) -> AdminAbuseReportListResponse:
+    stmt = select(AbuseReport).order_by(AbuseReport.created_at.desc()).limit(200)
+
+    if status_filter:
+        normalized = status_filter.lower()
+        if normalized in {"unresolved"}:
+            stmt = stmt.where(
+                AbuseReport.status.in_(
+                    [
+                        AbuseReportStatus.OPEN,
+                        AbuseReportStatus.ACKNOWLEDGED,
+                        AbuseReportStatus.INVESTIGATING,
+                    ]
+                )
+            )
+        else:
+            try:
+                status_value = AbuseReportStatus(normalized)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid status filter."
+                ) from exc
+            stmt = stmt.where(AbuseReport.status == status_value)
+
+    reports = db.execute(stmt).scalars().all()
+    return AdminAbuseReportListResponse(reports=[_serialize_admin_report(report) for report in reports])
+
+
+@router.patch("/admin/reports/{report_id}", response_model=AdminAbuseReport)
+def update_admin_report(
+    report_id: int,
+    updates: AdminUpdateAbuseReportRequest,
+    db: Session = Depends(get_session),
+    _: str = Depends(get_current_admin),
+) -> AdminAbuseReport:
+    if (
+        updates.status is None
+        and updates.escalation_step is None
+        and updates.admin_notes is None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one field must be provided to update the report.",
+        )
+
+    report = db.get(AbuseReport, report_id)
+    if not report:
+        raise _not_found("Abuse report not found.")
+
+    updated = False
+
+    if updates.status is not None and updates.status != report.status:
+        report.status = updates.status
+        updated = True
+
+    if updates.escalation_step is not None:
+        normalized_step = _normalize_optional_text(updates.escalation_step)
+        if normalized_step != (report.escalation_step or None):
+            report.escalation_step = normalized_step
+            updated = True
+
+    if updates.admin_notes is not None:
+        normalized_notes = _normalize_optional_text(updates.admin_notes)
+        if normalized_notes != (report.admin_notes or None):
+            report.admin_notes = normalized_notes
+            updated = True
+
+    if updated:
+        db.add(report)
+        db.commit()
+        db.refresh(report)
+    else:
+        db.refresh(report)
+
+    return _serialize_admin_report(report)
+
 
 app.include_router(router)
 

@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { TermsConsentModal } from "@/components/terms-consent-modal";
+import { ReportAbuseModal, type ReportAbuseFormValues } from "@/components/report-abuse-modal";
 import { apiUrl, wsUrl } from "@/lib/api";
 import { getClientIdentity } from "@/lib/client-identity";
 import { getIceServers } from "@/lib/webrtc";
@@ -247,9 +248,10 @@ type EncryptedMessage = {
 type Props = {
   token: string;
   participantIdFromQuery?: string;
+  initialReportAbuseOpen?: boolean;
 };
 
-export function SessionView({ token, participantIdFromQuery }: Props) {
+export function SessionView({ token, participantIdFromQuery, initialReportAbuseOpen = false }: Props) {
   const router = useRouter();
   const [participantId, setParticipantId] = useState<string | null>(participantIdFromQuery ?? null);
   const [participantRole, setParticipantRole] = useState<string | null>(null);
@@ -296,6 +298,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [lastTermsKeyChecked, setLastTermsKeyChecked] = useState<string | null>(null);
+  const [reportAbuseOpen, setReportAbuseOpen] = useState(initialReportAbuseOpen);
   const socketRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
@@ -344,6 +347,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const secretBufferRef = useRef<string>("");
   const negotiationPendingRef = useRef(false);
   const callNoticeTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const initialReportHandledRef = useRef(false);
   const pipDragStateRef = useRef<{
     pointerId: number;
     offsetX: number;
@@ -368,6 +372,21 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     setTermsAccepted(storedAccepted);
     setLastTermsKeyChecked(termsStorageKey);
   }, [termsStorageKey]);
+
+  useEffect(() => {
+    if (!initialReportAbuseOpen || initialReportHandledRef.current) {
+      return;
+    }
+    initialReportHandledRef.current = true;
+    setReportAbuseOpen(true);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("reportAbuse");
+      const nextSearch = url.searchParams.toString();
+      const nextPath = nextSearch ? `${url.pathname}?${nextSearch}` : url.pathname;
+      router.replace(nextPath, { scroll: false });
+    }
+  }, [initialReportAbuseOpen, router]);
 
   useEffect(() => {
     const log = chatLogRef.current;
@@ -2021,6 +2040,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
             finalizeSession("expired");
           } else if (payload.type === "session_deleted") {
             finalizeSession("deleted");
+          } else if (payload.type === "abuse_reported") {
+            finalizeSession("deleted");
           } else if (payload.type === "signal") {
             void handleSignal(payload);
           }
@@ -2600,6 +2621,57 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const handleCancelEndSession = useCallback(() => {
     setConfirmEndSessionOpen(false);
   }, []);
+
+  const handleReportAbuseSubmit = useCallback(
+    async (formValues: ReportAbuseFormValues) => {
+      try {
+        const payload = {
+          participant_id: participantId,
+          reporter_email: formValues.reporterEmail,
+          summary: formValues.summary,
+          questionnaire: {
+            immediate_threat: formValues.immediateThreat,
+            involves_criminal_activity: formValues.involvesCriminalActivity,
+            requires_follow_up: formValues.requiresFollowUp,
+            additional_details: formValues.additionalDetails || null,
+          },
+        };
+        const response = await fetch(apiUrl(`/api/sessions/${token}/report-abuse`), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          let message = "Unable to submit abuse report. Please try again.";
+          try {
+            const data = await response.json();
+            if (data && typeof data.detail === "string") {
+              message = data.detail;
+            }
+          } catch (cause) {
+            console.warn("Failed to parse abuse report error response", cause);
+          }
+          throw new Error(message);
+        }
+        try {
+          const result = await response.json();
+          if (result?.session_status === "deleted") {
+            finalizeSession("deleted");
+          }
+        } catch (cause) {
+          console.warn("Unable to parse abuse report response", cause);
+          finalizeSession("deleted");
+        }
+        setError(null);
+      } catch (cause) {
+        if (cause instanceof Error) {
+          throw cause;
+        }
+        throw new Error("Unable to submit abuse report. Please try again.");
+      }
+    },
+    [finalizeSession, participantId, setError, token],
+  );
 
   const handleAgreeToTerms = useCallback(() => {
     if (typeof window !== "undefined") {
@@ -3428,6 +3500,17 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           </div>
         </div>
       ) : null}
+
+      {!hasSessionEnded ? (
+        <div className="session-report">
+          <button type="button" className="session-report__button" onClick={() => setReportAbuseOpen(true)}>
+            Report abuse
+          </button>
+          <p className="session-report__helper">End the session and notify ChatOrbit about unlawful behavior.</p>
+        </div>
+      ) : null}
+
+      <ReportAbuseModal open={reportAbuseOpen} onClose={() => setReportAbuseOpen(false)} onSubmit={handleReportAbuseSubmit} />
 
       <ConfirmDialog
         open={callDialogOpen}

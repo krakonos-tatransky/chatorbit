@@ -7,5 +7,14 @@ type Props = {
 
 export default function SessionPage({ params, searchParams }: Props) {
   const participantId = typeof searchParams.participant === "string" ? searchParams.participant : undefined;
-  return <SessionView token={params.token} participantIdFromQuery={participantId} />;
+  const reportAbuseRequested =
+    typeof searchParams.reportAbuse === "string" &&
+    ["1", "true", "yes"].includes(searchParams.reportAbuse.toLowerCase());
+  return (
+    <SessionView
+      token={params.token}
+      participantIdFromQuery={participantId}
+      initialReportAbuseOpen={reportAbuseRequested}
+    />
+  );
 }
