@@ -1,7 +1,8 @@
 "use client";
 
-import type { FormEvent } from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useId } from "react";
+import { createPortal } from "react-dom";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -119,7 +120,9 @@ export const NOTIFICATION_SOUNDS = {
 export type NotificationSoundName = keyof typeof NOTIFICATION_SOUNDS;
 const DEFAULT_NOTIFICATION_SOUND: NotificationSoundName = "icqInspired";
 
-type TimeoutHandle = ReturnType<typeof setTimeout>;
+type TimeoutHandle = ReturnType<typeof setTimeout> | number;
+
+type CallState = "idle" | "incoming" | "requesting" | "connecting" | "active";
 
 type CryptoLike = {
   subtle: SubtleCrypto;
@@ -274,6 +277,18 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [iceConnectionState, setIceConnectionState] = useState<RTCIceConnectionState | null>(null);
   const [iceGatheringState, setIceGatheringState] = useState<RTCIceGatheringState | null>(null);
   const [dataChannelState, setDataChannelState] = useState<RTCDataChannelState | null>(null);
+  const [callState, setCallState] = useState<CallState>("idle");
+  const callStateRef = useRef<CallState>("idle");
+  const [callDialogOpen, setCallDialogOpen] = useState(false);
+  const [incomingCallFrom, setIncomingCallFrom] = useState<string | null>(null);
+  const [callNotice, setCallNotice] = useState<string | null>(null);
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  const [headerTimerContainer, setHeaderTimerContainer] = useState<Element | null>(null);
+  const [isCallFullscreen, setIsCallFullscreen] = useState(false);
+  const [pipPosition, setPipPosition] = useState<{ left: number; top: number } | null>(null);
+  const sessionHeaderId = useId();
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [debugEvents, setDebugEvents] = useState<DebugLogEntry[]>([]);
   const [reconnectBaseDelayMs, setReconnectBaseDelayMs] = useState(DEFAULT_RECONNECT_BASE_DELAY_MS);
   const [isReconnecting, setIsReconnecting] = useState(false);
@@ -282,8 +297,14 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const socketRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
   const chatLogRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const callPanelRef = useRef<HTMLDivElement | null>(null);
+  const pipContainerRef = useRef<HTMLDivElement | null>(null);
   const focusComposer = useCallback(() => {
     const composer = composerRef.current;
     if (!composer) {
@@ -305,6 +326,9 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const capabilityAnnouncedRef = useRef(false);
   const peerSupportsEncryptionRef = useRef<boolean | null>(null);
   const reconnectAttemptsRef = useRef(0);
+  const headerRevealTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const wasConnectedRef = useRef(false);
+  const previousMediaPanelVisibleRef = useRef(false);
   const reconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
   const iceFailureRetriesRef = useRef(0);
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
@@ -316,6 +340,15 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const initialMessagesHandledRef = useRef(false);
   const notificationSoundRef = useRef<NotificationSoundName>(DEFAULT_NOTIFICATION_SOUND);
   const secretBufferRef = useRef<string>("");
+  const negotiationPendingRef = useRef(false);
+  const callNoticeTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const pipDragStateRef = useRef<{
+    pointerId: number;
+    offsetX: number;
+    offsetY: number;
+    pipWidth: number;
+    pipHeight: number;
+  } | null>(null);
   const termsStorageKey = useMemo(() => `chatorbit:session:${token}:termsAccepted`, [token]);
 
   useEffect(() => {
@@ -346,6 +379,77 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       log.scrollTop = log.scrollHeight;
     }
   }, [messages, reverseMessageOrder]);
+
+  useEffect(() => {
+    callStateRef.current = callState;
+  }, [callState]);
+
+  useEffect(() => {
+    const element = localVideoRef.current;
+    if (!element) {
+      return;
+    }
+    if (localStream) {
+      element.srcObject = localStream;
+      const playPromise = element.play();
+      if (playPromise) {
+        void playPromise.catch(() => {});
+      }
+    } else {
+      element.srcObject = null;
+    }
+  }, [localStream]);
+
+  useEffect(() => {
+    const element = remoteVideoRef.current;
+    if (!element) {
+      return;
+    }
+    if (remoteStream) {
+      element.srcObject = remoteStream;
+      const playPromise = element.play();
+      if (playPromise) {
+        void playPromise.catch(() => {});
+      }
+    } else {
+      element.srcObject = null;
+    }
+  }, [remoteStream]);
+
+  useEffect(() => {
+    if (!remoteStream) {
+      return;
+    }
+    setCallState((current) => {
+      if (current === "connecting" || current === "incoming" || current === "requesting") {
+        return "active";
+      }
+      return current;
+    });
+  }, [remoteStream]);
+
+  useEffect(() => {
+    if (!isCallFullscreen) {
+      return;
+    }
+    if (typeof document === "undefined") {
+      return;
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isCallFullscreen]);
+
+  useEffect(() => {
+    return () => {
+      if (callNoticeTimeoutRef.current && typeof window !== "undefined") {
+        window.clearTimeout(callNoticeTimeoutRef.current);
+        callNoticeTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const ensureAudioContext = useCallback(() => {
     if (typeof window === "undefined") {
@@ -439,6 +543,19 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
 
   useEffect(() => {
     setSupportsEncryption(resolveCrypto() !== null);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const slot = document.getElementById("site-header-timer");
+    setHeaderTimerContainer(slot);
+
+    return () => {
+      setHeaderTimerContainer(null);
+    };
   }, []);
 
   useEffect(() => {
@@ -639,6 +756,37 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     tokenCopyTimeoutRef.current = window.setTimeout(() => setTokenCopyState("idle"), 2000);
   }, [token]);
 
+  const stopLocalMediaTracks = useCallback(
+    (pc?: RTCPeerConnection | null) => {
+      const stream = localStreamRef.current;
+      if (!stream) {
+        return;
+      }
+      const senders = pc?.getSenders() ?? [];
+      for (const track of stream.getTracks()) {
+        try {
+          track.stop();
+        } catch (cause) {
+          console.warn("Failed to stop local media track", cause);
+        }
+        if (!pc) {
+          continue;
+        }
+        const sender = senders.find((candidate) => candidate.track && candidate.track.id === track.id);
+        if (sender) {
+          try {
+            pc.removeTrack(sender);
+          } catch (cause) {
+            console.warn("Failed to remove RTCRtpSender", cause);
+          }
+        }
+      }
+      localStreamRef.current = null;
+      setLocalStream(null);
+    },
+    [setLocalStream],
+  );
+
   const resetPeerConnection = useCallback(
     ({ recreate = true, delayMs }: { recreate?: boolean; delayMs?: number } = {}) => {
       if (iceRetryTimeoutRef.current) {
@@ -651,6 +799,9 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       }
       const existing = peerConnectionRef.current;
       if (existing) {
+        stopLocalMediaTracks(existing);
+        remoteStreamRef.current = null;
+        setRemoteStream(null);
         try {
           existing.close();
         } catch (cause) {
@@ -663,6 +814,15 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       setIceConnectionState(null);
       setIceGatheringState(null);
       setDataChannelState(null);
+      setCallState("idle");
+      setIncomingCallFrom(null);
+      setCallDialogOpen(false);
+      negotiationPendingRef.current = false;
+      if (callNoticeTimeoutRef.current) {
+        clearTimeout(callNoticeTimeoutRef.current);
+        callNoticeTimeoutRef.current = null;
+      }
+      setCallNotice(null);
       pendingCandidatesRef.current = [];
       pendingSignalsRef.current = [];
       hasSentOfferRef.current = false;
@@ -693,6 +853,12 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       setIceConnectionState,
       setIceGatheringState,
       setDataChannelState,
+      setCallState,
+      setIncomingCallFrom,
+      setCallDialogOpen,
+      setCallNotice,
+      setRemoteStream,
+      stopLocalMediaTracks,
     ],
   );
 
@@ -882,6 +1048,166 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     }
   }, [sendCapabilities, supportsEncryption]);
 
+  const sendSignal = useCallback(
+    (signalType: string, payload: unknown) => {
+      if (!participantId) {
+        return;
+      }
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      logEvent("Sending signal", { signalType, payload });
+      socket.send(
+        JSON.stringify({
+          type: "signal",
+          signalType,
+          payload,
+        }),
+      );
+    },
+    [participantId],
+  );
+
+  const sendCallMessage = useCallback(
+    (action: string, detail: Record<string, unknown> = {}) => {
+      if (!participantId) {
+        return;
+      }
+      const channel = dataChannelRef.current;
+      if (!channel || channel.readyState !== "open") {
+        return;
+      }
+      const payload = { type: "call", action, from: participantId, ...detail };
+      try {
+        channel.send(JSON.stringify(payload));
+        logEvent("Sent call control message", payload);
+      } catch (cause) {
+        console.warn("Failed to send call control message", cause);
+      }
+    },
+    [participantId],
+  );
+
+  const showCallNotice = useCallback(
+    (message: string | null) => {
+      if (typeof window !== "undefined" && callNoticeTimeoutRef.current) {
+        window.clearTimeout(callNoticeTimeoutRef.current);
+        callNoticeTimeoutRef.current = null;
+      }
+      setCallNotice(message);
+      if (message && typeof window !== "undefined") {
+        callNoticeTimeoutRef.current = window.setTimeout(() => {
+          setCallNotice(null);
+          callNoticeTimeoutRef.current = null;
+        }, 4000);
+      }
+    },
+    [setCallNotice],
+  );
+
+  const renegotiate = useCallback(async () => {
+    if (participantRole !== "host") {
+      return;
+    }
+    const pc = peerConnectionRef.current;
+    if (!pc) {
+      return;
+    }
+    if (pc.signalingState !== "stable") {
+      logEvent("Deferring renegotiation until signaling state stabilizes", {
+        signalingState: pc.signalingState,
+      });
+      negotiationPendingRef.current = true;
+      return;
+    }
+    negotiationPendingRef.current = false;
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      sendSignal("offer", offer);
+      logEvent("Sent renegotiation offer for media tracks");
+    } catch (cause) {
+      console.error("Failed to renegotiate media", cause);
+    }
+  }, [participantRole, sendSignal]);
+
+  const requestRenegotiation = useCallback(() => {
+    if (participantRole === "host") {
+      void renegotiate();
+    } else {
+      sendCallMessage("renegotiate");
+    }
+  }, [participantRole, renegotiate, sendCallMessage]);
+
+  const ensureLocalStream = useCallback(async () => {
+    if (localStreamRef.current) {
+      return localStreamRef.current;
+    }
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Media devices are not available.");
+    }
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+    localStreamRef.current = stream;
+    setLocalStream(stream);
+    return stream;
+  }, []);
+
+  const attachLocalMedia = useCallback(async () => {
+    const stream = await ensureLocalStream();
+    const pc = peerConnectionRef.current;
+    if (!pc) {
+      throw new Error("Peer connection is not ready.");
+    }
+    const senders = pc.getSenders();
+    for (const track of stream.getTracks()) {
+      const sender = senders.find((candidate) => candidate.track?.kind === track.kind);
+      if (sender) {
+        try {
+          await sender.replaceTrack(track);
+        } catch (cause) {
+          console.warn("Failed to replace track on sender", cause);
+        }
+      } else {
+        pc.addTrack(track, stream);
+      }
+    }
+    return stream;
+  }, [ensureLocalStream]);
+
+  const teardownCall = useCallback(
+    (
+      {
+        notifyPeer = false,
+        renegotiate: shouldRenegotiate = true,
+      }: { notifyPeer?: boolean; renegotiate?: boolean } = {},
+    ) => {
+      const pc = peerConnectionRef.current;
+      stopLocalMediaTracks(pc ?? undefined);
+      remoteStreamRef.current = null;
+      setRemoteStream(null);
+      setCallState("idle");
+      setIncomingCallFrom(null);
+      setCallDialogOpen(false);
+      negotiationPendingRef.current = false;
+      if (notifyPeer) {
+        sendCallMessage("end");
+      }
+      if (shouldRenegotiate) {
+        requestRenegotiation();
+      }
+    },
+    [
+      requestRenegotiation,
+      sendCallMessage,
+      setCallDialogOpen,
+      setCallState,
+      setIncomingCallFrom,
+      setRemoteStream,
+      stopLocalMediaTracks,
+    ],
+  );
+
   const handlePeerMessage = useCallback(
     async (raw: string) => {
       logEvent("Received raw data channel payload", raw);
@@ -893,6 +1219,105 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           setPeerSupportsEncryption(remoteSupports);
           if (!capabilityAnnouncedRef.current) {
             sendCapabilities();
+          }
+          return;
+        }
+        if (payload.type === "call") {
+          const action = typeof payload.action === "string" ? payload.action : null;
+          const fromParticipant = typeof payload.from === "string" ? payload.from : null;
+          if (!action) {
+            return;
+          }
+          if (action === "request") {
+            if (callState === "active" || callState === "connecting") {
+              sendCallMessage("busy");
+              showCallNotice("Peer requested a video chat, but you're already in a call.");
+              return;
+            }
+            if (callState === "requesting") {
+              setCallDialogOpen(false);
+              setCallState("connecting");
+              try {
+                await attachLocalMedia();
+                if (callStateRef.current !== "connecting") {
+                  stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+                  return;
+                }
+                sendCallMessage("accept");
+                requestRenegotiation();
+                showCallNotice("Video chat request accepted.");
+              } catch (cause) {
+                console.error("Failed to auto-accept video chat", cause);
+                showCallNotice("Unable to start video chat.");
+                setCallState("idle");
+                sendCallMessage("reject");
+                stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+              }
+              return;
+            }
+            setIncomingCallFrom(fromParticipant);
+            setCallDialogOpen(true);
+            setCallState("incoming");
+            showCallNotice("Video chat request received.");
+            return;
+          }
+          if (action === "cancel") {
+            if (callState !== "idle") {
+              const shouldRenegotiate = localStreamRef.current !== null;
+              teardownCall({ notifyPeer: false, renegotiate: shouldRenegotiate });
+              showCallNotice("Video chat request cancelled.");
+            }
+            return;
+          }
+          if (action === "accept") {
+            setCallDialogOpen(false);
+            setIncomingCallFrom(null);
+            setCallState("connecting");
+            try {
+              await attachLocalMedia();
+              if (callStateRef.current !== "connecting") {
+                stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+                return;
+              }
+              requestRenegotiation();
+              showCallNotice("Starting video chat…");
+            } catch (cause) {
+              console.error("Failed to attach local media after acceptance", cause);
+              showCallNotice("Unable to start video chat.");
+              setCallState("idle");
+              sendCallMessage("reject");
+              stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+            }
+            return;
+          }
+          if (action === "reject") {
+            if (callState === "requesting" || callState === "connecting") {
+              const shouldRenegotiate = localStreamRef.current !== null;
+              teardownCall({ notifyPeer: false, renegotiate: shouldRenegotiate });
+              showCallNotice("Video chat request declined.");
+            }
+            return;
+          }
+          if (action === "end") {
+            if (callState !== "idle") {
+              teardownCall({ notifyPeer: false });
+              showCallNotice("Video chat ended.");
+            }
+            return;
+          }
+          if (action === "renegotiate") {
+            if (participantRole === "host") {
+              void renegotiate();
+            }
+            return;
+          }
+          if (action === "busy") {
+            if (callState === "requesting") {
+              const shouldRenegotiate = localStreamRef.current !== null;
+              teardownCall({ notifyPeer: false, renegotiate: shouldRenegotiate });
+              showCallNotice("Peer is already in a video chat.");
+            }
+            return;
           }
           return;
         }
@@ -1055,27 +1480,6 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       setIsReconnecting,
       setDataChannelState,
     ],
-  );
-
-  const sendSignal = useCallback(
-    (signalType: string, payload: unknown) => {
-      if (!participantId) {
-        return;
-      }
-      const socket = socketRef.current;
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        return;
-      }
-      logEvent("Sending signal", { signalType, payload });
-      socket.send(
-        JSON.stringify({
-          type: "signal",
-          signalType,
-          payload,
-        }),
-      );
-    },
-    [participantId],
   );
 
   const processSignalPayload = useCallback(
@@ -1249,6 +1653,52 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       }
     };
 
+    peerConnection.ontrack = (event) => {
+      const [stream] = event.streams;
+      if (!stream) {
+        return;
+      }
+      remoteStreamRef.current = stream;
+      setRemoteStream(stream);
+      setCallState((current) => {
+        if (current === "connecting" || current === "incoming" || current === "requesting") {
+          return "active";
+        }
+        return current;
+      });
+      const handleTrackUpdate = () => {
+        const currentStream = remoteStreamRef.current;
+        if (!currentStream) {
+          return;
+        }
+        const hasLiveTrack = currentStream.getTracks().some((track) => track.readyState !== "ended");
+        if (!hasLiveTrack) {
+          const hadStream = remoteStreamRef.current !== null;
+          remoteStreamRef.current = null;
+          setRemoteStream(null);
+          if (hadStream) {
+            teardownCall({ notifyPeer: false });
+            showCallNotice("Video chat ended.");
+          }
+        }
+      };
+      stream.addEventListener("removetrack", handleTrackUpdate);
+      for (const track of stream.getTracks()) {
+        track.addEventListener("ended", handleTrackUpdate);
+      }
+    };
+
+    peerConnection.onsignalingstatechange = () => {
+      if (
+        peerConnection.signalingState === "stable" &&
+        negotiationPendingRef.current &&
+        participantRole === "host"
+      ) {
+        negotiationPendingRef.current = false;
+        void renegotiate();
+      }
+    };
+
     peerConnection.addEventListener("icecandidateerror", (event: RTCPeerConnectionIceErrorEvent) => {
       const { hostCandidate } = event as RTCPeerConnectionIceErrorEvent & { hostCandidate?: string };
       logEvent("ICE candidate error reported", {
@@ -1303,10 +1753,15 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     participantRole,
     peerResetNonce,
     processSignalPayload,
+    renegotiate,
     resetPeerConnection,
     reconnectBaseDelayMs,
     schedulePeerConnectionRecovery,
     sendSignal,
+    setCallState,
+    setRemoteStream,
+    showCallNotice,
+    teardownCall,
   ]);
 
   useEffect(() => {
@@ -1696,6 +2151,319 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     return () => window.clearInterval(interval);
   }, [remainingSeconds]);
 
+  const sessionIsActive = sessionStatus?.status === "active";
+  const canInitiateCall = connected && dataChannelState === "open" && sessionIsActive === true;
+  const shouldShowCallButton = canInitiateCall || callState !== "idle";
+  const callButtonVariant =
+    callState === "active"
+      ? "active"
+      : callState === "incoming" || callState === "requesting" || callState === "connecting"
+        ? "pending"
+        : "idle";
+  const callButtonTitle =
+    callState === "idle"
+      ? "Request a video chat"
+      : callState === "requesting"
+        ? "Cancel video chat request"
+        : callState === "incoming"
+          ? "Respond to video chat request"
+          : callState === "connecting"
+            ? "Cancel video chat connection"
+            : "Leave video chat";
+  const callButtonDisabled = callState === "idle" && !canInitiateCall;
+  const shouldShowMediaPanel =
+    callState === "connecting" ||
+    callState === "active" ||
+    callState === "requesting" ||
+    Boolean(localStream) ||
+    Boolean(remoteStream);
+
+  useEffect(() => {
+    if (!shouldShowMediaPanel || callState !== "active") {
+      setIsCallFullscreen(false);
+    }
+  }, [callState, shouldShowMediaPanel]);
+
+  const callPanelStatusVariant =
+    callState === "active"
+      ? "active"
+      : callState === "connecting"
+        ? "connecting"
+        : callState === "incoming"
+          ? "incoming"
+          : callState === "requesting"
+            ? "pending"
+            : "idle";
+  const callPanelStatusLabel =
+    callState === "active"
+      ? "Video chat active"
+      : callState === "connecting"
+        ? "Connecting video chat"
+        : callState === "incoming"
+          ? "Incoming video chat"
+          : callState === "requesting"
+            ? "Awaiting peer response"
+            : "Video chat ready";
+  const hasSessionEnded =
+    sessionEnded ||
+    sessionStatus?.status === "closed" ||
+    sessionStatus?.status === "expired" ||
+    sessionStatus?.status === "deleted";
+  const sessionStatusLabel = hasSessionEnded ? "Ended" : connected ? "Connected" : "Waiting";
+  const sessionStatusIndicatorClass = hasSessionEnded
+    ? " status-indicator--ended"
+    : connected
+      ? " status-indicator--active"
+      : "";
+
+  const clearHeaderRevealTimeout = useCallback(() => {
+    if (typeof window !== "undefined" && headerRevealTimeoutRef.current) {
+      window.clearTimeout(headerRevealTimeoutRef.current);
+      headerRevealTimeoutRef.current = null;
+    }
+  }, []);
+
+  const handleHeaderReveal = useCallback(() => {
+    setHeaderCollapsed(false);
+    if (typeof window === "undefined") {
+      return;
+    }
+    clearHeaderRevealTimeout();
+    headerRevealTimeoutRef.current = window.setTimeout(() => {
+      headerRevealTimeoutRef.current = null;
+      if (previousMediaPanelVisibleRef.current || wasConnectedRef.current) {
+        setHeaderCollapsed(true);
+      }
+    }, 5000);
+  }, [clearHeaderRevealTimeout]);
+
+  const handleHeaderCollapse = useCallback(() => {
+    clearHeaderRevealTimeout();
+    setHeaderCollapsed(true);
+  }, [clearHeaderRevealTimeout]);
+
+  const shouldForceExpandedHeader = !connected && !hasSessionEnded;
+  const showFullStatusHeader = !connected || hasSessionEnded;
+
+  useEffect(() => {
+    const wasVisible = previousMediaPanelVisibleRef.current;
+    if (shouldForceExpandedHeader) {
+      if (headerCollapsed) {
+        setHeaderCollapsed(false);
+      }
+      clearHeaderRevealTimeout();
+      previousMediaPanelVisibleRef.current = shouldShowMediaPanel;
+      return;
+    }
+    if (shouldShowMediaPanel && !wasVisible) {
+      setHeaderCollapsed(true);
+    }
+    if (!shouldShowMediaPanel && wasVisible && !connected) {
+      setHeaderCollapsed(false);
+      clearHeaderRevealTimeout();
+    }
+    previousMediaPanelVisibleRef.current = shouldShowMediaPanel;
+  }, [
+    clearHeaderRevealTimeout,
+    connected,
+    headerCollapsed,
+    shouldForceExpandedHeader,
+    shouldShowMediaPanel,
+  ]);
+
+  useEffect(() => {
+    const wasConnected = wasConnectedRef.current;
+    if (!shouldForceExpandedHeader && connected && !wasConnected) {
+      setHeaderCollapsed(true);
+    }
+    if ((!connected || shouldForceExpandedHeader) && wasConnected) {
+      setHeaderCollapsed(false);
+      clearHeaderRevealTimeout();
+    }
+    wasConnectedRef.current = connected;
+  }, [clearHeaderRevealTimeout, connected, shouldForceExpandedHeader]);
+
+  const handleCallButtonClick = useCallback(() => {
+    if (callState === "idle") {
+      if (!canInitiateCall) {
+        return;
+      }
+      setCallState("requesting");
+      showCallNotice("Requesting camera access…");
+      void (async () => {
+        try {
+          await attachLocalMedia();
+        } catch (cause) {
+          console.error("Failed to access local media for video chat request", cause);
+          if (callStateRef.current === "requesting") {
+            stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+            setCallState("idle");
+            showCallNotice("Unable to access camera or microphone.");
+          }
+          return;
+        }
+        if (callStateRef.current !== "requesting") {
+          return;
+        }
+        sendCallMessage("request");
+        showCallNotice("Video chat request sent.");
+      })();
+      return;
+    }
+    if (callState === "requesting") {
+      sendCallMessage("cancel");
+      setCallState("idle");
+      setIncomingCallFrom(null);
+      setCallDialogOpen(false);
+      stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+      showCallNotice("Video chat request cancelled.");
+      return;
+    }
+    if (callState === "incoming") {
+      setCallDialogOpen(true);
+      return;
+    }
+    if (callState === "connecting" || callState === "active") {
+      teardownCall({ notifyPeer: true });
+      showCallNotice("Video chat ended.");
+    }
+  }, [
+    callState,
+    canInitiateCall,
+    attachLocalMedia,
+    sendCallMessage,
+    setCallDialogOpen,
+    setCallState,
+    setIncomingCallFrom,
+    showCallNotice,
+    stopLocalMediaTracks,
+    teardownCall,
+  ]);
+
+  const handleToggleFullscreen = useCallback(() => {
+    if (callState !== "active") {
+      return;
+    }
+    setIsCallFullscreen((current) => !current);
+    setPipPosition(null);
+    pipDragStateRef.current = null;
+  }, [callState]);
+
+  const handleExitFullscreenOnly = useCallback(() => {
+    setIsCallFullscreen(false);
+    setPipPosition(null);
+    pipDragStateRef.current = null;
+  }, []);
+
+  const handleFullscreenEndCall = useCallback(() => {
+    setIsCallFullscreen(false);
+    setPipPosition(null);
+    pipDragStateRef.current = null;
+    handleCallButtonClick();
+  }, [handleCallButtonClick]);
+
+  const handleCallAccept = useCallback(async () => {
+    setCallDialogOpen(false);
+    setIncomingCallFrom(null);
+    setCallState("connecting");
+    try {
+      await attachLocalMedia();
+      if (callStateRef.current !== "connecting") {
+        stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+        return;
+      }
+      sendCallMessage("accept");
+      requestRenegotiation();
+      showCallNotice("Starting video chat…");
+    } catch (cause) {
+      console.error("Failed to accept video chat", cause);
+      showCallNotice("Unable to access camera or microphone.");
+      setCallState("idle");
+      sendCallMessage("reject");
+      stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+    }
+  }, [
+    attachLocalMedia,
+    requestRenegotiation,
+    sendCallMessage,
+    setCallDialogOpen,
+    setCallState,
+    setIncomingCallFrom,
+    showCallNotice,
+    stopLocalMediaTracks,
+  ]);
+
+  const handleCallDecline = useCallback(() => {
+    setCallDialogOpen(false);
+    setIncomingCallFrom(null);
+    if (callState !== "idle") {
+      setCallState("idle");
+    }
+    sendCallMessage("reject");
+    showCallNotice("Declined video chat request.");
+  }, [callState, sendCallMessage, setCallDialogOpen, setCallState, setIncomingCallFrom, showCallNotice]);
+
+  const handlePipPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!isCallFullscreen) {
+        return;
+      }
+      const pipContainer = pipContainerRef.current;
+      const panel = callPanelRef.current;
+      if (!pipContainer || !panel) {
+        return;
+      }
+      event.preventDefault();
+      const pipRect = pipContainer.getBoundingClientRect();
+      pipDragStateRef.current = {
+        pointerId: event.pointerId,
+        offsetX: event.clientX - pipRect.left,
+        offsetY: event.clientY - pipRect.top,
+        pipWidth: pipRect.width,
+        pipHeight: pipRect.height,
+      };
+      pipContainer.setPointerCapture(event.pointerId);
+    },
+    [isCallFullscreen],
+  );
+
+  const handlePipPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = pipDragStateRef.current;
+      if (!isCallFullscreen || !drag || drag.pointerId !== event.pointerId) {
+        return;
+      }
+      const panel = callPanelRef.current;
+      if (!panel) {
+        return;
+      }
+      const panelRect = panel.getBoundingClientRect();
+      const maxLeft = Math.max(panelRect.width - drag.pipWidth, 0);
+      const maxTop = Math.max(panelRect.height - drag.pipHeight, 0);
+      const proposedLeft = event.clientX - panelRect.left - drag.offsetX;
+      const proposedTop = event.clientY - panelRect.top - drag.offsetY;
+      const nextLeft = Math.min(Math.max(proposedLeft, 0), maxLeft);
+      const nextTop = Math.min(Math.max(proposedTop, 0), maxTop);
+      setPipPosition({ left: nextLeft, top: nextTop });
+    },
+    [isCallFullscreen],
+  );
+
+  const handlePipPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = pipDragStateRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) {
+        return;
+      }
+      const pipContainer = pipContainerRef.current;
+      if (pipContainer && pipContainer.hasPointerCapture(event.pointerId)) {
+        pipContainer.releasePointerCapture(event.pointerId);
+      }
+      pipDragStateRef.current = null;
+    },
+    [],
+  );
+
   const connectedParticipantCount = useMemo(() => {
     const connectedIds = new Set(sessionStatus?.connectedParticipants ?? []);
     if (connected) {
@@ -1708,12 +2476,6 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     }
     return Math.min(connectedIds.size, 2);
   }, [connected, participantId, sessionStatus?.connectedParticipants, sessionStatus?.participants]);
-
-  const hasSessionEnded =
-    sessionEnded ||
-    sessionStatus?.status === "closed" ||
-    sessionStatus?.status === "expired" ||
-    sessionStatus?.status === "deleted";
 
   const endSessionButtonLabel = hasSessionEnded
     ? "Session ended"
@@ -1823,12 +2585,19 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       return "00:00";
     }
     if (remainingSeconds === null) {
-      return sessionStatus?.status === "issued" ? "Waiting for partner…" : "Starting…";
+      return sessionStatus?.status === "issued" ? "Waiting…" : "Starting…";
     }
     const minutes = Math.floor(remainingSeconds / 60);
     const seconds = remainingSeconds % 60;
     return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   }, [hasSessionEnded, remainingSeconds, sessionStatus?.status]);
+
+  const headerTimerLabel = useMemo(() => {
+    if (!hasSessionEnded && remainingSeconds === null && sessionStatus?.status === "issued") {
+      return "--:--";
+    }
+    return countdownLabel;
+  }, [countdownLabel, hasSessionEnded, remainingSeconds, sessionStatus?.status]);
 
   const shouldShowTermsModal = lastTermsKeyChecked !== termsStorageKey || !termsAccepted;
 
@@ -1855,6 +2624,13 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     showChatPanel,
     termsAccepted,
   ]);
+
+  useEffect(() => {
+    if (!isCallFullscreen) {
+      setPipPosition(null);
+      pipDragStateRef.current = null;
+    }
+  }, [isCallFullscreen]);
 
   const encryptionAlertMessage = useMemo(() => {
     if (supportsEncryption === false && peerSupportsEncryption === false) {
@@ -2045,6 +2821,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         window.clearTimeout(tokenCopyTimeoutRef.current);
         tokenCopyTimeoutRef.current = null;
       }
+      clearHeaderRevealTimeout();
       resetPeerConnection({ recreate: false });
       if (iceRetryTimeoutRef.current) {
         clearTimeout(iceRetryTimeoutRef.current);
@@ -2060,7 +2837,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         socketRef.current = null;
       }
     };
-  }, [resetPeerConnection]);
+  }, [clearHeaderRevealTimeout, resetPeerConnection]);
 
   if (!participantId) {
     return (
@@ -2072,155 +2849,190 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     );
   }
 
-  return (
-    <div className="session-shell">
-      <div className="session-header">
-        <div className="session-header__content">
-          <div className="session-header__top">
-            <div className="session-token-header">
-              <p className="session-token">Token</p>
-              <button
-                type="button"
-                className={`session-token-copy${
-                  tokenCopyState === "copied" ? " session-token-copy--success" : ""
-                }${tokenCopyState === "failed" ? " session-token-copy--error" : ""}`}
-                onClick={handleCopyToken}
-                aria-label="Copy session token"
-              >
-                {tokenCopyState === "copied" ? "Copied" : "Copy"}
-              </button>
-              <span className="session-token-copy-status" role="status" aria-live="polite">
-                {tokenCopyState === "copied"
-                  ? "Token copied to clipboard"
-                  : tokenCopyState === "failed"
-                    ? "Unable to copy token"
-                    : ""}
-              </span>
-            </div>
-            <button
-              type="button"
-              className="session-end-button"
-              onClick={handleEndSessionRequest}
-              disabled={endSessionLoading || hasSessionEnded}
-              aria-haspopup="dialog"
-              aria-expanded={confirmEndSessionOpen}
-            >
-              {endSessionButtonLabel}
-            </button>
-          </div>
-          <p className="session-token-value">{token}</p>
-          <p className="session-role">
-            You are signed in as
-            <span>
-              {" "}
-              {sessionStatus?.participants.find((p) => p.participantId === participantId)?.role ?? "guest"}
+  const showCompactHeader = headerCollapsed && !shouldForceExpandedHeader;
+
+  const headerExpanded = !headerCollapsed || shouldForceExpandedHeader;
+  const headerTimerPortal =
+    headerTimerContainer && headerTimerLabel
+      ? createPortal(
+          <button
+            type="button"
+            className={`site-header-timer${showFullStatusHeader ? " site-header-timer--waiting" : ""}`}
+            onClick={handleHeaderReveal}
+            aria-expanded={headerExpanded}
+            aria-controls={sessionHeaderId}
+            aria-label={headerExpanded ? "Session details visible" : "Show session details"}
+            title={headerExpanded ? "Session details visible" : "Show session details"}
+            aria-live="polite"
+          >
+            <span className="site-header-timer__status">
+              <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
+              <span>{sessionStatusLabel}</span>
             </span>
-            .
-          </p>
-          {showDebugPanel ? (
-            <div className="session-debug" data-test="session-debug-panel">
-              <div className="session-debug__header">
-                <p className="session-debug__title">Client debug</p>
-                {isTouchDevice ? (
+            <span className="site-header-timer__time">{headerTimerLabel}</span>
+          </button>,
+          headerTimerContainer
+        )
+      : null;
+
+  return (
+    <>
+      {headerTimerPortal}
+      <div className={`session-shell${showCompactHeader ? " session-shell--compact" : ""}`}>
+        <div
+          className={`session-header-wrapper${
+            headerExpanded ? " session-header-wrapper--visible" : " session-header-wrapper--hidden"
+          }`}
+          aria-hidden={!headerExpanded}
+        >
+          <div
+            id={sessionHeaderId}
+            className={`session-header${headerExpanded ? " session-header--revealed" : ""}`}
+            role="region"
+            aria-label="Session details"
+          >
+            <div className="session-header__content">
+              <div className="session-header__top">
+                <div className="session-token-header">
+                  <p className="session-token">Token</p>
                   <button
                     type="button"
-                    className="session-debug__hide-button"
-                    onClick={() => {
-                      setShowDebugPanel(false);
-                    }}
-                    aria-label="Hide debug panel"
+                    className={`session-token-copy${
+                      tokenCopyState === "copied" ? " session-token-copy--success" : ""
+                    }${tokenCopyState === "failed" ? " session-token-copy--error" : ""}`}
+                    onClick={handleCopyToken}
+                    aria-label="Copy session token"
                   >
-                    Hide
+                    {tokenCopyState === "copied" ? "Copied" : "Copy"}
                   </button>
-                ) : (
-                  <p className="session-debug__hint">Press Esc to hide</p>
-                )}
+                  <span className="session-token-copy-status" role="status" aria-live="polite">
+                    {tokenCopyState === "copied"
+                      ? "Token copied to clipboard"
+                      : tokenCopyState === "failed"
+                        ? "Unable to copy token"
+                        : ""}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="session-end-button"
+                  onClick={handleEndSessionRequest}
+                  disabled={endSessionLoading || hasSessionEnded}
+                  aria-haspopup="dialog"
+                  aria-expanded={confirmEndSessionOpen}
+                >
+                  {endSessionButtonLabel}
+                </button>
               </div>
-              <dl className="session-debug__list">
-                <div className="session-debug__item">
-                  <dt>Identity</dt>
-                  <dd>{clientIdentity ?? "Gathering…"}</dd>
+              <p className="session-token-value">{token}</p>
+              <p className="session-role">
+                You are signed in as
+                <span>
+                  {" "}
+                  {sessionStatus?.participants.find((p) => p.participantId === participantId)?.role ?? "guest"}
+                </span>
+                .
+              </p>
+              {showDebugPanel ? (
+                <div className="session-debug" data-test="session-debug-panel">
+                  <div className="session-debug__header">
+                    <p className="session-debug__title">Client debug</p>
+                    {isTouchDevice ? (
+                      <button
+                        type="button"
+                        className="session-debug__hide-button"
+                        onClick={() => {
+                          setShowDebugPanel(false);
+                        }}
+                        aria-label="Hide debug panel"
+                      >
+                        Hide
+                      </button>
+                    ) : (
+                      <p className="session-debug__hint">Press Esc to hide</p>
+                    )}
+                  </div>
+                  <dl className="session-debug__list">
+                    <div className="session-debug__item">
+                      <dt>Identity</dt>
+                      <dd>{clientIdentity ?? "Gathering…"}</dd>
+                    </div>
+                    <div className="session-debug__item">
+                      <dt>Peer state</dt>
+                      <dd>{connectionState ?? "—"}</dd>
+                    </div>
+                    <div className="session-debug__item">
+                      <dt>ICE connection</dt>
+                      <dd>{iceConnectionState ?? "—"}</dd>
+                    </div>
+                    <div className="session-debug__item">
+                      <dt>ICE gathering</dt>
+                      <dd>{iceGatheringState ?? "—"}</dd>
+                    </div>
+                    <div className="session-debug__item">
+                      <dt>Data channel</dt>
+                      <dd>{dataChannelState ?? "—"}</dd>
+                    </div>
+                  </dl>
+                  <div className="session-debug__events">
+                    <p className="session-debug__subtitle">Recent events</p>
+                    {recentDebugEvents.length === 0 ? (
+                      <p className="session-debug__empty">Watching for new logs…</p>
+                    ) : (
+                      <ul className="session-debug__event-list">
+                        {recentDebugEvents.map((entry, index) => {
+                          const detail = entry.details[0];
+                          let detailSnippet: string | null = null;
+                          if (detail !== undefined) {
+                            try {
+                              detailSnippet = JSON.stringify(detail);
+                            } catch (error) {
+                              detailSnippet = String(detail);
+                            }
+                            if (detailSnippet && detailSnippet.length > 160) {
+                              detailSnippet = `${detailSnippet.slice(0, 157)}…`;
+                            }
+                          }
+                          const timestamp = new Date(entry.timestamp).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          });
+                          return (
+                            <li key={`${entry.timestamp}-${index}`} className="session-debug__event">
+                              <span className="session-debug__event-time">{timestamp}</span>
+                              <span className="session-debug__event-message">{entry.message}</span>
+                              {detailSnippet ? (
+                                <code className="session-debug__event-detail">{detailSnippet}</code>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
                 </div>
-                <div className="session-debug__item">
-                  <dt>Peer state</dt>
-                  <dd>{connectionState ?? "—"}</dd>
-                </div>
-                <div className="session-debug__item">
-                  <dt>ICE connection</dt>
-                  <dd>{iceConnectionState ?? "—"}</dd>
-                </div>
-                <div className="session-debug__item">
-                  <dt>ICE gathering</dt>
-                  <dd>{iceGatheringState ?? "—"}</dd>
-                </div>
-                <div className="session-debug__item">
-                  <dt>Data channel</dt>
-                  <dd>{dataChannelState ?? "—"}</dd>
-                </div>
-              </dl>
-              <div className="session-debug__events">
-                <p className="session-debug__subtitle">Recent events</p>
-                {recentDebugEvents.length === 0 ? (
-                  <p className="session-debug__empty">Watching for new logs…</p>
-                ) : (
-                  <ul className="session-debug__event-list">
-                    {recentDebugEvents.map((entry, index) => {
-                      const detail = entry.details[0];
-                      let detailSnippet: string | null = null;
-                      if (detail !== undefined) {
-                        try {
-                          detailSnippet = JSON.stringify(detail);
-                        } catch (error) {
-                          detailSnippet = String(detail);
-                        }
-                        if (detailSnippet && detailSnippet.length > 160) {
-                          detailSnippet = `${detailSnippet.slice(0, 157)}…`;
-                        }
-                      }
-                      const timestamp = new Date(entry.timestamp).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                        second: "2-digit",
-                      });
-                      return (
-                        <li key={`${entry.timestamp}-${index}`} className="session-debug__event">
-                          <span className="session-debug__event-time">{timestamp}</span>
-                          <span className="session-debug__event-message">{entry.message}</span>
-                          {detailSnippet ? (
-                            <code className="session-debug__event-detail">{detailSnippet}</code>
-                          ) : null}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
+              ) : null}
             </div>
-          ) : null}
-        </div>
-        <div className="countdown">
-          <div className="status-pill">
-            <span
-              className={`status-indicator${
-                hasSessionEnded
-                  ? " status-indicator--ended"
-                  : connected
-                    ? " status-indicator--active"
-                    : ""
-              }`}
-              aria-hidden
-            />
-            <span>
-              {hasSessionEnded ? "Ended" : connected ? "Connected" : "Waiting"}
-            </span>
+            <div className="countdown">
+              <div className="status-pill">
+                <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
+                <span>{sessionStatusLabel}</span>
+              </div>
+              <p className="countdown-label">Session timer</p>
+              <p className="countdown-time">{countdownLabel}</p>
+              <button
+                type="button"
+                className="session-header__collapse-button"
+                onClick={handleHeaderCollapse}
+              >
+                Hide details
+              </button>
+            </div>
           </div>
-          <p className="countdown-label">Session timer</p>
-          <p className="countdown-time">{countdownLabel}</p>
         </div>
-      </div>
-
-      {hasSessionEnded ? (
-        <div className="session-alert session-alert--ended">
+        {hasSessionEnded ? (
+          <div className="session-alert session-alert--ended">
           <p>Session ended. Request a new token to start over.</p>
           <Link href="/" className="session-alert__home-link">
             Leave room
@@ -2236,6 +3048,166 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         </div>
       ) : null}
 
+      {shouldShowMediaPanel ? (
+        <div
+          className={`call-panel${isCallFullscreen ? " call-panel--fullscreen" : ""}`}
+          ref={callPanelRef}
+        >
+            <div className="call-panel__header">
+              <div
+                className={`call-panel__status call-panel__status--${callPanelStatusVariant}`}
+                role="status"
+                aria-live="polite"
+              >
+                <span
+                  className={`call-panel__status-indicator call-panel__status-indicator--${callPanelStatusVariant}`}
+                  aria-hidden
+                />
+                <span className="call-panel__status-text">{callPanelStatusLabel}</span>
+                {isCallFullscreen && callState === "active" ? (
+                  <span className="call-panel__status-timer" aria-label="Session timer">
+                    {headerTimerLabel}
+                  </span>
+                ) : null}
+              </div>
+            {shouldShowCallButton && (!isCallFullscreen || callState !== "active") ? (
+              <div className="call-panel__actions">
+                {callState === "active" ? (
+                  <button
+                    type="button"
+                    className={`call-panel__fullscreen-button${
+                      isCallFullscreen ? " call-panel__fullscreen-button--active" : ""
+                    }`}
+                    onClick={handleToggleFullscreen}
+                    aria-label={isCallFullscreen ? "Exit full screen" : "Enter full screen"}
+                    title={isCallFullscreen ? "Exit full screen" : "Enter full screen"}
+                  >
+                    {isCallFullscreen ? (
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path
+                          fill="currentColor"
+                          d="M9 5H5v4h2V7h2V5zm10 0h-4v2h2v2h2V5zm0 10h-2v2h-2v2h4v-4zM7 17H5v4h4v-2H7v-2z"
+                        />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path
+                          fill="currentColor"
+                          d="M4 4h6v2H6v4H4V4zm14 0v6h-2V6h-4V4h6zm-6 14v2h6v-6h-2v4h-4zm-8-4H4v6h6v-2H6v-4z"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className={`chat-panel__call-button call-panel__call-button chat-panel__call-button--${callButtonVariant}`}
+                  onClick={handleCallButtonClick}
+                  aria-label={callButtonTitle}
+                  title={callButtonTitle}
+                  disabled={callButtonDisabled}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path
+                      fill="currentColor"
+                      d="M15 10.5V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-3.5l5 3.5V7l-5 3.5z"
+                    />
+                  </svg>
+                </button>
+              </div>
+            ) : null}
+          </div>
+          {callNotice ? (
+            <div className="alert alert--info call-panel__notice" role="status" aria-live="polite">
+              {callNotice}
+            </div>
+          ) : null}
+          <div className="call-panel__media" aria-live="polite">
+            <div
+              className={`call-panel__media-item${
+                isCallFullscreen ? " call-panel__media-item--remote" : ""
+              }`}
+            >
+              {remoteStream ? (
+                <video ref={remoteVideoRef} autoPlay playsInline className="call-panel__media-video" />
+              ) : (
+                <div className="call-panel__media-placeholder">
+                  {callState === "active"
+                    ? "Waiting for peer video…"
+                    : callState === "incoming"
+                      ? "Incoming video chat request"
+                      : callState === "requesting"
+                        ? "Awaiting peer response…"
+                        : callState === "connecting"
+                          ? "Connecting to peer…"
+                          : "Remote video unavailable"}
+                </div>
+              )}
+              <span className="call-panel__media-label">Partner</span>
+            </div>
+            <div
+              className={`call-panel__media-item${
+                isCallFullscreen ? " call-panel__media-item--local" : ""
+              }`}
+              ref={pipContainerRef}
+              style={
+                isCallFullscreen && pipPosition
+                  ? {
+                      top: `${pipPosition.top}px`,
+                      left: `${pipPosition.left}px`,
+                      bottom: "auto",
+                      right: "auto",
+                    }
+                  : undefined
+              }
+              onPointerDown={isCallFullscreen ? handlePipPointerDown : undefined}
+              onPointerMove={isCallFullscreen ? handlePipPointerMove : undefined}
+              onPointerUp={isCallFullscreen ? handlePipPointerUp : undefined}
+              onPointerCancel={isCallFullscreen ? handlePipPointerUp : undefined}
+            >
+              {localStream ? (
+                <video
+                  ref={localVideoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="call-panel__media-video"
+                />
+              ) : (
+                <div className="call-panel__media-placeholder">
+                  {callState === "incoming"
+                    ? "Accept to share your camera."
+                    : callState === "requesting"
+                      ? "Waiting for peer to accept…"
+                      : callState === "connecting"
+                        ? "Connecting camera…"
+                        : "Camera preview unavailable"}
+                </div>
+              )}
+              <span className="call-panel__media-label">You</span>
+            </div>
+          </div>
+          {isCallFullscreen ? (
+            <div className="call-panel__fullscreen-controls">
+              <button
+                type="button"
+                className="call-panel__fullscreen-control call-panel__fullscreen-control--end"
+                onClick={handleFullscreenEndCall}
+              >
+                End video
+              </button>
+              <button
+                type="button"
+                className="call-panel__fullscreen-control call-panel__fullscreen-control--dismiss"
+                onClick={handleExitFullscreenOnly}
+              >
+                Exit full screen
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       {showChatPanel ? (
         <div className="chat-panel">
           <div className="chat-panel__header">
@@ -2245,17 +3217,42 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
                 Limit: {sessionStatus ? sessionStatus.messageCharLimit.toLocaleString() : "—"} chars/message
               </span>
             </div>
-            <button
-              type="button"
-              className="chat-panel__order-toggle"
-              onClick={() => setReverseMessageOrder((previous) => !previous)}
-              aria-pressed={reverseMessageOrder}
-              aria-label={reverseMessageOrder ? "Show newest messages at bottom" : "Show newest messages at top"}
-              title={reverseMessageOrder ? "Newest on top" : "Newest on bottom"}
-            >
-              {reverseMessageOrder ? "↓" : "↑"}
-            </button>
+            <div className="chat-panel__controls">
+              {shouldShowCallButton && !shouldShowMediaPanel ? (
+                <button
+                  type="button"
+                  className={`chat-panel__call-button chat-panel__call-button--${callButtonVariant}`}
+                  onClick={handleCallButtonClick}
+                  aria-label={callButtonTitle}
+                  title={callButtonTitle}
+                  disabled={callButtonDisabled}
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path
+                      fill="currentColor"
+                      d="M15 10.5V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-3.5l5 3.5V7l-5 3.5z"
+                    />
+                  </svg>
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="chat-panel__order-toggle"
+                onClick={() => setReverseMessageOrder((previous) => !previous)}
+                aria-pressed={reverseMessageOrder}
+                aria-label={reverseMessageOrder ? "Show newest messages at bottom" : "Show newest messages at top"}
+                title={reverseMessageOrder ? "Newest on top" : "Newest on bottom"}
+              >
+                {reverseMessageOrder ? "↓" : "↑"}
+              </button>
+            </div>
           </div>
+
+          {!shouldShowMediaPanel && callNotice ? (
+            <div className="alert alert--info call-panel__notice" role="status" aria-live="polite">
+              {callNotice}
+            </div>
+          ) : null}
 
           {encryptionAlertMessage ? (
             <div className="alert alert--info">{encryptionAlertMessage}</div>
@@ -2298,6 +3295,23 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       ) : null}
 
       <ConfirmDialog
+        open={callDialogOpen}
+        title="Incoming video chat"
+        description={
+          incomingCallFrom
+            ? `${incomingCallFrom} wants to start a video chat.`
+            : "Your peer wants to start a video chat."
+        }
+        confirmLabel="Accept"
+        cancelLabel="Decline"
+        onConfirm={() => {
+          void handleCallAccept();
+        }}
+        onCancel={handleCallDecline}
+        confirmDisabled={callState === "connecting"}
+      />
+
+      <ConfirmDialog
         open={confirmEndSessionOpen}
         title="End session"
         description="Ending the session will immediately disconnect all participants."
@@ -2312,7 +3326,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
         onAgree={handleAgreeToTerms}
         onCancel={handleDeclineTerms}
       />
-    </div>
+      </div>
+    </>
   );
 }
 

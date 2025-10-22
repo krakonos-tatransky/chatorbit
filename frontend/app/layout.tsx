@@ -32,6 +32,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <div className="site-footer__inner">
                 <p>© {year} ChatOrbit. Peer-to-peer chat without server-side archives.</p>
                 <nav className="site-footer__links" aria-label="Legal">
+                  <LegalAwareLink href="/help">Help</LegalAwareLink>
                   <LegalAwareLink href="/terms-of-service">Terms</LegalAwareLink>
                   <LegalAwareLink href="/privacy-policy">Privacy</LegalAwareLink>
                 </nav>
