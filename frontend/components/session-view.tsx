@@ -284,6 +284,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [callNotice, setCallNotice] = useState<string | null>(null);
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [headerTimerContainer, setHeaderTimerContainer] = useState<Element | null>(null);
+  const [isCallFullscreen, setIsCallFullscreen] = useState(false);
   const sessionHeaderId = useId();
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -301,6 +302,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const callPanelRef = useRef<HTMLDivElement | null>(null);
   const focusComposer = useCallback(() => {
     const composer = composerRef.current;
     if (!composer) {
@@ -416,6 +418,20 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       return current;
     });
   }, [remoteStream]);
+
+  useEffect(() => {
+    if (!isCallFullscreen) {
+      return;
+    }
+    if (typeof document === "undefined") {
+      return;
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isCallFullscreen]);
 
   useEffect(() => {
     return () => {
@@ -2144,6 +2160,13 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     callState === "requesting" ||
     Boolean(localStream) ||
     Boolean(remoteStream);
+
+  useEffect(() => {
+    if (!shouldShowMediaPanel || callState !== "active") {
+      setIsCallFullscreen(false);
+    }
+  }, [callState, shouldShowMediaPanel]);
+
   const callPanelStatusVariant =
     callState === "active"
       ? "active"
@@ -2299,6 +2322,22 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     stopLocalMediaTracks,
     teardownCall,
   ]);
+
+  const handleToggleFullscreen = useCallback(() => {
+    if (callState !== "active") {
+      return;
+    }
+    setIsCallFullscreen((current) => !current);
+  }, [callState]);
+
+  const handleExitFullscreenOnly = useCallback(() => {
+    setIsCallFullscreen(false);
+  }, []);
+
+  const handleFullscreenEndCall = useCallback(() => {
+    setIsCallFullscreen(false);
+    handleCallButtonClick();
+  }, [handleCallButtonClick]);
 
   const handleCallAccept = useCallback(async () => {
     setCallDialogOpen(false);
@@ -2915,7 +2954,10 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       ) : null}
 
       {shouldShowMediaPanel ? (
-        <div className="call-panel">
+        <div
+          className={`call-panel${isCallFullscreen ? " call-panel--fullscreen" : ""}`}
+          ref={callPanelRef}
+        >
           <div className="call-panel__header">
             <div
               className={`call-panel__status call-panel__status--${callPanelStatusVariant}`}
@@ -2930,6 +2972,33 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
             </div>
             {shouldShowCallButton ? (
               <div className="call-panel__actions">
+                {callState === "active" ? (
+                  <button
+                    type="button"
+                    className={`call-panel__fullscreen-button${
+                      isCallFullscreen ? " call-panel__fullscreen-button--active" : ""
+                    }`}
+                    onClick={handleToggleFullscreen}
+                    aria-label={isCallFullscreen ? "Exit full screen" : "Enter full screen"}
+                    title={isCallFullscreen ? "Exit full screen" : "Enter full screen"}
+                  >
+                    {isCallFullscreen ? (
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path
+                          fill="currentColor"
+                          d="M9 5H5v4h2V7h2V5zm10 0h-4v2h2v2h2V5zm0 10h-2v2h-2v2h4v-4zM7 17H5v4h4v-2H7v-2z"
+                        />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path
+                          fill="currentColor"
+                          d="M4 4h6v2H6v4H4V4zm14 0v6h-2V6h-4V4h6zm-6 14v2h6v-6h-2v4h-4zm-8-4H4v6h6v-2H6v-4z"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className={`chat-panel__call-button call-panel__call-button chat-panel__call-button--${callButtonVariant}`}
@@ -2995,6 +3064,24 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
               <span className="call-panel__media-label">Partner</span>
             </div>
           </div>
+          {isCallFullscreen ? (
+            <div className="call-panel__fullscreen-controls">
+              <button
+                type="button"
+                className="call-panel__fullscreen-control call-panel__fullscreen-control--end"
+                onClick={handleFullscreenEndCall}
+              >
+                End video
+              </button>
+              <button
+                type="button"
+                className="call-panel__fullscreen-control call-panel__fullscreen-control--dismiss"
+                onClick={handleExitFullscreenOnly}
+              >
+                Exit full screen
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

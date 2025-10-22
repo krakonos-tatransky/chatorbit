@@ -1739,11 +1739,45 @@ main {
 .call-panel__actions {
   display: flex;
   align-items: center;
+  gap: 0.5rem;
   margin-left: auto;
 }
 
 .call-panel__call-button {
   box-shadow: 0 8px 20px -12px rgba(56, 189, 248, 0.65);
+}
+
+.call-panel__fullscreen-button {
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(15, 23, 42, 0.55);
+  color: rgba(191, 219, 254, 0.85);
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  cursor: pointer;
+}
+
+.call-panel__fullscreen-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.call-panel__fullscreen-button--active {
+  border-color: rgba(59, 130, 246, 0.65);
+  background: rgba(59, 130, 246, 0.2);
+  color: rgba(191, 219, 254, 0.95);
+}
+
+.call-panel__fullscreen-button:hover,
+.call-panel__fullscreen-button:focus-visible {
+  outline: none;
+  border-color: rgba(34, 211, 238, 0.6);
+  background: rgba(34, 211, 238, 0.18);
+  color: rgba(224, 242, 254, 1);
 }
 
 .call-panel__status {
@@ -1832,6 +1866,113 @@ main {
 .call-panel__notice {
   margin: 0;
   font-size: 0.78rem;
+}
+
+.call-panel--fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  border-radius: 0;
+  border: none;
+  width: 100vw;
+  max-width: none;
+  min-height: 100dvh;
+  padding: calc(env(safe-area-inset-top) + 1.5rem)
+    clamp(1.25rem, 4vw, 3rem)
+    calc(env(safe-area-inset-bottom) + 1.5rem);
+  background: rgba(2, 6, 23, 0.94);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 20px 60px -25px rgba(15, 23, 42, 0.8);
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  overflow: hidden;
+}
+
+.call-panel--fullscreen .call-panel__header {
+  padding-right: clamp(0rem, 5vw, 4rem);
+}
+
+.call-panel--fullscreen .call-panel__notice {
+  margin: 0;
+}
+
+.call-panel--fullscreen .call-panel__media {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: none;
+  background: transparent;
+  gap: 1.25rem;
+  min-height: 0;
+}
+
+.call-panel--fullscreen .call-panel__media-item {
+  flex: 1;
+}
+
+.call-panel--fullscreen .call-panel__media-video {
+  height: 100%;
+  border-radius: 20px;
+  aspect-ratio: unset;
+}
+
+.call-panel--fullscreen .call-panel__media-placeholder {
+  flex: 1;
+  min-height: 0;
+  padding: 1.5rem;
+}
+
+.call-panel--fullscreen .call-panel__media-label {
+  text-align: center;
+  font-size: 0.78rem;
+}
+
+.call-panel__fullscreen-controls {
+  display: flex;
+  justify-content: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: auto;
+}
+
+.call-panel__fullscreen-control {
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(15, 23, 42, 0.65);
+  color: rgba(226, 232, 240, 0.95);
+  padding: 0.65rem 1.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  cursor: pointer;
+}
+
+.call-panel__fullscreen-control:hover,
+.call-panel__fullscreen-control:focus-visible {
+  outline: none;
+  border-color: rgba(34, 211, 238, 0.6);
+  background: rgba(34, 211, 238, 0.2);
+  color: rgba(224, 242, 254, 1);
+}
+
+.call-panel__fullscreen-control--end {
+  border-color: rgba(248, 113, 113, 0.65);
+  background: rgba(248, 113, 113, 0.2);
+  color: rgba(255, 228, 230, 0.95);
+}
+
+.call-panel__fullscreen-control--end:hover,
+.call-panel__fullscreen-control--end:focus-visible {
+  border-color: rgba(239, 68, 68, 0.7);
+  background: rgba(239, 68, 68, 0.28);
+  color: rgba(255, 241, 242, 1);
+}
+
+.call-panel__fullscreen-control--dismiss {
+  border-color: rgba(148, 163, 184, 0.45);
 }
 
 .chat-log {
