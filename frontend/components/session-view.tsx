@@ -285,6 +285,8 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [headerTimerContainer, setHeaderTimerContainer] = useState<Element | null>(null);
   const [isCallFullscreen, setIsCallFullscreen] = useState(false);
+  const [isLocalVideoMuted, setIsLocalVideoMuted] = useState(false);
+  const [isLocalAudioMuted, setIsLocalAudioMuted] = useState(false);
   const [pipPosition, setPipPosition] = useState<{ left: number; top: number } | null>(null);
   const sessionHeaderId = useId();
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -1148,10 +1150,16 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       throw new Error("Media devices are not available.");
     }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+    for (const track of stream.getVideoTracks()) {
+      track.enabled = !isLocalVideoMuted;
+    }
+    for (const track of stream.getAudioTracks()) {
+      track.enabled = !isLocalAudioMuted;
+    }
     localStreamRef.current = stream;
     setLocalStream(stream);
     return stream;
-  }, []);
+  }, [isLocalAudioMuted, isLocalVideoMuted]);
 
   const attachLocalMedia = useCallback(async () => {
     const stream = await ensureLocalStream();
@@ -2178,11 +2186,37 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     Boolean(localStream) ||
     Boolean(remoteStream);
 
+  const canShowFullscreenToggle = callState === "active";
+  const canShowMediaMuteButtons = Boolean(localStream);
+  const canShowCallButtonInHeader = shouldShowCallButton && (!isCallFullscreen || callState !== "active");
+  const shouldShowHeaderActions =
+    canShowFullscreenToggle || canShowMediaMuteButtons || canShowCallButtonInHeader;
+
   useEffect(() => {
     if (!shouldShowMediaPanel || callState !== "active") {
       setIsCallFullscreen(false);
     }
   }, [callState, shouldShowMediaPanel]);
+
+  useEffect(() => {
+    const stream = localStreamRef.current;
+    if (!stream) {
+      return;
+    }
+    for (const track of stream.getVideoTracks()) {
+      track.enabled = !isLocalVideoMuted;
+    }
+  }, [isLocalVideoMuted]);
+
+  useEffect(() => {
+    const stream = localStreamRef.current;
+    if (!stream) {
+      return;
+    }
+    for (const track of stream.getAudioTracks()) {
+      track.enabled = !isLocalAudioMuted;
+    }
+  }, [isLocalAudioMuted]);
 
   const callPanelStatusVariant =
     callState === "active"
@@ -2339,6 +2373,32 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     stopLocalMediaTracks,
     teardownCall,
   ]);
+
+  const handleToggleLocalVideo = useCallback(() => {
+    setIsLocalVideoMuted((previous) => {
+      const nextMuted = !previous;
+      const stream = localStreamRef.current;
+      if (stream) {
+        for (const track of stream.getVideoTracks()) {
+          track.enabled = !nextMuted;
+        }
+      }
+      return nextMuted;
+    });
+  }, []);
+
+  const handleToggleLocalAudio = useCallback(() => {
+    setIsLocalAudioMuted((previous) => {
+      const nextMuted = !previous;
+      const stream = localStreamRef.current;
+      if (stream) {
+        for (const track of stream.getAudioTracks()) {
+          track.enabled = !nextMuted;
+        }
+      }
+      return nextMuted;
+    });
+  }, []);
 
   const handleToggleFullscreen = useCallback(() => {
     if (callState !== "active") {
@@ -3070,13 +3130,13 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
                   </span>
                 ) : null}
               </div>
-            {shouldShowCallButton && (!isCallFullscreen || callState !== "active") ? (
+            {shouldShowHeaderActions ? (
               <div className="call-panel__actions">
-                {callState === "active" ? (
+                {canShowFullscreenToggle ? (
                   <button
                     type="button"
-                    className={`call-panel__fullscreen-button${
-                      isCallFullscreen ? " call-panel__fullscreen-button--active" : ""
+                    className={`call-panel__icon-button${
+                      isCallFullscreen ? " call-panel__icon-button--active" : ""
                     }`}
                     onClick={handleToggleFullscreen}
                     aria-label={isCallFullscreen ? "Exit full screen" : "Enter full screen"}
@@ -3099,21 +3159,96 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
                     )}
                   </button>
                 ) : null}
-                <button
-                  type="button"
-                  className={`chat-panel__call-button call-panel__call-button chat-panel__call-button--${callButtonVariant}`}
-                  onClick={handleCallButtonClick}
-                  aria-label={callButtonTitle}
-                  title={callButtonTitle}
-                  disabled={callButtonDisabled}
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path
-                      fill="currentColor"
-                      d="M15 10.5V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-3.5l5 3.5V7l-5 3.5z"
-                    />
-                  </svg>
-                </button>
+                {canShowMediaMuteButtons ? (
+                  <>
+                    <button
+                      type="button"
+                      className={`call-panel__icon-button${
+                        isLocalVideoMuted ? " call-panel__icon-button--muted" : ""
+                      }`}
+                      onClick={handleToggleLocalVideo}
+                      aria-label={isLocalVideoMuted ? "Turn camera on" : "Turn camera off"}
+                      title={isLocalVideoMuted ? "Turn camera on" : "Turn camera off"}
+                      aria-pressed={isLocalVideoMuted}
+                      disabled={!localStream}
+                    >
+                      {isLocalVideoMuted ? (
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <path
+                            fill="currentColor"
+                            d="M.97 3.97a.75.75 0 0 1 1.06 0l15 15a.75.75 0 1 1-1.06 1.06l-15-15a.75.75 0 0 1 0-1.06ZM17.25 16.06l2.69 2.69c.944.945 2.56.276 2.56-1.06V6.31c0-1.336-1.616-2.005-2.56-1.06l-2.69 2.69v8.12ZM15.75 7.5v8.068L4.682 4.5h8.068a3 3 0 0 1 3 3ZM1.5 16.5V7.682l11.773 11.773c-.17.03-.345.045-.523.045H4.5a3 3 0 0 1-3-3Z"
+                          />
+                        </svg>
+                      ) : (
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <path
+                            fill="currentColor"
+                            d="M4.5 4.5a3 3 0 0 0-3 3v9a3 3 0 0 0 3 3h8.25a3 3 0 0 0 3-3v-9a3 3 0 0 0-3-3H4.5ZM19.94 18.75l-2.69-2.69V7.94l2.69-2.69c.944-.945 2.56-.276 2.56 1.06v11.38c0 1.336-1.616 2.005-2.56 1.06Z"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      className={`call-panel__icon-button${
+                        isLocalAudioMuted ? " call-panel__icon-button--muted" : ""
+                      }`}
+                      onClick={handleToggleLocalAudio}
+                      aria-label={isLocalAudioMuted ? "Unmute microphone" : "Mute microphone"}
+                      title={isLocalAudioMuted ? "Unmute microphone" : "Mute microphone"}
+                      aria-pressed={isLocalAudioMuted}
+                      disabled={!localStream}
+                    >
+                      {isLocalAudioMuted ? (
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <path
+                            fill="currentColor"
+                            d="M8.25 4.5a3.75 3.75 0 1 1 7.5 0v8.25a3.75 3.75 0 1 1-7.5 0V4.5Z"
+                          />
+                          <path
+                            fill="currentColor"
+                            d="M6 10.5a.75.75 0 0 1 .75.75v1.5a5.25 5.25 0 0 0 7.469 4.77l1.062 1.062A6.751 6.751 0 0 1 12 21.459V23.25h3a.75.75 0 0 1 0 1.5h-7.5a.75.75 0 0 1 0-1.5h3v-1.791a6.751 6.751 0 0 1-6-6.709v-1.5A.75.75 0 0 1 6 10.5Z"
+                          />
+                          <path
+                            fill="none"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                            strokeWidth="1.8"
+                            d="M6 18 18 6"
+                          />
+                        </svg>
+                      ) : (
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <path
+                            fill="currentColor"
+                            d="M8.25 4.5a3.75 3.75 0 1 1 7.5 0v8.25a3.75 3.75 0 1 1-7.5 0V4.5Z"
+                          />
+                          <path
+                            fill="currentColor"
+                            d="M6 10.5a.75.75 0 0 1 .75.75v1.5a5.25 5.25 0 1 0 10.5 0v-1.5a.75.75 0 0 1 1.5 0v1.5a6.751 6.751 0 0 1-6 6.709v2.291h3a.75.75 0 0 1 0 1.5h-7.5a.75.75 0 0 1 0-1.5h3v-2.291a6.751 6.751 0 0 1-6-6.709v-1.5A.75.75 0 0 1 6 10.5Z"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                  </>
+                ) : null}
+                {canShowCallButtonInHeader ? (
+                  <button
+                    type="button"
+                    className={`chat-panel__call-button call-panel__call-button chat-panel__call-button--${callButtonVariant}`}
+                    onClick={handleCallButtonClick}
+                    aria-label={callButtonTitle}
+                    title={callButtonTitle}
+                    disabled={callButtonDisabled}
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <path
+                        fill="currentColor"
+                        d="M15 10.5V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-3.5l5 3.5V7l-5 3.5z"
+                      />
+                    </svg>
+                  </button>
+                ) : null}
               </div>
             ) : null}
           </div>

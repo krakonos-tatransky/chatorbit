@@ -17,7 +17,10 @@ from fastapi import (
     WebSocketDisconnect,
     status,
 )
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -396,6 +399,28 @@ def delete_session(
     return response
 
 app.include_router(router)
+
+
+async def _handle_http_exception(request: Request, exc: HTTPException) -> Response:
+    if (
+        exc.status_code == status.HTTP_404_NOT_FOUND
+        and request.scope.get("route") is None
+    ):
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
+
+    return await http_exception_handler(request, exc)
+
+
+@app.exception_handler(HTTPException)
+async def fastapi_http_exception_handler(request: Request, exc: HTTPException) -> Response:
+    return await _handle_http_exception(request, exc)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def starlette_http_exception_handler(
+    request: Request, exc: StarletteHTTPException
+) -> Response:
+    return await _handle_http_exception(request, exc)
 
 
 def _get_participant(db: Session, session_id: int, participant_id: str) -> SessionParticipant:

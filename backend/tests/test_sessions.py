@@ -263,6 +263,14 @@ def test_not_found_responses_include_msg_app_header(client: TestClient) -> None:
         missing_participant.headers.get("msg-app")
         == "Participant record not found for this session."
     )
+
+
+def test_unknown_route_returns_empty_404_response(client: TestClient) -> None:
+    response = client.get("/api/not-a-real-route")
+    assert response.status_code == 404
+    assert response.text == ""
+    # Starlette omits the content-type header for an empty plain response.
+    assert response.headers.get("content-type") is None
 def test_cors_wildcard_origin_does_not_expose_credentials(client: TestClient) -> None:
     response = client.options(
         "/api/tokens",
