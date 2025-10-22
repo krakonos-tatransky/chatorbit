@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
-import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Set
 from uuid import uuid4
@@ -153,33 +153,106 @@ def database_healthcheck() -> Dict[str, Any]:
     return {"status": "ok", "statistics": get_database_statistics()}
 
 
+def _normalize_ip(candidate: Optional[str]) -> Optional[str]:
+    if not candidate:
+        return None
+
+    value = candidate.strip().strip("\"'")
+    if not value or value.lower() == "unknown":
+        return None
+
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+
+    if value.lower().startswith("ipv6:"):
+        value = value[5:]
+
+    if value.startswith("::ffff:"):
+        value = value[7:]
+
+    if "%" in value:
+        value = value.split("%", 1)[0]
+
+    host_part = value
+
+    try:
+        ipaddress.ip_address(host_part)
+    except ValueError:
+        stripped_host: Optional[str] = None
+        if host_part.count(":") == 1 and host_part.replace(":", "").replace(".", "").isdigit():
+            stripped_host = host_part.split(":", 1)[0]
+        elif host_part.count(":") > 1 and host_part.rsplit(":", 1)[-1].isdigit():
+            stripped_host = host_part.rsplit(":", 1)[0]
+
+        if not stripped_host:
+            return None
+
+        try:
+            ipaddress.ip_address(stripped_host)
+        except ValueError:
+            return None
+        return stripped_host
+
+    return host_part
+
+
+def _iter_forwarded_for_values(header_value: str) -> Iterable[str]:
+    for entry in header_value.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        for part in entry.split(";"):
+            part = part.strip()
+            if not part.lower().startswith("for="):
+                continue
+            yield part[4:]
+
+
+def _candidate_ip_addresses(request: Request) -> Iterable[str]:
+    seen: Set[str] = set()
+
+    for header_value in request.headers.getlist("x-forwarded-for"):
+        for part in header_value.split(","):
+            normalized = _normalize_ip(part)
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                yield normalized
+
+    real_ip = _normalize_ip(request.headers.get("x-real-ip"))
+    if real_ip and real_ip not in seen:
+        seen.add(real_ip)
+        yield real_ip
+
+    forwarded_header = request.headers.get("forwarded")
+    if forwarded_header:
+        for raw_value in _iter_forwarded_for_values(forwarded_header):
+            normalized = _normalize_ip(raw_value)
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                yield normalized
+
+    host = _normalize_ip(request.client.host if request.client else None)
+    if host and host not in seen:
+        seen.add(host)
+        yield host
+
+
 def get_client_ip(request: Optional[Request]) -> str:
     if not request:
         return "unknown"
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        first_hop = forwarded.split(",")[0].strip()
-        if first_hop:
-            return first_hop
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        real_ip = real_ip.strip()
-        if real_ip:
-            return real_ip
-    forwarded_header = request.headers.get("forwarded")
-    if forwarded_header:
-        match = re.search(r"for=\"?\[?([^;\s\]"]+)", forwarded_header)
-        if match:
-            candidate = match.group(1)
-            if candidate:
-                return candidate
-    return request.client.host if request.client else "unknown"
+
+    for candidate in _candidate_ip_addresses(request):
+        return candidate
+
+    return "unknown"
 
 
 def get_internal_client_ip(request: Optional[Request]) -> str:
-    if request and request.client:
-        return request.client.host
-    return "unknown"
+    if not request or not request.client:
+        return "unknown"
+
+    normalized = _normalize_ip(request.client.host)
+    return normalized or request.client.host or "unknown"
 
 
 def enforce_rate_limit(db: Session, *, ip: str, client_identity: Optional[str]) -> None:
