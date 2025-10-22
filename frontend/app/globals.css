@@ -263,6 +263,8 @@ body {
     padding: 0.5rem 1.1rem;
   }
 
+}
+
 @media (max-width: 640px) {
   .site-header {
     position: sticky;
