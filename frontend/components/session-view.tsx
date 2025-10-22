@@ -2465,6 +2465,13 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
   }, [hasSessionEnded, remainingSeconds, sessionStatus?.status]);
 
+  const headerTimerLabel = useMemo(() => {
+    if (!hasSessionEnded && remainingSeconds === null && sessionStatus?.status === "issued") {
+      return "--:--";
+    }
+    return countdownLabel;
+  }, [countdownLabel, hasSessionEnded, remainingSeconds, sessionStatus?.status]);
+
   const shouldShowTermsModal = lastTermsKeyChecked !== termsStorageKey || !termsAccepted;
 
   const showChatPanel =
@@ -2712,7 +2719,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
 
   const headerExpanded = !headerCollapsed || shouldForceExpandedHeader;
   const headerTimerPortal =
-    headerTimerContainer && countdownLabel
+    headerTimerContainer && headerTimerLabel
       ? createPortal(
           <button
             type="button"
@@ -2728,7 +2735,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
               <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
               <span>{sessionStatusLabel}</span>
             </span>
-            <span className="site-header-timer__time">{countdownLabel}</span>
+            <span className="site-header-timer__time">{headerTimerLabel}</span>
           </button>,
           headerTimerContainer
         )
