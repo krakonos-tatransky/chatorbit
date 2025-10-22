@@ -169,6 +169,9 @@ function ParticipantCard({ participant }: { participant: RemoteParticipant }) {
         {participant.role ? <div className="admin-meta">Role: {participant.role}</div> : null}
       </header>
       <div className="admin-meta">IP address: {participant.ip_address ?? "—"}</div>
+      {participant.internal_ip_address ? (
+        <div className="admin-meta">Internal IP: {participant.internal_ip_address}</div>
+      ) : null}
       {participant.client_identity ? (
         <div className="admin-meta">Client identity: {participant.client_identity}</div>
       ) : null}

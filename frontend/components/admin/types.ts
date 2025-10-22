@@ -4,6 +4,7 @@ export type AdminReportParticipant = {
   participant_id: string | null;
   role: string | null;
   ip_address: string | null;
+  internal_ip_address: string | null;
   client_identity: string | null;
   joined_at: string | null;
 };

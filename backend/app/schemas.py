@@ -136,6 +136,7 @@ class AdminSessionParticipant(BaseModel):
     participant_id: str
     role: str
     ip_address: str
+    internal_ip_address: Optional[str]
     client_identity: Optional[str]
     joined_at: datetime
 
@@ -158,6 +159,7 @@ class AdminAbuseReportParticipant(BaseModel):
     participant_id: Optional[str]
     role: Optional[str]
     ip_address: Optional[str]
+    internal_ip_address: Optional[str]
     client_identity: Optional[str]
     joined_at: Optional[datetime]
 

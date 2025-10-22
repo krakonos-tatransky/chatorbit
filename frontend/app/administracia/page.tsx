@@ -11,6 +11,7 @@ type AdminSessionParticipant = {
   participant_id: string;
   role: string;
   ip_address: string;
+  internal_ip_address: string | null;
   client_identity: string | null;
   joined_at: string;
 };
@@ -183,6 +184,9 @@ export default function AdminSessionsPage() {
                             <span className="admin-participant-role">{participant.role}</span>
                             <span className="admin-meta">ID: {participant.participant_id}</span>
                             <span className="admin-meta">IP: {participant.ip_address}</span>
+                            {participant.internal_ip_address ? (
+                              <span className="admin-meta">Internal IP: {participant.internal_ip_address}</span>
+                            ) : null}
                             {participant.client_identity ? (
                               <span className="admin-meta">Client: {participant.client_identity}</span>
                             ) : null}
