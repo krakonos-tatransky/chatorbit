@@ -4,6 +4,7 @@ import asyncio
 import ipaddress
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Set
 from uuid import uuid4
@@ -196,16 +197,14 @@ def _normalize_ip(candidate: Optional[str]) -> Optional[str]:
     return host_part
 
 
+_FORWARDED_FOR_PATTERN = re.compile(
+    r"for=(?:[\"']?)(\[[^;,\s\"']+\]|[^;,\s\"']+)", re.IGNORECASE
+)
+
+
 def _iter_forwarded_for_values(header_value: str) -> Iterable[str]:
-    for entry in header_value.split(","):
-        entry = entry.strip()
-        if not entry:
-            continue
-        for part in entry.split(";"):
-            part = part.strip()
-            if not part.lower().startswith("for="):
-                continue
-            yield part[4:]
+    for match in _FORWARDED_FOR_PATTERN.finditer(header_value):
+        yield match.group(1)
 
 
 def _candidate_ip_addresses(request: Request) -> Iterable[str]:
