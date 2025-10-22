@@ -1930,6 +1930,48 @@ main {
   padding-right: clamp(0rem, 5vw, 4rem);
 }
 
+.call-panel--fullscreen .call-panel__status {
+  flex: 1;
+  min-width: 0;
+}
+
+.call-panel--fullscreen .call-panel__status-text,
+.call-panel--fullscreen .call-panel__status-timer {
+  white-space: nowrap;
+}
+
+@media (max-width: 740px) {
+  .call-panel--fullscreen .call-panel__header {
+    flex-wrap: nowrap;
+    gap: clamp(0.25rem, 2vw, 0.75rem);
+  }
+
+  .call-panel--fullscreen .call-panel__status {
+    font-size: clamp(0.58rem, 1.8vw, 0.68rem);
+    letter-spacing: 0.08em;
+  }
+
+  .call-panel--fullscreen .call-panel__status-text,
+  .call-panel--fullscreen .call-panel__status-timer {
+    gap: clamp(0.15rem, 1.4vw, 0.25rem);
+  }
+
+  .call-panel--fullscreen .call-panel__actions {
+    gap: clamp(0.25rem, 1.6vw, 0.5rem);
+    flex-shrink: 0;
+  }
+
+  .call-panel--fullscreen .call-panel__icon-button {
+    width: clamp(32px, 9vw, 38px);
+    height: clamp(32px, 9vw, 38px);
+  }
+
+  .call-panel--fullscreen .call-panel__icon-button svg {
+    width: clamp(15px, 4.8vw, 18px);
+    height: clamp(15px, 4.8vw, 18px);
+  }
+}
+
 .call-panel--fullscreen .call-panel__notice {
   margin: 0;
 }
