@@ -8,12 +8,12 @@ Apache/ISPConfig with WordPress already running at `er400.io`.
 ## 1. Build a frontend instance that understands the sub-path
 
 1. Deploy the standard backend (FastAPI) so it is reachable from the admin UI. In production we typically run the backend on
-   `127.0.0.1:50001` and publish it through an ISPConfig vhost such as `https://api.chatorbit.com`.
+   `127.0.0.1:50001` and publish it through an ISPConfig vhost such as `https://endpoints.chatorbit.com`.
 2. Create/update `infra/.env.production` (or the environment file you pass to the frontend process) with values similar to:
    ```env
    # Point the admin UI at the public API + WebSocket entrypoints
-   NEXT_PUBLIC_API_BASE_URL=https://api.chatorbit.com
-   NEXT_PUBLIC_WS_BASE_URL=wss://api.chatorbit.com
+   NEXT_PUBLIC_API_BASE_URL=https://endpoints.chatorbit.com
+   NEXT_PUBLIC_WS_BASE_URL=wss://endpoints.chatorbit.com
 
    # Tell Next.js that the entire app lives under /chatorbit so asset URLs resolve correctly
    NEXT_PUBLIC_BASE_PATH=/chatorbit
