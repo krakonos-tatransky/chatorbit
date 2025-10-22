@@ -75,6 +75,18 @@ def _apply_sqlite_schema_migrations() -> None:
             connection.execute(text("ALTER TABLE tokenrequestlog ADD COLUMN client_identity VARCHAR(255)"))
         if not _has_column("sessionparticipant", "client_identity"):
             connection.execute(text("ALTER TABLE sessionparticipant ADD COLUMN client_identity VARCHAR(255)"))
+        if not _has_column("abusereport", "reporter_ip"):
+            connection.execute(text("ALTER TABLE abusereport ADD COLUMN reporter_ip VARCHAR(64)"))
+        if not _has_column("abusereport", "remote_participants"):
+            connection.execute(
+                text(
+                    "ALTER TABLE abusereport ADD COLUMN remote_participants TEXT DEFAULT '[]' NOT NULL"
+                )
+            )
+        if not _has_column("abusereport", "escalation_step"):
+            connection.execute(text("ALTER TABLE abusereport ADD COLUMN escalation_step VARCHAR(255)"))
+        if not _has_column("abusereport", "admin_notes"):
+            connection.execute(text("ALTER TABLE abusereport ADD COLUMN admin_notes TEXT"))
 
 
 def check_database_connection() -> bool:
