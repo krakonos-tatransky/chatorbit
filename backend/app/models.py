@@ -71,6 +71,7 @@ class SessionParticipant(Base):
 class AbuseReportStatus(str, Enum):
     OPEN = "open"
     ACKNOWLEDGED = "acknowledged"
+    INVESTIGATING = "investigating"
     CLOSED = "closed"
 
 
@@ -91,6 +92,8 @@ class AbuseReport(Base):
     status: Mapped[AbuseReportStatus] = mapped_column(
         SqlEnum(AbuseReportStatus), default=AbuseReportStatus.OPEN
     )
+    escalation_step: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    admin_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), default=_utcnow, onupdate=_utcnow

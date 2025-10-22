@@ -407,7 +407,11 @@ def test_report_abuse_and_admin_views(client: TestClient) -> None:
         },
     }
 
-    report_response = client.post(f"/api/sessions/{token}/report-abuse", json=report_payload)
+    report_response = client.post(
+        f"/api/sessions/{token}/report-abuse",
+        json=report_payload,
+        headers={"X-Forwarded-For": "198.51.100.10"},
+    )
     assert report_response.status_code == 200
     report_data = report_response.json()
     assert report_data["status"] == "open"
@@ -436,9 +440,58 @@ def test_report_abuse_and_admin_views(client: TestClient) -> None:
     reports = reports_response.json()["reports"]
     assert any(report["id"] == report_data["report_id"] for report in reports)
 
+    target_report = next(report for report in reports if report["id"] == report_data["report_id"])
+    assert target_report["status"] == "open"
+    assert target_report["reporter_ip"] == "198.51.100.10"
+    assert target_report["participant_id"] == host_data["participant_id"]
+    assert target_report["remote_participants"]
+    participant_snapshot = target_report["remote_participants"][0]
+    assert participant_snapshot["ip_address"] == "198.51.100.11"
+    assert participant_snapshot["participant_id"] != host_data["participant_id"]
+
+    update_response = client.patch(
+        f"/api/admin/reports/{report_data['report_id']}",
+        json={
+            "status": "acknowledged",
+            "escalation_step": "Escalate to trust & safety supervisor",
+            "admin_notes": "Initial triage complete.",
+        },
+        headers=headers,
+    )
+    assert update_response.status_code == 200
+    updated_report = update_response.json()
+    assert updated_report["status"] == "acknowledged"
+    assert updated_report["escalation_step"] == "Escalate to trust & safety supervisor"
+    assert updated_report["admin_notes"] == "Initial triage complete."
+
+    no_field_response = client.patch(
+        f"/api/admin/reports/{report_data['report_id']}",
+        json={},
+        headers=headers,
+    )
+    assert no_field_response.status_code == 400
+
+    investigation_response = client.patch(
+        f"/api/admin/reports/{report_data['report_id']}",
+        json={
+            "status": "investigating",
+            "admin_notes": "Handed to investigator A.",
+        },
+        headers=headers,
+    )
+    assert investigation_response.status_code == 200
+    assert investigation_response.json()["status"] == "investigating"
+
     filtered_response = client.get(
         "/api/admin/reports",
         params={"status_filter": "open"},
         headers=headers,
     )
     assert filtered_response.status_code == 200
+    unresolved_response = client.get(
+        "/api/admin/reports",
+        params={"status_filter": "unresolved"},
+        headers=headers,
+    )
+    assert unresolved_response.status_code == 200
+    assert any(report["status"] == "investigating" for report in unresolved_response.json()["reports"])

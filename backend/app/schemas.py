@@ -6,6 +6,8 @@ from typing import Any, List, Optional
 
 from pydantic import BaseModel, EmailStr, Field, conint
 
+from .models import AbuseReportStatus
+
 
 class ValidityPeriod(str, Enum):
     ONE_DAY = "1_day"
@@ -152,17 +154,48 @@ class AdminSessionListResponse(BaseModel):
     sessions: List[AdminSessionSummary]
 
 
+class AdminAbuseReportParticipant(BaseModel):
+    participant_id: Optional[str]
+    role: Optional[str]
+    ip_address: Optional[str]
+    client_identity: Optional[str]
+    joined_at: Optional[datetime]
+
+
 class AdminAbuseReport(BaseModel):
     id: int
-    status: str
+    status: AbuseReportStatus
     created_at: datetime
+    updated_at: datetime
     session_token: str
     reporter_email: EmailStr
+    reporter_ip: Optional[str]
+    participant_id: Optional[str]
     summary: str
     questionnaire: Optional[dict[str, Any]]
+    escalation_step: Optional[str]
+    admin_notes: Optional[str]
+    remote_participants: List[AdminAbuseReportParticipant]
 
 
 class AdminAbuseReportListResponse(BaseModel):
     reports: List[AdminAbuseReport]
+
+
+class AdminUpdateAbuseReportRequest(BaseModel):
+    status: Optional[AbuseReportStatus] = Field(
+        default=None,
+        description="Update the workflow status for the abuse report.",
+    )
+    escalation_step: Optional[str] = Field(
+        default=None,
+        max_length=255,
+        description="Next escalation action administrators should perform.",
+    )
+    admin_notes: Optional[str] = Field(
+        default=None,
+        max_length=4000,
+        description="Internal notes recorded by the administrator handling the case.",
+    )
 
 

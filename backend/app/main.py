@@ -46,10 +46,12 @@ from .models import (
 from .schemas import (
     AdminAbuseReport,
     AdminAbuseReportListResponse,
+    AdminAbuseReportParticipant,
     AdminSessionListResponse,
     AdminSessionParticipant,
     AdminSessionSummary,
     AdminTokenResponse,
+    AdminUpdateAbuseReportRequest,
     CreateTokenRequest,
     JoinSessionRequest,
     JoinSessionResponse,
@@ -247,29 +249,69 @@ def _serialize_admin_session(session_model: TokenSession) -> AdminSessionSummary
     )
 
 
-def _deserialize_json(value: Optional[str]) -> Optional[Dict[str, Any]]:
+def _deserialize_json(value: Optional[str]) -> Optional[Any]:
     if not value:
         return None
     try:
-        decoded = json.loads(value)
+        return json.loads(value)
     except json.JSONDecodeError:
         logger.warning("Failed to decode stored JSON payload", exc_info=True)
         return None
-    if isinstance(decoded, dict):
-        return decoded
+
+
+def _parse_datetime(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            logger.debug("Invalid datetime format encountered while parsing JSON payload.")
+            return None
     return None
 
 
+def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
 def _serialize_admin_report(report: AbuseReport) -> AdminAbuseReport:
-    questionnaire = _deserialize_json(report.questionnaire)
+    questionnaire_raw = _deserialize_json(report.questionnaire)
+    questionnaire = questionnaire_raw if isinstance(questionnaire_raw, dict) else None
+    remote_participants_raw = _deserialize_json(report.remote_participants)
+    remote_participants: List[AdminAbuseReportParticipant] = []
+    if isinstance(remote_participants_raw, list):
+        for entry in remote_participants_raw:
+            if not isinstance(entry, dict):
+                continue
+            remote_participants.append(
+                AdminAbuseReportParticipant(
+                    participant_id=entry.get("participant_id"),
+                    role=entry.get("role"),
+                    ip_address=entry.get("ip_address"),
+                    client_identity=entry.get("client_identity"),
+                    joined_at=_parse_datetime(entry.get("joined_at")),
+                )
+            )
     return AdminAbuseReport(
         id=report.id,
-        status=report.status.value,
+        status=report.status,
         created_at=report.created_at,
+        updated_at=report.updated_at,
         session_token=report.session_token,
         reporter_email=report.reporter_email,
+        reporter_ip=report.reporter_ip,
+        participant_id=report.participant_id,
         summary=report.summary,
         questionnaire=questionnaire,
+        escalation_step=report.escalation_step,
+        admin_notes=report.admin_notes,
+        remote_participants=remote_participants,
     )
 
 
@@ -653,14 +695,77 @@ def list_admin_reports(
     stmt = select(AbuseReport).order_by(AbuseReport.created_at.desc()).limit(200)
 
     if status_filter:
-        try:
-            status_value = AbuseReportStatus(status_filter)
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid status filter.") from exc
-        stmt = stmt.where(AbuseReport.status == status_value)
+        normalized = status_filter.lower()
+        if normalized in {"unresolved"}:
+            stmt = stmt.where(
+                AbuseReport.status.in_(
+                    [
+                        AbuseReportStatus.OPEN,
+                        AbuseReportStatus.ACKNOWLEDGED,
+                        AbuseReportStatus.INVESTIGATING,
+                    ]
+                )
+            )
+        else:
+            try:
+                status_value = AbuseReportStatus(normalized)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid status filter."
+                ) from exc
+            stmt = stmt.where(AbuseReport.status == status_value)
 
     reports = db.execute(stmt).scalars().all()
     return AdminAbuseReportListResponse(reports=[_serialize_admin_report(report) for report in reports])
+
+
+@router.patch("/admin/reports/{report_id}", response_model=AdminAbuseReport)
+def update_admin_report(
+    report_id: int,
+    updates: AdminUpdateAbuseReportRequest,
+    db: Session = Depends(get_session),
+    _: str = Depends(get_current_admin),
+) -> AdminAbuseReport:
+    if (
+        updates.status is None
+        and updates.escalation_step is None
+        and updates.admin_notes is None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="At least one field must be provided to update the report.",
+        )
+
+    report = db.get(AbuseReport, report_id)
+    if not report:
+        raise _not_found("Abuse report not found.")
+
+    updated = False
+
+    if updates.status is not None and updates.status != report.status:
+        report.status = updates.status
+        updated = True
+
+    if updates.escalation_step is not None:
+        normalized_step = _normalize_optional_text(updates.escalation_step)
+        if normalized_step != (report.escalation_step or None):
+            report.escalation_step = normalized_step
+            updated = True
+
+    if updates.admin_notes is not None:
+        normalized_notes = _normalize_optional_text(updates.admin_notes)
+        if normalized_notes != (report.admin_notes or None):
+            report.admin_notes = normalized_notes
+            updated = True
+
+    if updated:
+        db.add(report)
+        db.commit()
+        db.refresh(report)
+    else:
+        db.refresh(report)
+
+    return _serialize_admin_report(report)
 
 
 app.include_router(router)
