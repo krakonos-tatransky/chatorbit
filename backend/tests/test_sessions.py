@@ -5,12 +5,16 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator
 
+import bcrypt
 import pytest
 from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+ADMIN_PASSWORD = "super-secret-password"
 
 
 @contextmanager
@@ -20,12 +24,26 @@ def _test_client(tmp_path, monkeypatch, **env) -> Generator[TestClient, None, No
     for key, value in env.items():
         monkeypatch.setenv(key, value)
 
+    monkeypatch.setenv("CHAT_SMTP_HOST", "localhost")
+    monkeypatch.setenv("CHAT_SMTP_PORT", "2525")
+    monkeypatch.setenv("CHAT_SMTP_SENDER", "noreply@example.com")
+    monkeypatch.setenv("CHAT_ABUSE_NOTIFICATIONS_EMAIL", "abuse@example.com")
+    monkeypatch.setenv("CHAT_ADMIN_USERNAME", "admin")
+    password_hash = bcrypt.hashpw(ADMIN_PASSWORD.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    monkeypatch.setenv("CHAT_ADMIN_PASSWORD_HASH", password_hash)
+    monkeypatch.setenv("CHAT_ADMIN_TOKEN_SECRET_KEY", "test-secret")
+
     from app import config, database, models, main  # noqa: WPS433
 
     importlib.reload(config)
     importlib.reload(database)
     importlib.reload(models)
     importlib.reload(main)
+
+    from app import email_utils, main  # noqa: WPS433
+
+    monkeypatch.setattr(email_utils, "send_email", lambda message: None)
+    monkeypatch.setattr(main, "send_email", lambda message: None)
 
     database.Base.metadata.create_all(database.engine)
 
@@ -116,6 +134,7 @@ def test_database_healthcheck(client: TestClient) -> None:
         "tokensession",
         "sessionparticipant",
         "tokenrequestlog",
+        "abusereport",
     }
     rate_limit_stats = statistics["rate_limit"]
     assert rate_limit_stats["window_seconds"] == 60 * 60
@@ -355,3 +374,71 @@ def test_cors_comma_separated_env_format(tmp_path, monkeypatch) -> None:
         }.get("access-control-allow-credentials")
         == "true"
     )
+
+
+def test_report_abuse_and_admin_views(client: TestClient) -> None:
+    token_response = client.post("/api/tokens", json=_token_payload()).json()
+    token = token_response["token"]
+
+    host_join = client.post(
+        "/api/sessions/join",
+        json={"token": token, "client_identity": "host"},
+        headers={"X-Forwarded-For": "198.51.100.10"},
+    )
+    assert host_join.status_code == 200
+    host_data = host_join.json()
+
+    guest_join = client.post(
+        "/api/sessions/join",
+        json={"token": token, "client_identity": "guest"},
+        headers={"X-Forwarded-For": "198.51.100.11"},
+    )
+    assert guest_join.status_code == 200
+
+    report_payload = {
+        "participant_id": host_data["participant_id"],
+        "reporter_email": "reporter@example.com",
+        "summary": "Serious misconduct observed during the call.",
+        "questionnaire": {
+            "immediate_threat": False,
+            "involves_criminal_activity": True,
+            "requires_follow_up": True,
+            "additional_details": "Peer made explicit threats.",
+        },
+    }
+
+    report_response = client.post(f"/api/sessions/{token}/report-abuse", json=report_payload)
+    assert report_response.status_code == 200
+    report_data = report_response.json()
+    assert report_data["status"] == "open"
+    assert report_data["session_status"] == "deleted"
+
+    status_response = client.get(f"/api/sessions/{token}/status")
+    assert status_response.status_code == 200
+    assert status_response.json()["status"] == "deleted"
+
+    auth_response = client.post(
+        "/api/admin/token",
+        data={"username": "admin", "password": ADMIN_PASSWORD},
+        headers={"content-type": "application/x-www-form-urlencoded"},
+    )
+    assert auth_response.status_code == 200
+    access_token = auth_response.json()["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    sessions_response = client.get("/api/admin/sessions", headers=headers)
+    assert sessions_response.status_code == 200
+    sessions = sessions_response.json()["sessions"]
+    assert any(session["token"] == token for session in sessions)
+
+    reports_response = client.get("/api/admin/reports", headers=headers)
+    assert reports_response.status_code == 200
+    reports = reports_response.json()["reports"]
+    assert any(report["id"] == report_data["report_id"] for report in reports)
+
+    filtered_response = client.get(
+        "/api/admin/reports",
+        params={"status_filter": "open"},
+        headers=headers,
+    )
+    assert filtered_response.status_code == 200

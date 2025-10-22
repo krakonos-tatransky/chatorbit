@@ -21,6 +21,19 @@ class Settings(BaseSettings):
     cors_allowed_origins: List[str] | str | None = ["*"]
     cors_allow_credentials: bool = True
     enable_docs: bool = False
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False
+    smtp_sender: str | None = None
+    abuse_notifications_email: str | None = None
+    admin_username: str | None = None
+    admin_password_hash: str | None = None
+    admin_token_secret_key: str | None = None
+    admin_token_algorithm: str = "HS256"
+    admin_token_expire_minutes: int = 60
 
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod

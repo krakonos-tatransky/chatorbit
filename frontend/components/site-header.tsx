@@ -1,13 +1,15 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+
+import { usePathname, useSearchParams } from "next/navigation";
 
 import { LegalAwareLink } from "@/components/legal/legal-aware-link";
 
 const CHAT_ORBIT_LOGO_URL = "/brand/chat-orbit-logo.svg";
 
-const NAV_ITEMS = [
+const BASE_NAV_ITEMS = [
   { href: "/help", label: "Help & FAQ" },
   { href: "/terms-of-service", label: "Terms of Service" },
   { href: "/privacy-policy", label: "Privacy Policy" },
@@ -15,6 +17,25 @@ const NAV_ITEMS = [
 
 export function SiteHeader() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const reportAbuseLink = useMemo(() => {
+    if (!pathname?.startsWith("/session/")) {
+      return null;
+    }
+    const params = new URLSearchParams(searchParams ? searchParams.toString() : undefined);
+    params.set("reportAbuse", "1");
+    const query = params.toString();
+    return `${pathname}${query ? `?${query}` : ""}`;
+  }, [pathname, searchParams]);
+
+  const navItems = useMemo(() => {
+    if (!reportAbuseLink) {
+      return BASE_NAV_ITEMS;
+    }
+    return [...BASE_NAV_ITEMS, { href: reportAbuseLink, label: "Report abuse" }];
+  }, [reportAbuseLink]);
 
   const toggleMenu = () => {
     setIsMenuOpen((prev) => !prev);
@@ -62,7 +83,7 @@ export function SiteHeader() {
             className={`site-nav${isMenuOpen ? " site-nav--open" : ""}`}
             aria-label="Primary"
           >
-            {NAV_ITEMS.map((item) => (
+            {navItems.map((item) => (
               <LegalAwareLink
                 key={item.href}
                 href={item.href}

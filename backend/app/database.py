@@ -126,6 +126,7 @@ def get_database_statistics() -> Dict[str, Any]:
             models.TokenSession,
             models.SessionParticipant,
             models.TokenRequestLog,
+            models.AbuseReport,
         ):
             table_name = model.__tablename__
             count = session.execute(select(func.count()).select_from(model)).scalar() or 0

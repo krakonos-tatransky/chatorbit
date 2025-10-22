@@ -5,7 +5,7 @@ from enum import Enum
 from typing import List, Optional
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Enum as SqlEnum, ForeignKey, Integer, String
+from sqlalchemy import DateTime, Enum as SqlEnum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .database import Base
@@ -39,6 +39,7 @@ class TokenSession(Base):
     participants: Mapped[List["SessionParticipant"]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
     )
+    abuse_reports: Mapped[List["AbuseReport"]] = relationship(back_populates="session")
     request_logs: Mapped[List["TokenRequestLog"]] = relationship(back_populates="session", cascade="all, delete-orphan")
 
 
@@ -65,3 +66,34 @@ class SessionParticipant(Base):
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=_utcnow)
 
     session: Mapped[TokenSession] = relationship(back_populates="participants")
+
+
+class AbuseReportStatus(str, Enum):
+    OPEN = "open"
+    ACKNOWLEDGED = "acknowledged"
+    CLOSED = "closed"
+
+
+class AbuseReport(Base):
+    __tablename__ = "abusereport"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    session_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("tokensession.id", ondelete="SET NULL"), nullable=True
+    )
+    session_token: Mapped[str] = mapped_column(String(64), index=True)
+    reporter_email: Mapped[str] = mapped_column(String(255))
+    reporter_ip: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    participant_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    remote_participants: Mapped[str] = mapped_column(Text)
+    summary: Mapped[str] = mapped_column(Text)
+    questionnaire: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[AbuseReportStatus] = mapped_column(
+        SqlEnum(AbuseReportStatus), default=AbuseReportStatus.OPEN
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False), default=_utcnow, onupdate=_utcnow
+    )
+
+    session: Mapped[Optional[TokenSession]] = relationship(back_populates="abuse_reports")

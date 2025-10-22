@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import List, Optional
+from typing import Any, List, Optional
 
-from pydantic import BaseModel, Field, conint
+from pydantic import BaseModel, EmailStr, Field, conint
 
 
 class ValidityPeriod(str, Enum):
@@ -83,5 +83,86 @@ class SessionStatusResponse(BaseModel):
     message_char_limit: int
     participants: List[ParticipantPublic]
     remaining_seconds: Optional[int]
+
+
+class ReportAbuseQuestionnaire(BaseModel):
+    immediate_threat: bool = Field(
+        default=False,
+        description="Set to true if you or anyone else is in immediate danger.",
+    )
+    involves_criminal_activity: bool = Field(
+        default=False,
+        description="Indicates whether the behavior may involve criminal activity.",
+    )
+    requires_follow_up: bool = Field(
+        default=False,
+        description="Let us know if you are willing to participate in a follow-up investigation.",
+    )
+    additional_details: Optional[str] = Field(
+        default=None,
+        max_length=4000,
+        description="Optional additional context you wish to share.",
+    )
+
+
+class ReportAbuseRequest(BaseModel):
+    participant_id: Optional[str] = Field(
+        default=None,
+        description="Identifier of the participant submitting the report.",
+    )
+    reporter_email: EmailStr = Field(description="Contact email for follow-up communication.")
+    summary: str = Field(
+        min_length=10,
+        max_length=2000,
+        description="A concise description of the abusive behavior.",
+    )
+    questionnaire: ReportAbuseQuestionnaire
+
+
+class ReportAbuseResponse(BaseModel):
+    report_id: int
+    status: str
+    session_status: str
+
+
+class AdminTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class AdminSessionParticipant(BaseModel):
+    participant_id: str
+    role: str
+    ip_address: str
+    client_identity: Optional[str]
+    joined_at: datetime
+
+
+class AdminSessionSummary(BaseModel):
+    token: str
+    status: str
+    validity_expires_at: datetime
+    session_started_at: Optional[datetime]
+    session_expires_at: Optional[datetime]
+    message_char_limit: int
+    participants: List[AdminSessionParticipant]
+
+
+class AdminSessionListResponse(BaseModel):
+    sessions: List[AdminSessionSummary]
+
+
+class AdminAbuseReport(BaseModel):
+    id: int
+    status: str
+    created_at: datetime
+    session_token: str
+    reporter_email: EmailStr
+    summary: str
+    questionnaire: Optional[dict[str, Any]]
+
+
+class AdminAbuseReportListResponse(BaseModel):
+    reports: List[AdminAbuseReport]
 
 
