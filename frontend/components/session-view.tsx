@@ -1,6 +1,6 @@
 "use client";
 
-import type { FormEvent } from "react";
+import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState, useId } from "react";
 import { createPortal } from "react-dom";
 
@@ -285,6 +285,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [headerTimerContainer, setHeaderTimerContainer] = useState<Element | null>(null);
   const [isCallFullscreen, setIsCallFullscreen] = useState(false);
+  const [pipPosition, setPipPosition] = useState<{ left: number; top: number } | null>(null);
   const sessionHeaderId = useId();
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -303,6 +304,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const callPanelRef = useRef<HTMLDivElement | null>(null);
+  const pipContainerRef = useRef<HTMLDivElement | null>(null);
   const focusComposer = useCallback(() => {
     const composer = composerRef.current;
     if (!composer) {
@@ -340,6 +342,13 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
   const secretBufferRef = useRef<string>("");
   const negotiationPendingRef = useRef(false);
   const callNoticeTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const pipDragStateRef = useRef<{
+    pointerId: number;
+    offsetX: number;
+    offsetY: number;
+    pipWidth: number;
+    pipHeight: number;
+  } | null>(null);
   const termsStorageKey = useMemo(() => `chatorbit:session:${token}:termsAccepted`, [token]);
 
   useEffect(() => {
@@ -2328,14 +2337,20 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
       return;
     }
     setIsCallFullscreen((current) => !current);
+    setPipPosition(null);
+    pipDragStateRef.current = null;
   }, [callState]);
 
   const handleExitFullscreenOnly = useCallback(() => {
     setIsCallFullscreen(false);
+    setPipPosition(null);
+    pipDragStateRef.current = null;
   }, []);
 
   const handleFullscreenEndCall = useCallback(() => {
     setIsCallFullscreen(false);
+    setPipPosition(null);
+    pipDragStateRef.current = null;
     handleCallButtonClick();
   }, [handleCallButtonClick]);
 
@@ -2375,6 +2390,67 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     sendCallMessage("reject");
     showCallNotice("Declined video chat request.");
   }, [callState, sendCallMessage, setCallDialogOpen, setCallState, setIncomingCallFrom, showCallNotice]);
+
+  const handlePipPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!isCallFullscreen) {
+        return;
+      }
+      const pipContainer = pipContainerRef.current;
+      const panel = callPanelRef.current;
+      if (!pipContainer || !panel) {
+        return;
+      }
+      event.preventDefault();
+      const pipRect = pipContainer.getBoundingClientRect();
+      pipDragStateRef.current = {
+        pointerId: event.pointerId,
+        offsetX: event.clientX - pipRect.left,
+        offsetY: event.clientY - pipRect.top,
+        pipWidth: pipRect.width,
+        pipHeight: pipRect.height,
+      };
+      pipContainer.setPointerCapture(event.pointerId);
+    },
+    [isCallFullscreen],
+  );
+
+  const handlePipPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = pipDragStateRef.current;
+      if (!isCallFullscreen || !drag || drag.pointerId !== event.pointerId) {
+        return;
+      }
+      const panel = callPanelRef.current;
+      if (!panel) {
+        return;
+      }
+      const panelRect = panel.getBoundingClientRect();
+      const maxLeft = Math.max(panelRect.width - drag.pipWidth, 0);
+      const maxTop = Math.max(panelRect.height - drag.pipHeight, 0);
+      const proposedLeft = event.clientX - panelRect.left - drag.offsetX;
+      const proposedTop = event.clientY - panelRect.top - drag.offsetY;
+      const nextLeft = Math.min(Math.max(proposedLeft, 0), maxLeft);
+      const nextTop = Math.min(Math.max(proposedTop, 0), maxTop);
+      setPipPosition({ left: nextLeft, top: nextTop });
+    },
+    [isCallFullscreen],
+  );
+
+  const handlePipPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = pipDragStateRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) {
+        return;
+      }
+      const pipContainer = pipContainerRef.current;
+      if (pipContainer && pipContainer.hasPointerCapture(event.pointerId)) {
+        pipContainer.releasePointerCapture(event.pointerId);
+      }
+      pipDragStateRef.current = null;
+    },
+    [],
+  );
 
   const connectedParticipantCount = useMemo(() => {
     const connectedIds = new Set(sessionStatus?.connectedParticipants ?? []);
@@ -2536,6 +2612,13 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     showChatPanel,
     termsAccepted,
   ]);
+
+  useEffect(() => {
+    if (!isCallFullscreen) {
+      setPipPosition(null);
+      pipDragStateRef.current = null;
+    }
+  }, [isCallFullscreen]);
 
   const encryptionAlertMessage = useMemo(() => {
     if (supportsEncryption === false && peerSupportsEncryption === false) {
@@ -2970,7 +3053,7 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
               />
               <span>{callPanelStatusLabel}</span>
             </div>
-            {shouldShowCallButton ? (
+            {shouldShowCallButton && (!isCallFullscreen || callState !== "active") ? (
               <div className="call-panel__actions">
                 {callState === "active" ? (
                   <button
@@ -3023,7 +3106,48 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
             </div>
           ) : null}
           <div className="call-panel__media" aria-live="polite">
-            <div className="call-panel__media-item">
+            <div
+              className={`call-panel__media-item${
+                isCallFullscreen ? " call-panel__media-item--remote" : ""
+              }`}
+            >
+              {remoteStream ? (
+                <video ref={remoteVideoRef} autoPlay playsInline className="call-panel__media-video" />
+              ) : (
+                <div className="call-panel__media-placeholder">
+                  {callState === "active"
+                    ? "Waiting for peer video…"
+                    : callState === "incoming"
+                      ? "Incoming video chat request"
+                      : callState === "requesting"
+                        ? "Awaiting peer response…"
+                        : callState === "connecting"
+                          ? "Connecting to peer…"
+                          : "Remote video unavailable"}
+                </div>
+              )}
+              <span className="call-panel__media-label">Partner</span>
+            </div>
+            <div
+              className={`call-panel__media-item${
+                isCallFullscreen ? " call-panel__media-item--local" : ""
+              }`}
+              ref={pipContainerRef}
+              style={
+                isCallFullscreen && pipPosition
+                  ? {
+                      top: `${pipPosition.top}px`,
+                      left: `${pipPosition.left}px`,
+                      bottom: "auto",
+                      right: "auto",
+                    }
+                  : undefined
+              }
+              onPointerDown={isCallFullscreen ? handlePipPointerDown : undefined}
+              onPointerMove={isCallFullscreen ? handlePipPointerMove : undefined}
+              onPointerUp={isCallFullscreen ? handlePipPointerUp : undefined}
+              onPointerCancel={isCallFullscreen ? handlePipPointerUp : undefined}
+            >
               {localStream ? (
                 <video
                   ref={localVideoRef}
@@ -3044,24 +3168,6 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
                 </div>
               )}
               <span className="call-panel__media-label">You</span>
-            </div>
-            <div className="call-panel__media-item">
-              {remoteStream ? (
-                <video ref={remoteVideoRef} autoPlay playsInline className="call-panel__media-video" />
-              ) : (
-                <div className="call-panel__media-placeholder">
-                  {callState === "active"
-                    ? "Waiting for peer video…"
-                    : callState === "incoming"
-                      ? "Incoming video chat request"
-                      : callState === "requesting"
-                        ? "Awaiting peer response…"
-                        : callState === "connecting"
-                          ? "Connecting to peer…"
-                          : "Remote video unavailable"}
-                </div>
-              )}
-              <span className="call-panel__media-label">Partner</span>
             </div>
           </div>
           {isCallFullscreen ? (
