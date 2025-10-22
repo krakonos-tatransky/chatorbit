@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Set
 from uuid import uuid4
@@ -157,7 +158,21 @@ def get_client_ip(request: Optional[Request]) -> str:
         return "unknown"
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        first_hop = forwarded.split(",")[0].strip()
+        if first_hop:
+            return first_hop
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        real_ip = real_ip.strip()
+        if real_ip:
+            return real_ip
+    forwarded_header = request.headers.get("forwarded")
+    if forwarded_header:
+        match = re.search(r"for=\"?\[?([^;\s\]"]+)", forwarded_header)
+        if match:
+            candidate = match.group(1)
+            if candidate:
+                return candidate
     return request.client.host if request.client else "unknown"
 
 
