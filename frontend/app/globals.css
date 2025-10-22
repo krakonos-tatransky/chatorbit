@@ -1326,7 +1326,10 @@ main {
   display: flex;
   flex-direction: column;
   gap: 1.75rem;
-  padding-bottom: 3rem;
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 1.75rem 3rem;
 }
 
 .admin-header {
