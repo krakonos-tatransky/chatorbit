@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.security import OAuth2PasswordRequestForm
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from .config import get_settings
@@ -152,11 +152,19 @@ def database_healthcheck() -> Dict[str, Any]:
     return {"status": "ok", "statistics": get_database_statistics()}
 
 
-def get_client_ip(request: Request) -> str:
+def get_client_ip(request: Optional[Request]) -> str:
+    if not request:
+        return "unknown"
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
+
+
+def get_internal_client_ip(request: Optional[Request]) -> str:
+    if request and request.client:
+        return request.client.host
+    return "unknown"
 
 
 def enforce_rate_limit(db: Session, *, ip: str, client_identity: Optional[str]) -> None:
@@ -231,6 +239,7 @@ def _serialize_admin_participant(participant: SessionParticipant) -> AdminSessio
         participant_id=participant.id,
         role=participant.role,
         ip_address=participant.ip_address,
+        internal_ip_address=participant.internal_ip_address,
         client_identity=participant.client_identity,
         joined_at=participant.joined_at,
     )
@@ -294,6 +303,7 @@ def _serialize_admin_report(report: AbuseReport) -> AdminAbuseReport:
                     participant_id=entry.get("participant_id"),
                     role=entry.get("role"),
                     ip_address=entry.get("ip_address"),
+                    internal_ip_address=entry.get("internal_ip_address"),
                     client_identity=entry.get("client_identity"),
                     joined_at=_parse_datetime(entry.get("joined_at")),
                 )
@@ -328,6 +338,7 @@ def _collect_remote_participants(
                 "participant_id": participant.id,
                 "role": participant.role,
                 "ip_address": participant.ip_address,
+                "internal_ip_address": participant.internal_ip_address,
                 "client_identity": participant.client_identity,
                 "joined_at": participant.joined_at.isoformat(),
             }
@@ -351,7 +362,7 @@ def issue_token(
     http_request: Request = None,
 ) -> TokenResponse:
     ip_address = get_client_ip(http_request)
-    print('request.client_identity: ', request.client_identity)
+    internal_ip_address = get_internal_client_ip(http_request)
     enforce_rate_limit(db, ip=ip_address, client_identity=request.client_identity)
 
     message_limit = min(
@@ -375,6 +386,7 @@ def issue_token(
     log = TokenRequestLog(
         session_id=session_model.id,
         ip_address=ip_address,
+        internal_ip_address=internal_ip_address,
         client_identity=request.client_identity,
     )
     db.add(log)
@@ -407,6 +419,7 @@ def join_session(
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Session has been deleted.")
 
     ip_address = get_client_ip(http_request)
+    internal_ip_address = get_internal_client_ip(http_request)
     client_identity = request.client_identity
 
     if request.participant_id:
@@ -420,6 +433,9 @@ def join_session(
         updated = False
         if participant.ip_address != ip_address:
             participant.ip_address = ip_address
+            updated = True
+        if participant.internal_ip_address != internal_ip_address:
+            participant.internal_ip_address = internal_ip_address
             updated = True
         if participant.client_identity != client_identity:
             participant.client_identity = client_identity
@@ -453,7 +469,24 @@ def join_session(
             None,
         )
     if existing_participant:
-        db.refresh(existing_participant)
+        updated = False
+        if existing_participant.ip_address != ip_address:
+            existing_participant.ip_address = ip_address
+            updated = True
+        if existing_participant.internal_ip_address != internal_ip_address:
+            existing_participant.internal_ip_address = internal_ip_address
+            updated = True
+        if existing_participant.client_identity != client_identity:
+            existing_participant.client_identity = client_identity
+            updated = True
+        if updated:
+            db.add(existing_participant)
+            db.commit()
+            db.refresh(existing_participant)
+            db.refresh(session_model)
+        else:
+            db.refresh(existing_participant)
+            db.refresh(session_model)
         return JoinSessionResponse(
             token=session_model.token,
             participant_id=existing_participant.id,
@@ -472,6 +505,7 @@ def join_session(
         session_id=session_model.id,
         role=role,
         ip_address=ip_address,
+        internal_ip_address=internal_ip_address,
         client_identity=client_identity,
     )
     db.add(participant)
@@ -677,7 +711,12 @@ def list_admin_sessions(
     if ip:
         stmt = (
             stmt.join(SessionParticipant)
-            .where(SessionParticipant.ip_address.ilike(f"%{ip}%"))
+            .where(
+                or_(
+                    SessionParticipant.ip_address.ilike(f"%{ip}%"),
+                    SessionParticipant.internal_ip_address.ilike(f"%{ip}%"),
+                )
+            )
             .distinct()
         )
 

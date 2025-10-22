@@ -72,6 +72,7 @@ def test_init_db_backfills_client_identity_columns(tmp_path, monkeypatch) -> Non
             "id INTEGER PRIMARY KEY AUTOINCREMENT,"
             "session_id INTEGER NOT NULL,"
             "ip_address VARCHAR(64) NOT NULL,"
+            "internal_ip_address VARCHAR(64),"
             "created_at DATETIME NOT NULL"
             ")"
         )
@@ -81,6 +82,7 @@ def test_init_db_backfills_client_identity_columns(tmp_path, monkeypatch) -> Non
             "session_id INTEGER NOT NULL,"
             "role VARCHAR(16) NOT NULL,"
             "ip_address VARCHAR(64) NOT NULL,"
+            "internal_ip_address VARCHAR(64),"
             "joined_at DATETIME NOT NULL"
             ")"
         )
@@ -93,8 +95,8 @@ def test_init_db_backfills_client_identity_columns(tmp_path, monkeypatch) -> Non
             row[1] for row in connection.execute("PRAGMA table_info(sessionparticipant)")
         }
 
-    assert "client_identity" in token_columns
-    assert "client_identity" in participant_columns
+    assert {"client_identity", "internal_ip_address"}.issubset(token_columns)
+    assert {"client_identity", "internal_ip_address"}.issubset(participant_columns)
 
 @pytest.fixture
 def client(tmp_path, monkeypatch) -> Generator[TestClient, None, None]:
@@ -433,7 +435,9 @@ def test_report_abuse_and_admin_views(client: TestClient) -> None:
     sessions_response = client.get("/api/admin/sessions", headers=headers)
     assert sessions_response.status_code == 200
     sessions = sessions_response.json()["sessions"]
-    assert any(session["token"] == token for session in sessions)
+    target_session = next((session for session in sessions if session["token"] == token), None)
+    assert target_session is not None
+    assert any(participant["internal_ip_address"] == "testclient" for participant in target_session["participants"])
 
     reports_response = client.get("/api/admin/reports", headers=headers)
     assert reports_response.status_code == 200
@@ -447,6 +451,7 @@ def test_report_abuse_and_admin_views(client: TestClient) -> None:
     assert target_report["remote_participants"]
     participant_snapshot = target_report["remote_participants"][0]
     assert participant_snapshot["ip_address"] == "198.51.100.11"
+    assert participant_snapshot["internal_ip_address"] == "testclient"
     assert participant_snapshot["participant_id"] != host_data["participant_id"]
 
     update_response = client.patch(
