@@ -1748,7 +1748,7 @@ main {
   box-shadow: 0 8px 20px -12px rgba(56, 189, 248, 0.65);
 }
 
-.call-panel__fullscreen-button {
+.call-panel__icon-button {
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.4);
   background: rgba(15, 23, 42, 0.55);
@@ -1762,23 +1762,41 @@ main {
   cursor: pointer;
 }
 
-.call-panel__fullscreen-button svg {
+.call-panel__icon-button svg {
   width: 18px;
   height: 18px;
 }
 
-.call-panel__fullscreen-button--active {
+.call-panel__icon-button--active {
   border-color: rgba(59, 130, 246, 0.65);
   background: rgba(59, 130, 246, 0.2);
   color: rgba(191, 219, 254, 0.95);
 }
 
-.call-panel__fullscreen-button:hover,
-.call-panel__fullscreen-button:focus-visible {
+.call-panel__icon-button--muted {
+  border-color: rgba(248, 113, 113, 0.65);
+  background: rgba(248, 113, 113, 0.18);
+  color: rgba(255, 228, 230, 0.95);
+}
+
+.call-panel__icon-button:hover,
+.call-panel__icon-button:focus-visible {
   outline: none;
   border-color: rgba(34, 211, 238, 0.6);
   background: rgba(34, 211, 238, 0.18);
   color: rgba(224, 242, 254, 1);
+}
+
+.call-panel__icon-button--muted:hover,
+.call-panel__icon-button--muted:focus-visible {
+  border-color: rgba(248, 113, 113, 0.75);
+  background: rgba(248, 113, 113, 0.26);
+  color: rgba(255, 241, 242, 1);
+}
+
+.call-panel__icon-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .call-panel__status {
