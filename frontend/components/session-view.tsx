@@ -1239,6 +1239,10 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
               setCallState("connecting");
               try {
                 await attachLocalMedia();
+                if (callStateRef.current !== "connecting") {
+                  stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+                  return;
+                }
                 sendCallMessage("accept");
                 requestRenegotiation();
                 showCallNotice("Video chat request accepted.");
@@ -1271,6 +1275,10 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
             setCallState("connecting");
             try {
               await attachLocalMedia();
+              if (callStateRef.current !== "connecting") {
+                stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+                return;
+              }
               requestRenegotiation();
               showCallNotice("Starting video chat…");
             } catch (cause) {
@@ -2360,6 +2368,10 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
     setCallState("connecting");
     try {
       await attachLocalMedia();
+      if (callStateRef.current !== "connecting") {
+        stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+        return;
+      }
       sendCallMessage("accept");
       requestRenegotiation();
       showCallNotice("Starting video chat…");
