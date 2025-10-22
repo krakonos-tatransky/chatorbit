@@ -3041,18 +3041,23 @@ export function SessionView({ token, participantIdFromQuery }: Props) {
           className={`call-panel${isCallFullscreen ? " call-panel--fullscreen" : ""}`}
           ref={callPanelRef}
         >
-          <div className="call-panel__header">
-            <div
-              className={`call-panel__status call-panel__status--${callPanelStatusVariant}`}
-              role="status"
-              aria-live="polite"
-            >
-              <span
-                className={`call-panel__status-indicator call-panel__status-indicator--${callPanelStatusVariant}`}
-                aria-hidden
-              />
-              <span>{callPanelStatusLabel}</span>
-            </div>
+            <div className="call-panel__header">
+              <div
+                className={`call-panel__status call-panel__status--${callPanelStatusVariant}`}
+                role="status"
+                aria-live="polite"
+              >
+                <span
+                  className={`call-panel__status-indicator call-panel__status-indicator--${callPanelStatusVariant}`}
+                  aria-hidden
+                />
+                <span className="call-panel__status-text">{callPanelStatusLabel}</span>
+                {isCallFullscreen && callState === "active" ? (
+                  <span className="call-panel__status-timer" aria-label="Session timer">
+                    {headerTimerLabel}
+                  </span>
+                ) : null}
+              </div>
             {shouldShowCallButton && (!isCallFullscreen || callState !== "active") ? (
               <div className="call-panel__actions">
                 {callState === "active" ? (

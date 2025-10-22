@@ -1790,6 +1790,22 @@ main {
   color: rgba(148, 163, 184, 0.75);
 }
 
+.call-panel__status-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.call-panel__status-timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+  color: inherit;
+}
+
 .call-panel__status--pending,
 .call-panel__status--incoming,
 .call-panel__status--connecting {
