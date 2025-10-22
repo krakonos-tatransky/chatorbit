@@ -96,7 +96,7 @@ def test_init_db_backfills_client_identity_columns(tmp_path, monkeypatch) -> Non
         }
 
     assert {"client_identity", "internal_ip_address"}.issubset(token_columns)
-    assert {"client_identity", "internal_ip_address"}.issubset(participant_columns)
+    assert {"client_identity", "internal_ip_address", "request_headers"}.issubset(participant_columns)
 
 @pytest.fixture
 def client(tmp_path, monkeypatch) -> Generator[TestClient, None, None]:
@@ -438,6 +438,8 @@ def test_report_abuse_and_admin_views(client: TestClient) -> None:
     target_session = next((session for session in sessions if session["token"] == token), None)
     assert target_session is not None
     assert any(participant["internal_ip_address"] == "testclient" for participant in target_session["participants"])
+    assert all("request_headers" in participant for participant in target_session["participants"])
+    assert any(participant["request_headers"] for participant in target_session["participants"])
 
     reports_response = client.get("/api/admin/reports", headers=headers)
     assert reports_response.status_code == 200

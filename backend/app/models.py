@@ -65,6 +65,7 @@ class SessionParticipant(Base):
     ip_address: Mapped[str] = mapped_column(String(64))
     internal_ip_address: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     client_identity: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    request_headers: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), default=_utcnow)
 
     session: Mapped[TokenSession] = relationship(back_populates="participants")

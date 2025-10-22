@@ -254,6 +254,26 @@ def get_internal_client_ip(request: Optional[Request]) -> str:
     return normalized or request.client.host or "unknown"
 
 
+def snapshot_request_headers(request: Optional[Request]) -> Optional[str]:
+    if not request:
+        return None
+
+    headers_payload: Dict[str, Any] = {
+        "client_host": request.client.host if request.client else None,
+        "x_forwarded_for": request.headers.get("x-forwarded-for"),
+        "x_real_ip": request.headers.get("x-real-ip"),
+        "x_forwarded_proto": request.headers.get("x-forwarded-proto"),
+        "host": request.headers.get("host"),
+        "all_headers": {key: value for key, value in request.headers.items()},
+    }
+
+    try:
+        return json.dumps(headers_payload, sort_keys=True)
+    except (TypeError, ValueError):
+        logger.warning("Unable to serialize request headers snapshot", exc_info=True)
+        return None
+
+
 def enforce_rate_limit(db: Session, *, ip: str, client_identity: Optional[str]) -> None:
     window_start = utcnow() - timedelta(hours=1)
     if client_identity:
@@ -328,6 +348,7 @@ def _serialize_admin_participant(participant: SessionParticipant) -> AdminSessio
         ip_address=participant.ip_address,
         internal_ip_address=participant.internal_ip_address,
         client_identity=participant.client_identity,
+        request_headers=_deserialize_json(participant.request_headers),
         joined_at=participant.joined_at,
     )
 
@@ -508,6 +529,7 @@ def join_session(
     ip_address = get_client_ip(http_request)
     internal_ip_address = get_internal_client_ip(http_request)
     client_identity = request.client_identity
+    headers_snapshot = snapshot_request_headers(http_request)
 
     if request.participant_id:
         participant_stmt = select(SessionParticipant).where(
@@ -526,6 +548,9 @@ def join_session(
             updated = True
         if participant.client_identity != client_identity:
             participant.client_identity = client_identity
+            updated = True
+        if headers_snapshot is not None and participant.request_headers != headers_snapshot:
+            participant.request_headers = headers_snapshot
             updated = True
         if updated:
             db.add(participant)
@@ -566,6 +591,9 @@ def join_session(
         if existing_participant.client_identity != client_identity:
             existing_participant.client_identity = client_identity
             updated = True
+        if headers_snapshot is not None and existing_participant.request_headers != headers_snapshot:
+            existing_participant.request_headers = headers_snapshot
+            updated = True
         if updated:
             db.add(existing_participant)
             db.commit()
@@ -594,6 +622,7 @@ def join_session(
         ip_address=ip_address,
         internal_ip_address=internal_ip_address,
         client_identity=client_identity,
+        request_headers=headers_snapshot,
     )
     db.add(participant)
 
