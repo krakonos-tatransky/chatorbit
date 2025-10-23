@@ -569,6 +569,23 @@ main {
   color: #f8fafc;
 }
 
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.hero__action-button {
+  min-width: 160px;
+}
+
+@media (min-width: 768px) {
+  .hero__actions {
+    justify-content: flex-start;
+  }
+}
+
 .hero__subtitle {
   max-width: 55ch;
   margin: 0 auto;

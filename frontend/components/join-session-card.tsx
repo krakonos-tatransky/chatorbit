@@ -1,6 +1,6 @@
 "use client";
 
-import type { FormEvent } from "react";
+import type { FormEvent, RefObject } from "react";
 import { useEffect, useState } from "react";
 
 import { useRouter } from "next/navigation";
@@ -18,7 +18,11 @@ type JoinResponse = {
   message_char_limit: number;
 };
 
-export function JoinSessionCard() {
+type JoinSessionCardProps = {
+  tokenInputRef?: RefObject<HTMLInputElement>;
+};
+
+export function JoinSessionCard({ tokenInputRef }: JoinSessionCardProps) {
   const [token, setToken] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -113,6 +117,7 @@ export function JoinSessionCard() {
             className="input input--token"
             placeholder="Paste token"
             maxLength={64}
+            ref={tokenInputRef}
           />
         </label>
 
