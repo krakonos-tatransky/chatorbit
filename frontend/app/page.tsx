@@ -1,13 +1,41 @@
+"use client";
+
+import { useCallback, useRef } from "react";
+
 import { JoinSessionCard } from "@/components/join-session-card";
 import { TokenRequestCard } from "@/components/token-request-card";
 
 export default function HomePage() {
+  const requestCardRef = useRef<HTMLDivElement | null>(null);
+  const joinCardRef = useRef<HTMLDivElement | null>(null);
+  const joinTokenInputRef = useRef<HTMLInputElement | null>(null);
+
+  const scrollToRequestCard = useCallback(() => {
+    requestCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const scrollToJoinCard = useCallback(() => {
+    joinCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    window.setTimeout(() => {
+      joinTokenInputRef.current?.focus({ preventScroll: true });
+    }, 350);
+  }, []);
+
   return (
     <main className="page-wrapper">
       <div className="page-inner">
         <header className="hero">
           <span className="hero__badge">ChatOrbit Sessions</span>
           <h1 className="hero__title">Spin up a private two-person chat in seconds</h1>
+          <div className="hero__actions" aria-label="Get started">
+            <button type="button" className="button button--cyan hero__action-button" onClick={scrollToRequestCard}>
+              Need token
+            </button>
+            <button type="button" className="button button--indigo hero__action-button" onClick={scrollToJoinCard}>
+              Have token
+            </button>
+          </div>
           <p className="hero__subtitle">
             Generate a shareable access token, send it to your contact, and meet in an ephemeral chat room. Once the second device
             connects a secure countdown begins—when it reaches zero the session closes itself.
@@ -15,8 +43,12 @@ export default function HomePage() {
         </header>
 
         <section className="section-grid">
-          <TokenRequestCard />
-          <JoinSessionCard />
+          <div ref={requestCardRef} id="token-request-card">
+            <TokenRequestCard />
+          </div>
+          <div ref={joinCardRef} id="join-session-card">
+            <JoinSessionCard tokenInputRef={joinTokenInputRef} />
+          </div>
         </section>
 
         <section className="meta-card">
