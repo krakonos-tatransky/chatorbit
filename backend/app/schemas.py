@@ -138,6 +138,7 @@ class AdminSessionParticipant(BaseModel):
     ip_address: str
     internal_ip_address: Optional[str]
     client_identity: Optional[str]
+    request_headers: Optional[dict[str, Any]]
     joined_at: datetime
 
 

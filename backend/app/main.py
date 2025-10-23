@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Set
 from uuid import uuid4
@@ -152,19 +154,124 @@ def database_healthcheck() -> Dict[str, Any]:
     return {"status": "ok", "statistics": get_database_statistics()}
 
 
+def _normalize_ip(candidate: Optional[str]) -> Optional[str]:
+    if not candidate:
+        return None
+
+    value = candidate.strip().strip("\"'")
+    if not value or value.lower() == "unknown":
+        return None
+
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+
+    if value.lower().startswith("ipv6:"):
+        value = value[5:]
+
+    if value.startswith("::ffff:"):
+        value = value[7:]
+
+    if "%" in value:
+        value = value.split("%", 1)[0]
+
+    host_part = value
+
+    try:
+        ipaddress.ip_address(host_part)
+    except ValueError:
+        stripped_host: Optional[str] = None
+        if host_part.count(":") == 1 and host_part.replace(":", "").replace(".", "").isdigit():
+            stripped_host = host_part.split(":", 1)[0]
+        elif host_part.count(":") > 1 and host_part.rsplit(":", 1)[-1].isdigit():
+            stripped_host = host_part.rsplit(":", 1)[0]
+
+        if not stripped_host:
+            return None
+
+        try:
+            ipaddress.ip_address(stripped_host)
+        except ValueError:
+            return None
+        return stripped_host
+
+    return host_part
+
+
+_FORWARDED_FOR_PATTERN = re.compile(
+    r"for=(?:[\"']?)(\[[^;,\s\"']+\]|[^;,\s\"']+)", re.IGNORECASE
+)
+
+
+def _iter_forwarded_for_values(header_value: str) -> Iterable[str]:
+    for match in _FORWARDED_FOR_PATTERN.finditer(header_value):
+        yield match.group(1)
+
+
+def _candidate_ip_addresses(request: Request) -> Iterable[str]:
+    seen: Set[str] = set()
+
+    for header_value in request.headers.getlist("x-forwarded-for"):
+        for part in header_value.split(","):
+            normalized = _normalize_ip(part)
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                yield normalized
+
+    real_ip = _normalize_ip(request.headers.get("x-real-ip"))
+    if real_ip and real_ip not in seen:
+        seen.add(real_ip)
+        yield real_ip
+
+    forwarded_header = request.headers.get("forwarded")
+    if forwarded_header:
+        for raw_value in _iter_forwarded_for_values(forwarded_header):
+            normalized = _normalize_ip(raw_value)
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                yield normalized
+
+    host = _normalize_ip(request.client.host if request.client else None)
+    if host and host not in seen:
+        seen.add(host)
+        yield host
+
+
 def get_client_ip(request: Optional[Request]) -> str:
     if not request:
         return "unknown"
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+
+    for candidate in _candidate_ip_addresses(request):
+        return candidate
+
+    return "unknown"
 
 
 def get_internal_client_ip(request: Optional[Request]) -> str:
-    if request and request.client:
-        return request.client.host
-    return "unknown"
+    if not request or not request.client:
+        return "unknown"
+
+    normalized = _normalize_ip(request.client.host)
+    return normalized or request.client.host or "unknown"
+
+
+def snapshot_request_headers(request: Optional[Request]) -> Optional[str]:
+    if not request:
+        return None
+
+    headers_payload: Dict[str, Any] = {
+        "client_host": request.client.host if request.client else None,
+        "x_forwarded_for": request.headers.get("x-forwarded-for"),
+        "x_real_ip": request.headers.get("x-real-ip"),
+        "x_forwarded_proto": request.headers.get("x-forwarded-proto"),
+        "host": request.headers.get("host"),
+        "all_headers": {key: value for key, value in request.headers.items()},
+    }
+
+    try:
+        return json.dumps(headers_payload, sort_keys=True)
+    except (TypeError, ValueError):
+        logger.warning("Unable to serialize request headers snapshot", exc_info=True)
+        return None
 
 
 def enforce_rate_limit(db: Session, *, ip: str, client_identity: Optional[str]) -> None:
@@ -241,6 +348,7 @@ def _serialize_admin_participant(participant: SessionParticipant) -> AdminSessio
         ip_address=participant.ip_address,
         internal_ip_address=participant.internal_ip_address,
         client_identity=participant.client_identity,
+        request_headers=_deserialize_json(participant.request_headers),
         joined_at=participant.joined_at,
     )
 
@@ -421,6 +529,7 @@ def join_session(
     ip_address = get_client_ip(http_request)
     internal_ip_address = get_internal_client_ip(http_request)
     client_identity = request.client_identity
+    headers_snapshot = snapshot_request_headers(http_request)
 
     if request.participant_id:
         participant_stmt = select(SessionParticipant).where(
@@ -439,6 +548,9 @@ def join_session(
             updated = True
         if participant.client_identity != client_identity:
             participant.client_identity = client_identity
+            updated = True
+        if headers_snapshot is not None and participant.request_headers != headers_snapshot:
+            participant.request_headers = headers_snapshot
             updated = True
         if updated:
             db.add(participant)
@@ -479,6 +591,9 @@ def join_session(
         if existing_participant.client_identity != client_identity:
             existing_participant.client_identity = client_identity
             updated = True
+        if headers_snapshot is not None and existing_participant.request_headers != headers_snapshot:
+            existing_participant.request_headers = headers_snapshot
+            updated = True
         if updated:
             db.add(existing_participant)
             db.commit()
@@ -507,6 +622,7 @@ def join_session(
         ip_address=ip_address,
         internal_ip_address=internal_ip_address,
         client_identity=client_identity,
+        request_headers=headers_snapshot,
     )
     db.add(participant)
 

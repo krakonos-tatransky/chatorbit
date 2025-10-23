@@ -7,12 +7,15 @@ import { AdminLoginPanel } from "@/components/admin/admin-login-panel";
 import { useAdminAuth } from "@/components/admin/use-admin-auth";
 import { apiUrl } from "@/lib/api";
 
+type ParticipantHeaders = Record<string, unknown>;
+
 type AdminSessionParticipant = {
   participant_id: string;
   role: string;
   ip_address: string;
   internal_ip_address: string | null;
   client_identity: string | null;
+  request_headers: ParticipantHeaders | null;
   joined_at: string;
 };
 
@@ -30,6 +33,12 @@ type AdminSessionListResponse = {
   sessions: AdminSessionSummary[];
 };
 
+type HeadersDialogState = {
+  participantId: string;
+  role: string;
+  headers: ParticipantHeaders;
+};
+
 export default function AdminSessionsPage() {
   const { token, ready, saveToken, clearToken } = useAdminAuth();
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("active");
@@ -38,6 +47,7 @@ export default function AdminSessionsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<AdminSessionSummary[]>([]);
+  const [headersDialog, setHeadersDialog] = useState<HeadersDialogState | null>(null);
 
   useEffect(() => {
     if (!token) {
@@ -89,6 +99,19 @@ export default function AdminSessionsPage() {
     return () => controller.abort();
   }, [token, statusFilter, tokenQuery, ipQuery, clearToken]);
 
+  useEffect(() => {
+    if (!headersDialog) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setHeadersDialog(null);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [headersDialog]);
+
   const groupedSessions = useMemo(() => {
     const sorted = [...sessions].sort((a, b) => {
       const aDate = a.session_started_at ?? a.validity_expires_at;
@@ -97,6 +120,8 @@ export default function AdminSessionsPage() {
     });
     return sorted;
   }, [sessions]);
+
+  const closeHeadersDialog = () => setHeadersDialog(null);
 
   if (!ready) {
     return <div className="admin-loading">Loading administration tools…</div>;
@@ -191,6 +216,21 @@ export default function AdminSessionsPage() {
                               <span className="admin-meta">Client: {participant.client_identity}</span>
                             ) : null}
                             <span className="admin-meta">Joined: {new Date(participant.joined_at).toLocaleString()}</span>
+                            {participant.request_headers ? (
+                              <button
+                                type="button"
+                                className="admin-action-button"
+                                onClick={() =>
+                                  setHeadersDialog({
+                                    participantId: participant.participant_id,
+                                    role: participant.role,
+                                    headers: participant.request_headers ?? {},
+                                  })
+                                }
+                              >
+                                Headers
+                              </button>
+                            ) : null}
                           </li>
                         ))}
                       </ul>
@@ -202,6 +242,30 @@ export default function AdminSessionsPage() {
           </tbody>
         </table>
       </div>
+
+      {headersDialog ? (
+        <div
+          className="admin-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="admin-headers-title"
+        >
+          <div className="admin-dialog__backdrop" onClick={closeHeadersDialog} />
+          <div className="admin-dialog__panel" role="document">
+            <div className="admin-dialog__header">
+              <h2 id="admin-headers-title" className="admin-dialog__title">
+                Request headers for {headersDialog.role} ({headersDialog.participantId})
+              </h2>
+              <button type="button" className="admin-dialog__close" onClick={closeHeadersDialog}>
+                Close
+              </button>
+            </div>
+            <pre className="admin-dialog__content">
+              {JSON.stringify(headersDialog.headers ?? {}, null, 2)}
+            </pre>
+          </div>
+        </div>
+      ) : null}
     </AdminLayout>
   );
 }
