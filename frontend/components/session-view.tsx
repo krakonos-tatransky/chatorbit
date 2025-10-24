@@ -194,8 +194,6 @@ const DEFAULT_RECONNECT_BASE_DELAY_MS = 1000;
 const FAST_NETWORK_RECONNECT_DELAY_MS = 400;
 const MODERATE_NETWORK_RECONNECT_DELAY_MS = 700;
 const RECONNECT_MAX_DELAY_MS = 30000;
-const MAX_WEBSOCKET_RETRY_ATTEMPTS = 12;
-const WEBSOCKET_REACHABILITY_PATH = "/health/database";
 const MAX_ICE_FAILURE_RETRIES = 3;
 const SECRET_DEBUG_KEYWORD = "orbitdebug";
 
@@ -203,29 +201,6 @@ function logEvent(message: string, ...details: unknown[]) {
   console.log(`[SessionView] ${message}`, ...details);
   if (debugObserver) {
     debugObserver({ timestamp: Date.now(), message, details });
-  }
-}
-
-async function checkServerReachability(): Promise<boolean> {
-  if (typeof fetch !== "function") {
-    return true;
-  }
-
-  const endpoint = apiUrl(WEBSOCKET_REACHABILITY_PATH);
-
-  try {
-    const response = await fetch(endpoint, { cache: "no-store" });
-    if (!response.ok) {
-      logEvent("Server reachability check responded with non-OK status", {
-        status: response.status,
-        statusText: response.statusText,
-      });
-      return false;
-    }
-    return true;
-  } catch (cause) {
-    console.warn("Server reachability check failed", cause);
-    return false;
   }
 }
 
@@ -1644,9 +1619,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   );
 
   useEffect(() => {
-    if (!termsAccepted) {
-      return;
-    }
     if (!participantId || !participantRole) {
       return;
     }
@@ -1920,7 +1892,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     setRemoteStream,
     showCallNotice,
     teardownCall,
-    termsAccepted,
   ]);
 
   useEffect(() => {
@@ -2003,9 +1974,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   ]);
 
   useEffect(() => {
-    if (!termsAccepted) {
-      return;
-    }
     if (!participantId || sessionEnded) {
       return;
     }
@@ -2073,9 +2041,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [participantId, participantRole, remainingSeconds, sessionEnded, sessionStatus, token]);
 
   useEffect(() => {
-    if (!termsAccepted) {
-      return;
-    }
     if (!participantId || sessionEnded) {
       return;
     }
@@ -2088,61 +2053,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
-
-    const scheduleReconnectAttempt = (attempt: number) => {
-      if (!active || sessionEndedRef.current) {
-        return;
-      }
-      if (attempt > MAX_WEBSOCKET_RETRY_ATTEMPTS) {
-        logEvent("Maximum WebSocket reconnect attempts reached", {
-          attempts: attempt - 1,
-        });
-        setIsReconnecting(false);
-        setError("Unable to reconnect to the session. Please refresh the page.");
-        return;
-      }
-
-      reconnectAttemptsRef.current = attempt;
-      const backoffAttempt = Math.min(attempt, 6);
-      const delay = Math.min(
-        reconnectBaseDelayMs * 2 ** (backoffAttempt - 1),
-        RECONNECT_MAX_DELAY_MS,
-      );
-
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-
-      reconnectTimeoutRef.current = setTimeout(() => {
-        reconnectTimeoutRef.current = null;
-        if (!active || sessionEndedRef.current) {
-          return;
-        }
-
-        void (async () => {
-          const reachable = await checkServerReachability();
-          if (!reachable) {
-            logEvent("Server unreachable before WebSocket reconnect", { attempt });
-            setError("Unable to reach the server. Retrying...");
-            if (attempt >= MAX_WEBSOCKET_RETRY_ATTEMPTS) {
-              logEvent("Giving up on WebSocket reconnect after reachability failures", {
-                attempts: attempt,
-              });
-              setIsReconnecting(false);
-              setError("Unable to reach the server. Please try again later.");
-              return;
-            }
-            scheduleReconnectAttempt(attempt + 1);
-            return;
-          }
-
-          setSocketReconnectNonce((value) => value + 1);
-        })();
-      }, delay);
-
-      setIsReconnecting(true);
-      logEvent("Scheduling WebSocket reconnect", { attempt, delay });
-    };
 
     const startConnection = () => {
       if (!active) {
@@ -2189,7 +2099,19 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         resetPeerConnection({ recreate: false });
         logEvent("WebSocket connection closed");
         if (participantId) {
-          scheduleReconnectAttempt(reconnectAttemptsRef.current + 1);
+          const attempt = reconnectAttemptsRef.current + 1;
+          reconnectAttemptsRef.current = attempt;
+          const backoffAttempt = Math.min(attempt, 6);
+          const delay = Math.min(
+            reconnectBaseDelayMs * 2 ** (backoffAttempt - 1),
+            RECONNECT_MAX_DELAY_MS,
+          );
+          reconnectTimeoutRef.current = setTimeout(() => {
+            reconnectTimeoutRef.current = null;
+            setSocketReconnectNonce((value) => value + 1);
+          }, delay);
+          setIsReconnecting(true);
+          logEvent("Scheduling WebSocket reconnect", { attempt, delay });
         }
       };
 
@@ -2197,18 +2119,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         if (!active || sessionEndedRef.current) {
           return;
         }
-        const errorLike = event as Event & { message?: string };
-        logEvent("WebSocket error", {
-          type: event.type,
-          readyState: nextSocket.readyState,
-          message: errorLike.message ?? null,
-        });
-        console.error("WebSocket encountered an error", event);
-        setError(
-          errorLike.message
-            ? `WebSocket error: ${errorLike.message}`
-            : "WebSocket connection error. Please check your network and try again.",
-        );
+        logEvent("WebSocket error", event);
+        setError("WebSocket error");
       };
 
       nextSocket.onmessage = (event) => {
@@ -2283,7 +2195,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     setIsReconnecting,
     sessionEnded,
     socketReconnectNonce,
-    termsAccepted,
     token,
   ]);
 
