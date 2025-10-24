@@ -35,65 +35,12 @@ export function PreventNavigationPrompt({
       }
     };
 
-    const handleDocumentClick = (event: MouseEvent) => {
-      if (event.defaultPrevented) {
-        return;
-      }
-
-      if (event.button !== 0) {
-        return;
-      }
-
-      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
-        return;
-      }
-
-      const target = event.target as Element | null;
-      const anchor = target?.closest("a") as HTMLAnchorElement | null;
-      if (!anchor) {
-        return;
-      }
-
-      if (anchor.target === "_blank" || anchor.hasAttribute("download")) {
-        return;
-      }
-
-      const href = anchor.getAttribute("href");
-      if (!href || href.startsWith("#")) {
-        return;
-      }
-
-      if (href.toLowerCase().startsWith("javascript:")) {
-        return;
-      }
-
-      if (
-        anchor.protocol === "mailto:" ||
-        anchor.protocol === "tel:" ||
-        anchor.dataset.navigationPromptIgnore !== undefined
-      ) {
-        return;
-      }
-
-      if (anchor.href === window.location.href) {
-        return;
-      }
-
-      const shouldLeave = confirmNavigation();
-      if (!shouldLeave) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-      }
-    };
-
     window.addEventListener("beforeunload", handleBeforeUnload);
     window.addEventListener("popstate", handlePopState);
-    window.addEventListener("click", handleDocumentClick, true);
 
     return () => {
       window.removeEventListener("beforeunload", handleBeforeUnload);
       window.removeEventListener("popstate", handlePopState);
-      window.removeEventListener("click", handleDocumentClick, true);
     };
   }, [ignorePopStateRef, message]);
 

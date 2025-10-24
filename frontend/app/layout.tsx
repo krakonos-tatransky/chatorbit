@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 
 import { LegalAwareLink } from "@/components/legal/legal-aware-link";
 import { LegalOverlayProvider } from "@/components/legal/legal-overlay-provider";
-import { PreventNavigationPrompt } from "@/components/prevent-navigation-prompt";
 import { SiteHeader } from "@/components/site-header";
 
 const CHAT_ORBIT_LOGO_URL = "/brand/chat-orbit-logo.svg";
@@ -25,7 +24,6 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body>
-        <PreventNavigationPrompt />
         <LegalOverlayProvider>
           <div className="site-shell">
             <SiteHeader />
