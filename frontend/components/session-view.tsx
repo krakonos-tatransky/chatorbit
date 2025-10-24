@@ -719,6 +719,30 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [showDebugPanel, clientIdentity]);
 
   useEffect(() => {
+    if (!showDebugPanel) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      const pc = peerConnectionRef.current;
+      if (!pc) {
+        return;
+      }
+
+      logEvent("STATS", {
+        iceConnectionState: pc.iceConnectionState,
+        connectionState: pc.connectionState,
+        signalingState: pc.signalingState,
+        candidatePairs: pc.getSenders().length,
+      });
+    }, 5000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [showDebugPanel]);
+
+  useEffect(() => {
     return () => {
       const context = audioContextRef.current;
       if (context) {
@@ -1614,17 +1638,26 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     peerConnection.onicecandidate = (event) => {
       if (event.candidate && event.candidate.candidate) {
         const candidate = typeof event.candidate.toJSON === "function" ? event.candidate.toJSON() : event.candidate;
+        sendSignal("iceCandidate", candidate);
+        logEvent("Discovered ICE candidate", candidate);
+      } else {
+        logEvent("ICE candidate gathering complete");
+      }
+    };
 
     peerConnection.onicegatheringstatechange = () => {
       setIceGatheringState(peerConnection.iceGatheringState);
     };
 
     peerConnection.onconnectionstatechange = () => {
-      logEvent("Peer connection state changed", peerConnection.connectionState);
       const state = peerConnection.connectionState;
+      logEvent("Connection state", state);
       setConnectionState(state);
+
       if (state === "connected") {
         iceFailureRetriesRef.current = 0;
+        reconnectAttemptsRef.current = 0;
+        setIsReconnecting(false);
         if (disconnectionRecoveryTimeoutRef.current) {
           clearTimeout(disconnectionRecoveryTimeoutRef.current);
           disconnectionRecoveryTimeoutRef.current = null;
@@ -1632,38 +1665,87 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         if (dataChannelRef.current?.readyState === "open") {
           setConnected(true);
           setError(null);
-          setIsReconnecting(false);
         } else {
           logEvent("Peer connection connected but data channel not yet open", {
             dataChannelState: dataChannelRef.current?.readyState ?? "missing",
           });
         }
-      } else if (state === "failed" || state === "disconnected" || state === "closed") {
+      } else if (state === "disconnected") {
+        setConnected(false);
+        if (sessionActiveRef.current) {
+          if (!disconnectionRecoveryTimeoutRef.current) {
+            setIsReconnecting(true);
+            disconnectionRecoveryTimeoutRef.current = setTimeout(() => {
+              if (peerConnectionRef.current?.connectionState === "disconnected") {
+                logEvent("Connection disconnected >10s - resetting");
+                disconnectionRecoveryTimeoutRef.current = null;
+                resetPeerConnection();
+              } else {
+                disconnectionRecoveryTimeoutRef.current = null;
+              }
+            }, 10000);
+          }
+          if (participantRole === "host") {
+            hasSentOfferRef.current = false;
+          }
+        }
+      } else if (state === "failed") {
         setConnected(false);
         if (sessionActiveRef.current) {
           setIsReconnecting(true);
+          if (disconnectionRecoveryTimeoutRef.current) {
+            clearTimeout(disconnectionRecoveryTimeoutRef.current);
+            disconnectionRecoveryTimeoutRef.current = null;
+          }
+          logEvent("Connection FAILED - immediate reset");
+          resetPeerConnection();
+          if (participantRole === "host") {
+            hasSentOfferRef.current = false;
+          }
         }
+      } else if (state === "closed") {
+        setConnected(false);
         if (participantRole === "host") {
           hasSentOfferRef.current = false;
         }
-        if (
-          participantRole !== "host" &&
-          peerConnectionRef.current === peerConnection &&
-          sessionActiveRef.current
-        ) {
-          if (state === "failed") {
-            schedulePeerConnectionRecovery(peerConnection, "peer connection failed", { delayMs: 0 });
-          } else if (state === "disconnected") {
-            schedulePeerConnectionRecovery(peerConnection, "peer connection disconnected");
-          }
-        }
+      }
+
+      if (
+        state === "disconnected" &&
+        participantRole !== "host" &&
+        peerConnectionRef.current === peerConnection &&
+        sessionActiveRef.current
+      ) {
+        schedulePeerConnectionRecovery(peerConnection, "peer connection disconnected");
+      } else if (
+        state === "failed" &&
+        participantRole !== "host" &&
+        peerConnectionRef.current === peerConnection &&
+        sessionActiveRef.current
+      ) {
+        schedulePeerConnectionRecovery(peerConnection, "peer connection failed", { delayMs: 0 });
       }
     };
 
     peerConnection.oniceconnectionstatechange = () => {
       const state = peerConnection.iceConnectionState;
-      logEvent("ICE connection state changed", state);
+      logEvent("ICE connection state", state);
       setIceConnectionState(state);
+
+      if (
+        state === "disconnected" &&
+        participantRole === "host" &&
+        peerConnectionRef.current === peerConnection
+      ) {
+        logEvent("ICE disconnected as host - initiating restart");
+        try {
+          peerConnection.restartIce();
+        } catch (error) {
+          logEvent("Failed to restart ICE", { error: error instanceof Error ? error.message : error });
+        }
+        return;
+      }
+
       if (state === "failed" && participantRole === "host" && peerConnectionRef.current === peerConnection) {
         if (iceFailureRetriesRef.current < MAX_ICE_FAILURE_RETRIES) {
           const attempt = iceFailureRetriesRef.current + 1;
@@ -1697,86 +1779,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       remoteStreamRef.current = stream;
       setRemoteStream(stream);
       setCallState((current) => {
-        if (current === "connecting" || current === "incoming" || current === "requesting") {
-          return "active";
-        }
-        return current;
-      });
-      const handleTrackUpdate = () => {
-        const currentStream = remoteStreamRef.current;
-        if (!currentStream) {
-          return;
-        }
-        const hasLiveTrack = currentStream.getTracks().some((track) => track.readyState !== "ended");
-        if (!hasLiveTrack) {
-          const hadStream = remoteStreamRef.current !== null;
-          remoteStreamRef.current = null;
-          setRemoteStream(null);
-          if (hadStream) {
-            teardownCall({ notifyPeer: false });
-            showCallNotice("Video chat ended.");
-          }
-        }
-      };
-      stream.addEventListener("removetrack", handleTrackUpdate);
-      for (const track of stream.getTracks()) {
-        track.addEventListener("ended", handleTrackUpdate);
-      }
-    };
-
-    peerConnection.onsignalingstatechange = () => {
-      if (
-        peerConnection.signalingState === "stable" &&
-        negotiationPendingRef.current &&
-        participantRole === "host"
-      ) {
-        negotiationPendingRef.current = false;
-        void renegotiate();
-      }
-    };
-
-    peerConnection.addEventListener("icecandidateerror", (event: RTCPeerConnectionIceErrorEvent) => {
-      const { hostCandidate } = event as RTCPeerConnectionIceErrorEvent & { hostCandidate?: string };
-      logEvent("ICE candidate error reported", {
-        errorCode: event.errorCode,
-        errorText: event.errorText,
-        url: event.url,
-        hostCandidate,
-      });
-      if (event.errorCode === 438 && sessionActiveRef.current) {
-        logEvent("Detected stale nonce from TURN server; initiating recovery", { url: event.url });
-        setIsReconnecting(true);
-        if (participantRole === "host") {
-          resetPeerConnection();
-        } else {
-          schedulePeerConnectionRecovery(peerConnection, "stale nonce", { delayMs: 0 });
-        }
-      }
-    });
-
-    if (participantRole === "host") {
-      logEvent("Creating data channel as host");
-      const channel = peerConnection.createDataChannel("chat");
-      attachDataChannel(channel, peerConnection);
-    } else {
-      peerConnection.ondatachannel = (event) => {
-        logEvent("Received data channel", { label: event.channel.label });
-        attachDataChannel(event.channel, peerConnection);
-      };
-    }
-
-    const backlog = pendingSignalsRef.current.splice(0);
-    if (backlog.length > 0) {
-      logEvent("Processing queued signaling payloads", { count: backlog.length });
-      void (async () => {
-        for (const item of backlog) {
-          try {
-            await processSignalPayload(peerConnection, item);
-          } catch (cause) {
-            console.error("Failed to process queued signaling payload", cause);
-          }
-        }
-      })();
         if (current === "connecting" || current === "incoming" || current === "requesting") {
           return "active";
         }
@@ -1884,13 +1886,13 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     renegotiate,
     resetPeerConnection,
     reconnectBaseDelayMs,
-      schedulePeerConnectionRecovery,
-      sendSignal,
-      setCallState,
-      setRemoteStream,
-      showCallNotice,
-      teardownCall,
-    ]);
+    schedulePeerConnectionRecovery,
+    sendSignal,
+    setCallState,
+    setRemoteStream,
+    showCallNotice,
+    teardownCall,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -2199,46 +2201,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   useEffect(() => {
     if (!sessionStatus) {
       return;
-    }
-    if (sessionStatus.status === "closed") {
-      finalizeSession("closed");
-    } else if (sessionStatus.status === "expired") {
-      finalizeSession("expired");
-    } else if (sessionStatus.status === "deleted") {
-      finalizeSession("deleted");
-    }
-  }, [finalizeSession, sessionStatus]);
-
-  useEffect(() => {
-    if (sessionStatus?.status !== "active") {
-      return;
-    }
-    if (remainingSeconds === null) {
-      return;
-    }
-    if (remainingSeconds === 0) {
-      finalizeSession("closed");
-    }
-  }, [finalizeSession, remainingSeconds, sessionStatus?.status]);
-
-  useEffect(() => {
-    if (
-      participantRole !== "host" ||
-      !socketReady ||
-      !participantId ||
-      !peerConnectionRef.current ||
-      hasSentOfferRef.current ||
-      sessionStatus?.status !== "active" ||
-      connected ||
-      (sessionStatus?.connectedParticipants && sessionStatus.connectedParticipants.length < 2)
-    ) {
-      return;
-    }
-
-    const timer = window.setTimeout(async () => {
-      logEvent("Attempting to create WebRTC offer");
-      try {
-        const pc = peerConnectionRef.current;
     }
     if (sessionStatus.status === "closed") {
       finalizeSession("closed");
