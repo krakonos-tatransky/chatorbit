@@ -1688,17 +1688,21 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
         <TermsConsentModal
           open={!termsAccepted && lastTermsKeyChecked === termsStorageKey}
-          onAccept={() => {
+          onAgree={() => {
             try {
               window.localStorage.setItem(termsStorageKey, "true");
             } catch {}
             setTermsAccepted(true);
           }}
+          onCancel={() => {
+            setLastTermsKeyChecked(null);
+            setTermsAccepted(false);
+          }}
         />
 
         <ReportAbuseModal
           open={reportAbuseOpen}
-          onOpenChange={setReportAbuseOpen}
+          onClose={() => setReportAbuseOpen(false)}
           onSubmit={handleReportAbuse}
         />
 
