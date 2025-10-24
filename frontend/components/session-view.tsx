@@ -582,7 +582,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return () => mediaQuery.removeEventListener("change", handleChange);
     }
     mediaQuery.addListener(handleChange);
-    return () => mediaQuery.removeListener("change", handleChange);
+    return () => mediaQuery.removeListener(handleChange);
   }, []);
 
   // Cleanup disconnection recovery
@@ -738,7 +738,23 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     tokenCopyTimeoutRef.current = window.setTimeout(() => setTokenCopyState("idle"), 2000);
   }, [token]);
 
+  useEffect(() => {
+    return () => {
+      if (tokenCopyTimeoutRef.current) {
+        window.clearTimeout(tokenCopyTimeoutRef.current);
+        tokenCopyTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
   // Stop local media tracks
+  const stopRemoteMediaTracks = useCallback(() => {
+    const stream = remoteStreamRef.current;
+    if (!stream) return;
+    remoteStreamRef.current = null;
+    setRemoteStream(null);
+  }, []);
+
   const stopLocalMediaTracks = useCallback((pc?: RTCPeerConnection | null) => {
     const stream = localStreamRef.current;
     if (!stream) return;
@@ -762,12 +778,12 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     const existing = peerConnectionRef.current;
     if (existing) {
       stopLocalMediaTracks(existing);
-      remoteStreamRef.current = null;
-      setRemoteStream(null);
+      stopRemoteMediaTracks();
       try { existing.close(); } catch (cause) { console.warn("Failed to close RTCPeerConnection", cause); }
     }
     peerConnectionRef.current = null;
     dataChannelRef.current = null;
+    iceFailureRetriesRef.current = 0;
     setConnectionState(null);
     setIceConnectionState(null);
     setIceGatheringState(null);
@@ -796,7 +812,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     } else {
       setPeerResetNonce(v => v + 1);
     }
-  }, [stopLocalMediaTracks]);
+  }, [stopLocalMediaTracks, stopRemoteMediaTracks]);
 
   // Finalize session
   const finalizeSession = useCallback((status: "closed" | "expired" | "deleted" = "closed") => {
@@ -809,7 +825,13 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     sessionActiveRef.current = false;
     if (reconnectTimeoutRef.current) { clearTimeout(reconnectTimeoutRef.current); reconnectTimeoutRef.current = null; }
     if (disconnectionRecoveryTimeoutRef.current) { clearTimeout(disconnectionRecoveryTimeoutRef.current); disconnectionRecoveryTimeoutRef.current = null; }
+    const context = audioContextRef.current;
+    if (context) {
+      audioContextRef.current = null;
+      context.close().catch(() => {});
+    }
     resetPeerConnection({ recreate: false });
+    stopRemoteMediaTracks();
     const socket = socketRef.current;
     if (socket) {
       socketRef.current = null;
@@ -822,7 +844,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return { ...prev, status: nextStatus, remainingSeconds: 0 };
     });
     setRemainingSeconds(0);
-  }, [resetPeerConnection]);
+  }, [resetPeerConnection, stopRemoteMediaTracks]);
 
   // Schedule recovery
   const schedulePeerConnectionRecovery = useCallback((
@@ -938,6 +960,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         }
       } else if (state === "disconnected") {
         schedulePeerConnectionRecovery(pc, "ice-disconnected", { delayMs: reconnectBaseDelayMs });
+      } else if (state === "connected" || state === "completed") {
+        iceFailureRetriesRef.current = 0;
       }
     };
 
@@ -979,6 +1003,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setConnected(true);
       wasConnectedRef.current = true;
       setIsReconnecting(false);
+      iceFailureRetriesRef.current = 0;
       logEvent("Data channel opened");
       if (pendingSignalsRef.current.length > 0) {
         for (const signal of pendingSignalsRef.current) {
@@ -1075,13 +1100,40 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     if (!pc) return;
 
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: isVideo,
-      audio: true,
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: isVideo
+        ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
+        : false,
     });
     localStreamRef.current = stream;
     setLocalStream(stream);
     for (const track of stream.getTracks()) {
-      pc.addTrack(track, stream);
+      const sender = pc.addTrack(track, stream);
+      if (track.kind === "video" && typeof sender.getParameters === "function") {
+        void sender
+          .getParameters()
+          .then((parameters) => {
+            if (parameters.codecs && parameters.codecs.length > 1) {
+              const preferredCodec = parameters.codecs.find((codec) =>
+                codec.mimeType.toLowerCase().includes("vp9")
+              ) ?? parameters.codecs.find((codec) => codec.mimeType.toLowerCase().includes("vp8"));
+              if (preferredCodec) {
+                parameters.codecs = [preferredCodec, ...parameters.codecs.filter((codec) => codec !== preferredCodec)];
+              }
+            }
+            if (!parameters.encodings || parameters.encodings.length === 0) {
+              parameters.encodings = [{}];
+            }
+            parameters.encodings = parameters.encodings.map((encoding) => ({
+              ...encoding,
+              maxBitrate: Math.max(1_200_000, encoding.maxBitrate ?? 0),
+            }));
+            return sender.setParameters(parameters);
+          })
+          .catch((cause) => {
+            console.warn("Failed to configure video sender", cause);
+          });
+      }
     }
 
     const payload: SignalPayload = {
@@ -1110,7 +1162,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       pendingSignalsRef.current.push(payload);
     }
 
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } },
+    });
     localStreamRef.current = stream;
     setLocalStream(stream);
     for (const track of stream.getTracks()) {
@@ -1121,6 +1176,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   // End call
   const endCall = useCallback(() => {
     stopLocalMediaTracks();
+    stopRemoteMediaTracks();
     setCallState("idle");
     setIncomingCallFrom(null);
     setCallDialogOpen(false);
@@ -1128,7 +1184,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     if (dataChannelRef.current?.readyState === "open") {
       dataChannelRef.current.send(JSON.stringify(payload));
     }
-  }, [stopLocalMediaTracks]);
+  }, [stopLocalMediaTracks, stopRemoteMediaTracks]);
 
   // Toggle mute
   const toggleMute = useCallback((kind: "audio" | "video") => {
@@ -1178,9 +1234,11 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     if (!isCallFullscreen) return;
     window.addEventListener("pointermove", handlePipPointerMove);
     window.addEventListener("pointerup", handlePipPointerUp);
+    window.addEventListener("pointercancel", handlePipPointerUp);
     return () => {
       window.removeEventListener("pointermove", handlePipPointerMove);
       window.removeEventListener("pointerup", handlePipPointerUp);
+      window.removeEventListener("pointercancel", handlePipPointerUp);
     };
   }, [isCallFullscreen, handlePipPointerMove, handlePipPointerUp]);
 
