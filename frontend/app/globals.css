@@ -2146,6 +2146,35 @@ main {
   max-width: 100%;
 }
 
+.session-token-value--inline {
+  margin-top: 0;
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.8rem;
+  letter-spacing: 0.2em;
+  background: rgba(148, 163, 184, 0.08);
+  color: rgba(226, 232, 240, 0.88);
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  white-space: nowrap;
+}
+
+.session-token-value--full {
+  margin-top: 0.5rem;
+  display: none;
+}
+
+@media (min-width: 520px) {
+  .session-token-value--inline {
+    display: none;
+  }
+
+  .session-token-value--full {
+    display: block;
+  }
+}
+
 .session-role {
   margin-top: 1rem;
   font-size: 0.95rem;

@@ -2374,6 +2374,13 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       ? " status-indicator--active"
       : "";
 
+  const shortToken = useMemo(() => {
+    if (token.length <= 8) {
+      return token;
+    }
+    return `${token.slice(0, 8)}…`;
+  }, [token]);
+
   const clearHeaderRevealTimeout = useCallback(() => {
     if (typeof window !== "undefined" && headerRevealTimeoutRef.current) {
       window.clearTimeout(headerRevealTimeoutRef.current);
@@ -3130,6 +3137,13 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
               <div className="session-header__top">
                 <div className="session-token-header">
                   <p className="session-token">Token</p>
+                  <p
+                    className="session-token-value session-token-value--inline"
+                    aria-label={token}
+                    title={token}
+                  >
+                    {shortToken}
+                  </p>
                   <button
                     type="button"
                     className={`session-token-copy${
@@ -3159,7 +3173,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                   {endSessionButtonLabel}
                 </button>
               </div>
-              <p className="session-token-value">{token}</p>
+              <p className="session-token-value session-token-value--full">{token}</p>
               <p className="session-role">
                 You are signed in as
                 <span>
