@@ -1109,30 +1109,37 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     setLocalStream(stream);
     for (const track of stream.getTracks()) {
       const sender = pc.addTrack(track, stream);
-      if (track.kind === "video" && typeof sender.getParameters === "function") {
-        void sender
-          .getParameters()
-          .then((parameters) => {
-            if (parameters.codecs && parameters.codecs.length > 1) {
-              const preferredCodec = parameters.codecs.find((codec) =>
+      if (
+        track.kind === "video" &&
+        typeof sender.getParameters === "function" &&
+        typeof sender.setParameters === "function"
+      ) {
+        try {
+          const parameters = sender.getParameters();
+          if (parameters.codecs && parameters.codecs.length > 1) {
+            const preferredCodec =
+              parameters.codecs.find((codec) =>
                 codec.mimeType.toLowerCase().includes("vp9")
               ) ?? parameters.codecs.find((codec) => codec.mimeType.toLowerCase().includes("vp8"));
-              if (preferredCodec) {
-                parameters.codecs = [preferredCodec, ...parameters.codecs.filter((codec) => codec !== preferredCodec)];
-              }
+            if (preferredCodec) {
+              parameters.codecs = [
+                preferredCodec,
+                ...parameters.codecs.filter((codec) => codec !== preferredCodec),
+              ];
             }
-            if (!parameters.encodings || parameters.encodings.length === 0) {
-              parameters.encodings = [{}];
-            }
-            parameters.encodings = parameters.encodings.map((encoding) => ({
-              ...encoding,
-              maxBitrate: Math.max(1_200_000, encoding.maxBitrate ?? 0),
-            }));
-            return sender.setParameters(parameters);
-          })
-          .catch((cause) => {
-            console.warn("Failed to configure video sender", cause);
-          });
+          }
+          const encodings = (parameters.encodings && parameters.encodings.length > 0
+            ? parameters.encodings
+            : [{}]
+          ).map((encoding) => ({
+            ...encoding,
+            maxBitrate: Math.max(1_200_000, encoding.maxBitrate ?? 0),
+          }));
+          parameters.encodings = encodings;
+          await sender.setParameters(parameters);
+        } catch (cause) {
+          console.warn("Failed to configure video sender", cause);
+        }
       }
     }
 
