@@ -1675,11 +1675,15 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         {/* Modals */}
         <ConfirmDialog
           open={confirmEndSessionOpen}
-          onOpenChange={setConfirmEndSessionOpen}
           title="End Session"
           description="Are you sure you want to end this session? This cannot be undone."
-          confirmText="End Session"
-          onConfirm={handleEndSession}
+          confirmLabel="End Session"
+          cancelLabel="Cancel"
+          confirmDisabled={endSessionLoading}
+          onConfirm={() => {
+            void handleEndSession();
+          }}
+          onCancel={() => setConfirmEndSessionOpen(false)}
         />
 
         <TermsConsentModal
