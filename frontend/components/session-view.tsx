@@ -346,6 +346,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const notificationSoundRef = useRef<NotificationSoundName>(DEFAULT_NOTIFICATION_SOUND);
   const secretBufferRef = useRef<string>("");
   const negotiationPendingRef = useRef(false);
+  const renegotiateRef = useRef<(() => void) | null>(null);
   const callNoticeTimeoutRef = useRef<TimeoutHandle | null>(null);
   const initialReportHandledRef = useRef(false);
   const pipDragStateRef = useRef<{
@@ -980,15 +981,24 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       reason: string,
       { delayMs }: { delayMs?: number } = {},
     ) => {
-      if (participantRole === "host") {
+      if (peerConnectionRef.current !== pc) {
         return;
       }
+      if (!sessionActiveRef.current) {
+        return;
+      }
+
+      const explicitDelay = delayMs ?? reconnectBaseDelayMs;
+      const effectiveDelay = Math.max(0, explicitDelay);
+
       if (disconnectionRecoveryTimeoutRef.current) {
-        return;
+        clearTimeout(disconnectionRecoveryTimeoutRef.current);
+        disconnectionRecoveryTimeoutRef.current = null;
       }
-      const effectiveDelay = delayMs ?? reconnectBaseDelayMs;
+
       setIsReconnecting(true);
-      disconnectionRecoveryTimeoutRef.current = setTimeout(() => {
+
+      const runReset = () => {
         disconnectionRecoveryTimeoutRef.current = null;
         if (peerConnectionRef.current !== pc) {
           return;
@@ -998,7 +1008,53 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         }
         logEvent("Resetting peer connection after interruption", { reason, delayMs: effectiveDelay });
         resetPeerConnection();
-      }, effectiveDelay);
+      };
+
+      const shouldAttemptIceRestart =
+        participantRole === "host" && (delayMs === undefined || effectiveDelay > 0);
+
+      if (shouldAttemptIceRestart) {
+        let restarted = false;
+        if (typeof pc.restartIce === "function") {
+          try {
+            pc.restartIce();
+            restarted = true;
+            logEvent("Requested ICE restart while scheduling recovery", { reason });
+          } catch (cause) {
+            console.warn("Failed to request ICE restart", cause);
+          }
+        }
+
+        if (restarted) {
+          renegotiateRef.current?.();
+          if (effectiveDelay > 0) {
+            logEvent("Waiting for ICE restart to resolve interruption", { reason, delayMs: effectiveDelay });
+            disconnectionRecoveryTimeoutRef.current = setTimeout(() => {
+              disconnectionRecoveryTimeoutRef.current = null;
+              if (peerConnectionRef.current !== pc) {
+                return;
+              }
+              if (!sessionActiveRef.current) {
+                return;
+              }
+              logEvent("ICE restart did not recover connection; resetting", {
+                reason,
+                delayMs: effectiveDelay,
+              });
+              resetPeerConnection();
+            }, effectiveDelay);
+            return;
+          }
+        }
+      }
+
+      if (effectiveDelay === 0) {
+        runReset();
+        return;
+      }
+
+      logEvent("Scheduling peer connection reset", { reason, delayMs: effectiveDelay });
+      disconnectionRecoveryTimeoutRef.current = setTimeout(runReset, effectiveDelay);
     },
     [participantRole, reconnectBaseDelayMs, resetPeerConnection, setIsReconnecting],
   );
@@ -1075,6 +1131,63 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       connection.removeEventListener("change", handleChange);
     };
   }, [participantRole, resetPeerConnection, schedulePeerConnectionRecovery, setIsReconnecting]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleOffline = () => {
+      logEvent("Browser reported offline status");
+      setConnected(false);
+      setIsReconnecting(true);
+    };
+
+    const handleOnline = () => {
+      logEvent("Browser reported online status");
+      if (sessionEndedRef.current || !sessionActiveRef.current) {
+        return;
+      }
+
+      setIsReconnecting(true);
+
+      const socket = socketRef.current;
+      if (!socket || socket.readyState === WebSocket.CLOSING || socket.readyState === WebSocket.CLOSED) {
+        if (!reconnectTimeoutRef.current) {
+          logEvent("Re-opening WebSocket after reconnect event");
+          setSocketReconnectNonce((value) => value + 1);
+        }
+        return;
+      }
+
+      if (socket.readyState === WebSocket.CONNECTING) {
+        logEvent("WebSocket still connecting after online event");
+        return;
+      }
+
+      const peer = peerConnectionRef.current;
+      if (peer) {
+        schedulePeerConnectionRecovery(peer, "browser online", { delayMs: 0 });
+      } else {
+        logEvent("Recreating peer connection after connectivity restoration");
+        resetPeerConnection();
+      }
+    };
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [
+    resetPeerConnection,
+    schedulePeerConnectionRecovery,
+    setConnected,
+    setIsReconnecting,
+    setSocketReconnectNonce,
+  ]);
 
   const sendCapabilities = useCallback(() => {
     const channel = dataChannelRef.current;
@@ -1191,6 +1304,15 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       console.error("Failed to renegotiate media", cause);
     }
   }, [participantRole, sendSignal]);
+
+  useEffect(() => {
+    renegotiateRef.current = () => {
+      void renegotiate();
+    };
+    return () => {
+      renegotiateRef.current = null;
+    };
+  }, [renegotiate]);
 
   const requestRenegotiation = useCallback(() => {
     if (participantRole === "host") {
