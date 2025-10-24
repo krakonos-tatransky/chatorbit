@@ -2061,6 +2061,9 @@ main {
 }
 
 .session-token {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
   font-size: 0.7rem;
   letter-spacing: 0.35em;
   text-transform: uppercase;
@@ -2071,7 +2074,7 @@ main {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .session-token-copy {

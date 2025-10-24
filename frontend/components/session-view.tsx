@@ -3136,7 +3136,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             <div className="session-header__content">
               <div className="session-header__top">
                 <div className="session-token-header">
-                  <p className="session-token">Token</p>
+                  <span className="session-token">Token</span>
                   <p
                     className="session-token-value session-token-value--inline"
                     aria-label={token}
