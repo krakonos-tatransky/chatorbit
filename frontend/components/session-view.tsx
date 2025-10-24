@@ -194,8 +194,6 @@ const DEFAULT_RECONNECT_BASE_DELAY_MS = 1000;
 const FAST_NETWORK_RECONNECT_DELAY_MS = 400;
 const MODERATE_NETWORK_RECONNECT_DELAY_MS = 700;
 const RECONNECT_MAX_DELAY_MS = 30000;
-const MAX_WEBSOCKET_RETRY_ATTEMPTS = 12;
-const WEBSOCKET_REACHABILITY_PATH = "/health/database";
 const MAX_ICE_FAILURE_RETRIES = 3;
 const SECRET_DEBUG_KEYWORD = "orbitdebug";
 
@@ -203,29 +201,6 @@ function logEvent(message: string, ...details: unknown[]) {
   console.log(`[SessionView] ${message}`, ...details);
   if (debugObserver) {
     debugObserver({ timestamp: Date.now(), message, details });
-  }
-}
-
-async function checkServerReachability(): Promise<boolean> {
-  if (typeof fetch !== "function") {
-    return true;
-  }
-
-  const endpoint = apiUrl(WEBSOCKET_REACHABILITY_PATH);
-
-  try {
-    const response = await fetch(endpoint, { cache: "no-store" });
-    if (!response.ok) {
-      logEvent("Server reachability check responded with non-OK status", {
-        status: response.status,
-        statusText: response.statusText,
-      });
-      return false;
-    }
-    return true;
-  } catch (cause) {
-    console.warn("Server reachability check failed", cause);
-    return false;
   }
 }
 
@@ -742,30 +717,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       cancelled = true;
     };
   }, [showDebugPanel, clientIdentity]);
-
-  useEffect(() => {
-    if (!showDebugPanel) {
-      return;
-    }
-
-    const interval = window.setInterval(() => {
-      const pc = peerConnectionRef.current;
-      if (!pc) {
-        return;
-      }
-
-      logEvent("STATS", {
-        iceConnectionState: pc.iceConnectionState,
-        connectionState: pc.connectionState,
-        signalingState: pc.signalingState,
-        candidatePairs: pc.getSenders().length,
-      });
-    }, 5000);
-
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [showDebugPanel]);
 
   useEffect(() => {
     return () => {
@@ -1644,9 +1595,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   );
 
   useEffect(() => {
-    if (!termsAccepted) {
-      return;
-    }
     if (!participantId || !participantRole) {
       return;
     }
@@ -1666,26 +1614,17 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     peerConnection.onicecandidate = (event) => {
       if (event.candidate && event.candidate.candidate) {
         const candidate = typeof event.candidate.toJSON === "function" ? event.candidate.toJSON() : event.candidate;
-        sendSignal("iceCandidate", candidate);
-        logEvent("Discovered ICE candidate", candidate);
-      } else {
-        logEvent("ICE candidate gathering complete");
-      }
-    };
 
     peerConnection.onicegatheringstatechange = () => {
       setIceGatheringState(peerConnection.iceGatheringState);
     };
 
     peerConnection.onconnectionstatechange = () => {
+      logEvent("Peer connection state changed", peerConnection.connectionState);
       const state = peerConnection.connectionState;
-      logEvent("Connection state", state);
       setConnectionState(state);
-
       if (state === "connected") {
         iceFailureRetriesRef.current = 0;
-        reconnectAttemptsRef.current = 0;
-        setIsReconnecting(false);
         if (disconnectionRecoveryTimeoutRef.current) {
           clearTimeout(disconnectionRecoveryTimeoutRef.current);
           disconnectionRecoveryTimeoutRef.current = null;
@@ -1693,87 +1632,38 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         if (dataChannelRef.current?.readyState === "open") {
           setConnected(true);
           setError(null);
+          setIsReconnecting(false);
         } else {
           logEvent("Peer connection connected but data channel not yet open", {
             dataChannelState: dataChannelRef.current?.readyState ?? "missing",
           });
         }
-      } else if (state === "disconnected") {
-        setConnected(false);
-        if (sessionActiveRef.current) {
-          if (!disconnectionRecoveryTimeoutRef.current) {
-            setIsReconnecting(true);
-            disconnectionRecoveryTimeoutRef.current = setTimeout(() => {
-              if (peerConnectionRef.current?.connectionState === "disconnected") {
-                logEvent("Connection disconnected >10s - resetting");
-                disconnectionRecoveryTimeoutRef.current = null;
-                resetPeerConnection();
-              } else {
-                disconnectionRecoveryTimeoutRef.current = null;
-              }
-            }, 10000);
-          }
-          if (participantRole === "host") {
-            hasSentOfferRef.current = false;
-          }
-        }
-      } else if (state === "failed") {
+      } else if (state === "failed" || state === "disconnected" || state === "closed") {
         setConnected(false);
         if (sessionActiveRef.current) {
           setIsReconnecting(true);
-          if (disconnectionRecoveryTimeoutRef.current) {
-            clearTimeout(disconnectionRecoveryTimeoutRef.current);
-            disconnectionRecoveryTimeoutRef.current = null;
-          }
-          logEvent("Connection FAILED - immediate reset");
-          resetPeerConnection();
-          if (participantRole === "host") {
-            hasSentOfferRef.current = false;
-          }
         }
-      } else if (state === "closed") {
-        setConnected(false);
         if (participantRole === "host") {
           hasSentOfferRef.current = false;
         }
-      }
-
-      if (
-        state === "disconnected" &&
-        participantRole !== "host" &&
-        peerConnectionRef.current === peerConnection &&
-        sessionActiveRef.current
-      ) {
-        schedulePeerConnectionRecovery(peerConnection, "peer connection disconnected");
-      } else if (
-        state === "failed" &&
-        participantRole !== "host" &&
-        peerConnectionRef.current === peerConnection &&
-        sessionActiveRef.current
-      ) {
-        schedulePeerConnectionRecovery(peerConnection, "peer connection failed", { delayMs: 0 });
+        if (
+          participantRole !== "host" &&
+          peerConnectionRef.current === peerConnection &&
+          sessionActiveRef.current
+        ) {
+          if (state === "failed") {
+            schedulePeerConnectionRecovery(peerConnection, "peer connection failed", { delayMs: 0 });
+          } else if (state === "disconnected") {
+            schedulePeerConnectionRecovery(peerConnection, "peer connection disconnected");
+          }
+        }
       }
     };
 
     peerConnection.oniceconnectionstatechange = () => {
       const state = peerConnection.iceConnectionState;
-      logEvent("ICE connection state", state);
+      logEvent("ICE connection state changed", state);
       setIceConnectionState(state);
-
-      if (
-        state === "disconnected" &&
-        participantRole === "host" &&
-        peerConnectionRef.current === peerConnection
-      ) {
-        logEvent("ICE disconnected as host - initiating restart");
-        try {
-          peerConnection.restartIce();
-        } catch (error) {
-          logEvent("Failed to restart ICE", { error: error instanceof Error ? error.message : error });
-        }
-        return;
-      }
-
       if (state === "failed" && participantRole === "host" && peerConnectionRef.current === peerConnection) {
         if (iceFailureRetriesRef.current < MAX_ICE_FAILURE_RETRIES) {
           const attempt = iceFailureRetriesRef.current + 1;
@@ -1807,6 +1697,86 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       remoteStreamRef.current = stream;
       setRemoteStream(stream);
       setCallState((current) => {
+        if (current === "connecting" || current === "incoming" || current === "requesting") {
+          return "active";
+        }
+        return current;
+      });
+      const handleTrackUpdate = () => {
+        const currentStream = remoteStreamRef.current;
+        if (!currentStream) {
+          return;
+        }
+        const hasLiveTrack = currentStream.getTracks().some((track) => track.readyState !== "ended");
+        if (!hasLiveTrack) {
+          const hadStream = remoteStreamRef.current !== null;
+          remoteStreamRef.current = null;
+          setRemoteStream(null);
+          if (hadStream) {
+            teardownCall({ notifyPeer: false });
+            showCallNotice("Video chat ended.");
+          }
+        }
+      };
+      stream.addEventListener("removetrack", handleTrackUpdate);
+      for (const track of stream.getTracks()) {
+        track.addEventListener("ended", handleTrackUpdate);
+      }
+    };
+
+    peerConnection.onsignalingstatechange = () => {
+      if (
+        peerConnection.signalingState === "stable" &&
+        negotiationPendingRef.current &&
+        participantRole === "host"
+      ) {
+        negotiationPendingRef.current = false;
+        void renegotiate();
+      }
+    };
+
+    peerConnection.addEventListener("icecandidateerror", (event: RTCPeerConnectionIceErrorEvent) => {
+      const { hostCandidate } = event as RTCPeerConnectionIceErrorEvent & { hostCandidate?: string };
+      logEvent("ICE candidate error reported", {
+        errorCode: event.errorCode,
+        errorText: event.errorText,
+        url: event.url,
+        hostCandidate,
+      });
+      if (event.errorCode === 438 && sessionActiveRef.current) {
+        logEvent("Detected stale nonce from TURN server; initiating recovery", { url: event.url });
+        setIsReconnecting(true);
+        if (participantRole === "host") {
+          resetPeerConnection();
+        } else {
+          schedulePeerConnectionRecovery(peerConnection, "stale nonce", { delayMs: 0 });
+        }
+      }
+    });
+
+    if (participantRole === "host") {
+      logEvent("Creating data channel as host");
+      const channel = peerConnection.createDataChannel("chat");
+      attachDataChannel(channel, peerConnection);
+    } else {
+      peerConnection.ondatachannel = (event) => {
+        logEvent("Received data channel", { label: event.channel.label });
+        attachDataChannel(event.channel, peerConnection);
+      };
+    }
+
+    const backlog = pendingSignalsRef.current.splice(0);
+    if (backlog.length > 0) {
+      logEvent("Processing queued signaling payloads", { count: backlog.length });
+      void (async () => {
+        for (const item of backlog) {
+          try {
+            await processSignalPayload(peerConnection, item);
+          } catch (cause) {
+            console.error("Failed to process queued signaling payload", cause);
+          }
+        }
+      })();
         if (current === "connecting" || current === "incoming" || current === "requesting") {
           return "active";
         }
@@ -1914,14 +1884,13 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     renegotiate,
     resetPeerConnection,
     reconnectBaseDelayMs,
-    schedulePeerConnectionRecovery,
-    sendSignal,
-    setCallState,
-    setRemoteStream,
-    showCallNotice,
-    teardownCall,
-    termsAccepted,
-  ]);
+      schedulePeerConnectionRecovery,
+      sendSignal,
+      setCallState,
+      setRemoteStream,
+      showCallNotice,
+      teardownCall,
+    ]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -2003,9 +1972,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   ]);
 
   useEffect(() => {
-    if (!termsAccepted) {
-      return;
-    }
     if (!participantId || sessionEnded) {
       return;
     }
@@ -2073,9 +2039,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [participantId, participantRole, remainingSeconds, sessionEnded, sessionStatus, token]);
 
   useEffect(() => {
-    if (!termsAccepted) {
-      return;
-    }
     if (!participantId || sessionEnded) {
       return;
     }
@@ -2088,61 +2051,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
-
-    const scheduleReconnectAttempt = (attempt: number) => {
-      if (!active || sessionEndedRef.current) {
-        return;
-      }
-      if (attempt > MAX_WEBSOCKET_RETRY_ATTEMPTS) {
-        logEvent("Maximum WebSocket reconnect attempts reached", {
-          attempts: attempt - 1,
-        });
-        setIsReconnecting(false);
-        setError("Unable to reconnect to the session. Please refresh the page.");
-        return;
-      }
-
-      reconnectAttemptsRef.current = attempt;
-      const backoffAttempt = Math.min(attempt, 6);
-      const delay = Math.min(
-        reconnectBaseDelayMs * 2 ** (backoffAttempt - 1),
-        RECONNECT_MAX_DELAY_MS,
-      );
-
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-      }
-
-      reconnectTimeoutRef.current = setTimeout(() => {
-        reconnectTimeoutRef.current = null;
-        if (!active || sessionEndedRef.current) {
-          return;
-        }
-
-        void (async () => {
-          const reachable = await checkServerReachability();
-          if (!reachable) {
-            logEvent("Server unreachable before WebSocket reconnect", { attempt });
-            setError("Unable to reach the server. Retrying...");
-            if (attempt >= MAX_WEBSOCKET_RETRY_ATTEMPTS) {
-              logEvent("Giving up on WebSocket reconnect after reachability failures", {
-                attempts: attempt,
-              });
-              setIsReconnecting(false);
-              setError("Unable to reach the server. Please try again later.");
-              return;
-            }
-            scheduleReconnectAttempt(attempt + 1);
-            return;
-          }
-
-          setSocketReconnectNonce((value) => value + 1);
-        })();
-      }, delay);
-
-      setIsReconnecting(true);
-      logEvent("Scheduling WebSocket reconnect", { attempt, delay });
-    };
 
     const startConnection = () => {
       if (!active) {
@@ -2189,7 +2097,19 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         resetPeerConnection({ recreate: false });
         logEvent("WebSocket connection closed");
         if (participantId) {
-          scheduleReconnectAttempt(reconnectAttemptsRef.current + 1);
+          const attempt = reconnectAttemptsRef.current + 1;
+          reconnectAttemptsRef.current = attempt;
+          const backoffAttempt = Math.min(attempt, 6);
+          const delay = Math.min(
+            reconnectBaseDelayMs * 2 ** (backoffAttempt - 1),
+            RECONNECT_MAX_DELAY_MS,
+          );
+          reconnectTimeoutRef.current = setTimeout(() => {
+            reconnectTimeoutRef.current = null;
+            setSocketReconnectNonce((value) => value + 1);
+          }, delay);
+          setIsReconnecting(true);
+          logEvent("Scheduling WebSocket reconnect", { attempt, delay });
         }
       };
 
@@ -2197,18 +2117,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         if (!active || sessionEndedRef.current) {
           return;
         }
-        const errorLike = event as Event & { message?: string };
-        logEvent("WebSocket error", {
-          type: event.type,
-          readyState: nextSocket.readyState,
-          message: errorLike.message ?? null,
-        });
-        console.error("WebSocket encountered an error", event);
-        setError(
-          errorLike.message
-            ? `WebSocket error: ${errorLike.message}`
-            : "WebSocket connection error. Please check your network and try again.",
-        );
+        logEvent("WebSocket error", event);
+        setError("WebSocket error");
       };
 
       nextSocket.onmessage = (event) => {
@@ -2283,13 +2193,52 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     setIsReconnecting,
     sessionEnded,
     socketReconnectNonce,
-    termsAccepted,
     token,
   ]);
 
   useEffect(() => {
     if (!sessionStatus) {
       return;
+    }
+    if (sessionStatus.status === "closed") {
+      finalizeSession("closed");
+    } else if (sessionStatus.status === "expired") {
+      finalizeSession("expired");
+    } else if (sessionStatus.status === "deleted") {
+      finalizeSession("deleted");
+    }
+  }, [finalizeSession, sessionStatus]);
+
+  useEffect(() => {
+    if (sessionStatus?.status !== "active") {
+      return;
+    }
+    if (remainingSeconds === null) {
+      return;
+    }
+    if (remainingSeconds === 0) {
+      finalizeSession("closed");
+    }
+  }, [finalizeSession, remainingSeconds, sessionStatus?.status]);
+
+  useEffect(() => {
+    if (
+      participantRole !== "host" ||
+      !socketReady ||
+      !participantId ||
+      !peerConnectionRef.current ||
+      hasSentOfferRef.current ||
+      sessionStatus?.status !== "active" ||
+      connected ||
+      (sessionStatus?.connectedParticipants && sessionStatus.connectedParticipants.length < 2)
+    ) {
+      return;
+    }
+
+    const timer = window.setTimeout(async () => {
+      logEvent("Attempting to create WebRTC offer");
+      try {
+        const pc = peerConnectionRef.current;
     }
     if (sessionStatus.status === "closed") {
       finalizeSession("closed");
