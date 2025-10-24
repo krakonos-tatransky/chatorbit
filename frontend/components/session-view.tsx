@@ -17,6 +17,14 @@ import { getIceServers } from "@/lib/webrtc";
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let index = 0; index < bytes.length; index += 1) {
+    binary += String.fromCharCode(bytes[index]);
+  }
+  return btoa(binary);
+}
+
 type NotificationSoundPlayer = (context: AudioContext) => void;
 
 const gentlyDisconnectNodes = (nodes: AudioNode[]) => {
@@ -1383,8 +1391,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         const iv = crypto.getRandomValues(new Uint8Array(12));
         const encoded = textEncoder.encode(content);
         const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
-        const ivB64 = btoa(String.fromCharCode(...iv));
-        const ctB64 = btoa(String.fromCharCode(...new Uint8Array(ct)));
+        const ivB64 = uint8ArrayToBase64(iv);
+        const ctB64 = uint8ArrayToBase64(new Uint8Array(ct));
         encryptedContent = `${ivB64}.${ctB64}`;
       } catch (cause) {
         logEvent("Encryption failed", cause);
