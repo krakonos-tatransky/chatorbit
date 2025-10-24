@@ -2330,12 +2330,19 @@ main {
 
 @media (max-width: 640px) {
   .session-token-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.35rem;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: nowrap;
+    width: 100%;
+  }
+
+  .session-token {
+    flex-shrink: 0;
   }
 
   .session-token-copy {
+    margin-left: auto;
     font-size: 0.7rem;
     padding: 0.2rem 0.6rem;
   }
@@ -2344,6 +2351,26 @@ main {
     font-size: 0.75rem;
     letter-spacing: 0.12em;
     line-height: 1.5;
+  }
+
+  .session-token-value--inline {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .countdown {
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .countdown .status-pill,
+  .countdown-label,
+  .countdown-time {
+    display: none;
+  }
+
+  .countdown .session-header__collapse-button {
+    margin-top: 0;
   }
 
   .session-debug__list {
