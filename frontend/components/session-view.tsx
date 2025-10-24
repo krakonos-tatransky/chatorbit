@@ -406,6 +406,21 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [callState]);
 
   useEffect(() => {
+    if (callState !== "active") {
+      return;
+    }
+    const panel = callPanelRef.current;
+    if (!panel) {
+      return;
+    }
+    try {
+      panel.scrollIntoView({ block: "start", behavior: "smooth" });
+    } catch {
+      panel.scrollIntoView({ block: "start" });
+    }
+  }, [callState]);
+
+  useEffect(() => {
     const element = localVideoRef.current;
     if (!element) {
       return;
@@ -1604,6 +1619,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   );
 
   useEffect(() => {
+    if (!termsAccepted) {
+      return;
+    }
     if (!participantId || !participantRole) {
       return;
     }
@@ -1877,6 +1895,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     setRemoteStream,
     showCallNotice,
     teardownCall,
+    termsAccepted,
   ]);
 
   useEffect(() => {
@@ -1959,6 +1978,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   ]);
 
   useEffect(() => {
+    if (!termsAccepted) {
+      return;
+    }
     if (!participantId || sessionEnded) {
       return;
     }
@@ -2026,6 +2048,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [participantId, participantRole, remainingSeconds, sessionEnded, sessionStatus, token]);
 
   useEffect(() => {
+    if (!termsAccepted) {
+      return;
+    }
     if (!participantId || sessionEnded) {
       return;
     }
@@ -2180,6 +2205,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     setIsReconnecting,
     sessionEnded,
     socketReconnectNonce,
+    termsAccepted,
     token,
   ]);
 
