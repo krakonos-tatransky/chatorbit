@@ -30,8 +30,16 @@ export function PreventNavigationPrompt({
 
       const shouldLeave = confirmNavigation();
       if (!shouldLeave) {
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("navigation:cancelled"));
+        }
         ignorePopStateRef.current = true;
         window.history.forward();
+        return;
+      }
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("navigation:confirmed"));
       }
     };
 

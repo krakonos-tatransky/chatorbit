@@ -339,6 +339,7 @@ export function SessionView({
   const disconnectionRecoveryTimeoutRef = useRef<TimeoutHandle | null>(null);
   const sessionActiveRef = useRef(false);
   const sessionEndedRef = useRef(false);
+  const historyNavigationPendingRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const knownMessageIdsRef = useRef<Set<string>>(new Set());
   const initialMessagesHandledRef = useRef(false);
@@ -457,6 +458,52 @@ export function SessionView({
     setCallState("idle");
     setSessionEnded(true);
   }, [stopLocalMediaTracks, handlePipPointerMove, handlePipPointerUp]);
+
+  const restartSessionFromHistory = useCallback(() => {
+    if (typeof window === "undefined") return;
+    logEvent("History navigation detected; restarting session");
+    historyNavigationPendingRef.current = false;
+    cleanupAll();
+    try {
+      window.location.reload();
+    } catch (error) {
+      console.warn("Failed to reload session view after history navigation", error);
+    }
+  }, [cleanupAll]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const expectedSuffix = `/session/${token}`.replace(/\/+$/, "");
+    const matchesSessionPath = () => {
+      const path = window.location.pathname.replace(/\/+$/, "");
+      return path === expectedSuffix || path.endsWith(expectedSuffix);
+    };
+
+    const handlePopState = () => {
+      if (matchesSessionPath()) {
+        if (!historyNavigationPendingRef.current) {
+          return;
+        }
+        restartSessionFromHistory();
+        return;
+      }
+
+      historyNavigationPendingRef.current = true;
+    };
+
+    const handleNavigationCancelled = () => {
+      historyNavigationPendingRef.current = false;
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    window.addEventListener("navigation:cancelled", handleNavigationCancelled);
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+      window.removeEventListener("navigation:cancelled", handleNavigationCancelled);
+    };
+  }, [token, restartSessionFromHistory]);
 
   /* -------------------------- Finalize Session -------------------------- */
   const finalizeSession = useCallback(
