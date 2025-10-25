@@ -2905,6 +2905,9 @@ main {
   border-radius: 0;
   height: 100%;
 }
+.call-panel--fullscreen-mobile-landscape .call-panel__media-item--remote .call-panel__media-video {
+  aspect-ratio: auto;
+}
 
 .call-panel--fullscreen-mobile-landscape .call-panel__media-item--remote .call-panel__media-placeholder {
   padding: 1.25rem;
