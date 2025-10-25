@@ -2858,7 +2858,10 @@ main {
 .call-panel--fullscreen-mobile-landscape {
   padding: 0;
   gap: 0;
-  border-radius: 28px;
+  border-radius: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
   overflow: hidden;
   position: relative;
 }
@@ -2894,43 +2897,57 @@ main {
   min-height: 0;
   padding: 0;
   gap: 0;
+  background: transparent;
 }
 
-.call-panel--fullscreen-mobile-landscape .call-panel__media-item--remote {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-areas: "media";
-  position: relative;
-  overflow: hidden;
+.call-panel--fullscreen-mobile-landscape .call-panel__media-item--local {
+  right: calc(env(safe-area-inset-right, 0px) + clamp(0.75rem, 4vw, 2.5rem));
+  bottom: calc(env(safe-area-inset-bottom, 0px) + clamp(0.75rem, 4vw, 2.5rem));
+  width: min(32%, 220px);
+  z-index: 5;
 }
 
-.call-panel--fullscreen-mobile-landscape .call-panel__media-item--remote .call-panel__media-video,
-.call-panel--fullscreen-mobile-landscape .call-panel__media-item--remote .call-panel__media-placeholder {
-  border-radius: 0;
-  grid-area: media;
+.call-panel__mobile-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 0.25rem);
+  padding-right: calc(env(safe-area-inset-right, 0px) + 0.5rem);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
+  padding-left: calc(env(safe-area-inset-left, 0px) + 0.5rem);
+  background: rgba(2, 6, 23, 0.92);
 }
-.call-panel--fullscreen-mobile-landscape .call-panel__media-item--remote .call-panel__media-video {
+
+.call-panel__mobile-overlay-media {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-}
-
-.call-panel--fullscreen-mobile-landscape .call-panel__media-item--remote .call-panel__media-placeholder {
-  padding: 1.25rem;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.call-panel--fullscreen-mobile-landscape .call-panel__media-item--remote .call-panel__media-label {
-  display: none;
+.call-panel__mobile-overlay .call-panel__media-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 0;
+  background: #000;
 }
 
-.call-panel--fullscreen-mobile-landscape .call-panel__media-item--local {
-  right: clamp(0.75rem, 4vw, 2.5rem);
-  bottom: clamp(0.75rem, 4vw, 2.5rem);
-  width: min(32%, 220px);
+.call-panel__mobile-overlay-placeholder {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  background: rgba(15, 23, 42, 0.85);
+  color: rgba(226, 232, 240, 0.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  text-align: center;
 }
 
 .call-panel__mobile-control {
@@ -2956,13 +2973,13 @@ main {
 }
 
 .call-panel__mobile-control--dismiss {
-  top: 1rem;
-  right: 1rem;
+  top: calc(env(safe-area-inset-top, 0px) + 0.9rem);
+  right: calc(env(safe-area-inset-right, 0px) + 1rem);
 }
 
 .call-panel__mobile-control--end {
-  bottom: 1rem;
-  right: 1rem;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem);
+  right: calc(env(safe-area-inset-right, 0px) + 1rem);
   border-color: rgba(248, 113, 113, 0.65);
   background: rgba(248, 113, 113, 0.18);
   color: rgba(255, 228, 230, 0.95);
@@ -2977,8 +2994,8 @@ main {
 
 .call-panel__mobile-timer {
   position: absolute;
-  top: 1rem;
-  left: 1rem;
+  top: calc(env(safe-area-inset-top, 0px) + 0.9rem);
+  left: calc(env(safe-area-inset-left, 0px) + 1rem);
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;

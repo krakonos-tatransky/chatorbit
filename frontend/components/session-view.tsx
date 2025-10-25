@@ -2387,6 +2387,60 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     }
   }, [callState, shouldShowMediaPanel]);
 
+  const remotePlaceholderMessage =
+    callState === "active"
+      ? "Waiting for peer video…"
+      : callState === "incoming"
+        ? "Incoming video chat request"
+        : callState === "requesting"
+          ? "Awaiting peer response…"
+          : callState === "connecting"
+            ? "Connecting to peer…"
+            : "Remote video unavailable";
+
+  const remoteVideoElement = (
+    <video ref={remoteVideoRef} autoPlay playsInline className="call-panel__media-video" />
+  );
+
+  const localPlaceholderMessage =
+    callState === "incoming"
+      ? "Accept to share your camera."
+      : callState === "requesting"
+        ? "Waiting for peer to accept…"
+        : callState === "connecting"
+          ? "Connecting camera…"
+          : "Camera preview unavailable";
+
+  const localMediaElement = (
+    <div
+      className={`call-panel__media-item${
+        isCallFullscreen ? " call-panel__media-item--local" : ""
+      }`}
+      ref={pipContainerRef}
+      style={
+        isCallFullscreen && pipPosition
+          ? {
+              top: `${pipPosition.top}px`,
+              left: `${pipPosition.left}px`,
+              bottom: "auto",
+              right: "auto",
+            }
+          : undefined
+      }
+      onPointerDown={isCallFullscreen ? handlePipPointerDown : undefined}
+      onPointerMove={isCallFullscreen ? handlePipPointerMove : undefined}
+      onPointerUp={isCallFullscreen ? handlePipPointerUp : undefined}
+      onPointerCancel={isCallFullscreen ? handlePipPointerUp : undefined}
+    >
+      {localStream ? (
+        <video ref={localVideoRef} autoPlay muted playsInline className="call-panel__media-video" />
+      ) : (
+        <div className="call-panel__media-placeholder">{localPlaceholderMessage}</div>
+      )}
+      <span className="call-panel__media-label">You</span>
+    </div>
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -3370,6 +3424,22 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           }${isMobileFullscreenLandscape ? " call-panel--fullscreen-mobile-landscape" : ""}`}
           ref={callPanelRef}
         >
+          {isMobileFullscreenLandscape ? (
+            <div
+              className="call-panel__mobile-overlay"
+              aria-hidden={remoteStream ? true : undefined}
+              role={remoteStream ? undefined : "status"}
+              aria-live={remoteStream ? undefined : "polite"}
+            >
+              <div className="call-panel__mobile-overlay-media">
+                {remoteStream ? (
+                  remoteVideoElement
+                ) : (
+                  <div className="call-panel__mobile-overlay-placeholder">{remotePlaceholderMessage}</div>
+                )}
+              </div>
+            </div>
+          ) : null}
             <div className="call-panel__header">
               <div
                 className={`call-panel__status call-panel__status--${callPanelStatusVariant}`}
@@ -3515,69 +3585,21 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             </div>
           ) : null}
           <div className="call-panel__media" aria-live="polite">
-            <div
-              className={`call-panel__media-item${
-                isCallFullscreen ? " call-panel__media-item--remote" : ""
-              }`}
-            >
-              {remoteStream ? (
-                <video ref={remoteVideoRef} autoPlay playsInline className="call-panel__media-video" />
-              ) : (
-                <div className="call-panel__media-placeholder">
-                  {callState === "active"
-                    ? "Waiting for peer video…"
-                    : callState === "incoming"
-                      ? "Incoming video chat request"
-                      : callState === "requesting"
-                        ? "Awaiting peer response…"
-                        : callState === "connecting"
-                          ? "Connecting to peer…"
-                          : "Remote video unavailable"}
-                </div>
-              )}
-              <span className="call-panel__media-label">Partner</span>
-            </div>
-            <div
-              className={`call-panel__media-item${
-                isCallFullscreen ? " call-panel__media-item--local" : ""
-              }`}
-              ref={pipContainerRef}
-              style={
-                isCallFullscreen && pipPosition
-                  ? {
-                      top: `${pipPosition.top}px`,
-                      left: `${pipPosition.left}px`,
-                      bottom: "auto",
-                      right: "auto",
-                    }
-                  : undefined
-              }
-              onPointerDown={isCallFullscreen ? handlePipPointerDown : undefined}
-              onPointerMove={isCallFullscreen ? handlePipPointerMove : undefined}
-              onPointerUp={isCallFullscreen ? handlePipPointerUp : undefined}
-              onPointerCancel={isCallFullscreen ? handlePipPointerUp : undefined}
-            >
-              {localStream ? (
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  className="call-panel__media-video"
-                />
-              ) : (
-                <div className="call-panel__media-placeholder">
-                  {callState === "incoming"
-                    ? "Accept to share your camera."
-                    : callState === "requesting"
-                      ? "Waiting for peer to accept…"
-                      : callState === "connecting"
-                        ? "Connecting camera…"
-                        : "Camera preview unavailable"}
-                </div>
-              )}
-              <span className="call-panel__media-label">You</span>
-            </div>
+            {!isMobileFullscreenLandscape ? (
+              <div
+                className={`call-panel__media-item${
+                  isCallFullscreen ? " call-panel__media-item--remote" : ""
+                }`}
+              >
+                {remoteStream ? (
+                  remoteVideoElement
+                ) : (
+                  <div className="call-panel__media-placeholder">{remotePlaceholderMessage}</div>
+                )}
+                <span className="call-panel__media-label">Partner</span>
+              </div>
+            ) : null}
+            {localMediaElement}
           </div>
           {isCallFullscreen ? (
             isMobileFullscreenLandscape ? (
