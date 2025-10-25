@@ -315,6 +315,42 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const callPanelRef = useRef<HTMLDivElement | null>(null);
   const pipContainerRef = useRef<HTMLDivElement | null>(null);
+  const syncVideoElementStream = useCallback(
+    (element: HTMLVideoElement | null, stream: MediaStream | null) => {
+      if (!element) {
+        return;
+      }
+      if (stream) {
+        if (element.srcObject !== stream) {
+          element.srcObject = stream;
+        }
+        const playPromise = element.play();
+        if (playPromise) {
+          void playPromise.catch(() => {});
+        }
+      } else {
+        element.srcObject = null;
+      }
+    },
+    [],
+  );
+
+  const setLocalVideoNode = useCallback(
+    (node: HTMLVideoElement | null) => {
+      localVideoRef.current = node;
+      syncVideoElementStream(node, localStreamRef.current);
+    },
+    [syncVideoElementStream],
+  );
+
+  const setRemoteVideoNode = useCallback(
+    (node: HTMLVideoElement | null) => {
+      remoteVideoRef.current = node;
+      syncVideoElementStream(node, remoteStreamRef.current);
+    },
+    [syncVideoElementStream],
+  );
+
   const focusComposer = useCallback(() => {
     const composer = composerRef.current;
     if (!composer) {
@@ -426,36 +462,12 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [callState]);
 
   useEffect(() => {
-    const element = localVideoRef.current;
-    if (!element) {
-      return;
-    }
-    if (localStream) {
-      element.srcObject = localStream;
-      const playPromise = element.play();
-      if (playPromise) {
-        void playPromise.catch(() => {});
-      }
-    } else {
-      element.srcObject = null;
-    }
-  }, [localStream]);
+    syncVideoElementStream(localVideoRef.current, localStream);
+  }, [localStream, syncVideoElementStream]);
 
   useEffect(() => {
-    const element = remoteVideoRef.current;
-    if (!element) {
-      return;
-    }
-    if (remoteStream) {
-      element.srcObject = remoteStream;
-      const playPromise = element.play();
-      if (playPromise) {
-        void playPromise.catch(() => {});
-      }
-    } else {
-      element.srcObject = null;
-    }
-  }, [remoteStream]);
+    syncVideoElementStream(remoteVideoRef.current, remoteStream);
+  }, [remoteStream, syncVideoElementStream]);
 
   useEffect(() => {
     if (!remoteStream) {
@@ -2399,7 +2411,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             : "Remote video unavailable";
 
   const remoteVideoElement = (
-    <video ref={remoteVideoRef} autoPlay playsInline className="call-panel__media-video" />
+    <video ref={setRemoteVideoNode} autoPlay playsInline className="call-panel__media-video" />
   );
 
   const localPlaceholderMessage =
@@ -2494,7 +2506,13 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       onPointerCancel={isCallFullscreen ? handlePipPointerUp : undefined}
     >
       {localStream ? (
-        <video ref={localVideoRef} autoPlay muted playsInline className="call-panel__media-video" />
+        <video
+          ref={setLocalVideoNode}
+          autoPlay
+          muted
+          playsInline
+          className="call-panel__media-video"
+        />
       ) : (
         <div className="call-panel__media-placeholder">{localPlaceholderMessage}</div>
       )}
