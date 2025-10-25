@@ -559,8 +559,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [token]);
 
   useEffect(() => {
-    sessionActiveRef.current = sessionStatus?.status === "active";
-  }, [sessionStatus?.status]);
+    sessionActiveRef.current = Boolean(termsAccepted && sessionStatus?.status === "active");
+  }, [sessionStatus?.status, termsAccepted]);
 
   useEffect(() => {
     setSupportsEncryption(resolveCrypto() !== null);
@@ -2012,7 +2012,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           participantId,
           role: participantRole,
           status: sessionStatus.status,
-          sessionActive: sessionStatus.status === "active",
+          sessionActive: termsAccepted && sessionStatus.status === "active",
           sessionStartedAt: sessionStatus.sessionStartedAt,
           sessionExpiresAt: sessionStatus.sessionExpiresAt,
           messageCharLimit: sessionStatus.messageCharLimit,
@@ -2023,10 +2023,18 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     } catch (cause) {
       console.warn("Failed to persist session state", cause);
     }
-  }, [participantId, participantRole, remainingSeconds, sessionEnded, sessionStatus, token]);
+  }, [
+    participantId,
+    participantRole,
+    remainingSeconds,
+    sessionEnded,
+    sessionStatus,
+    termsAccepted,
+    token,
+  ]);
 
   useEffect(() => {
-    if (!participantId || sessionEnded) {
+    if (!participantId || sessionEnded || !termsAccepted) {
       return;
     }
 
@@ -2180,6 +2188,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     setIsReconnecting,
     sessionEnded,
     socketReconnectNonce,
+    termsAccepted,
     token,
   ]);
 
@@ -2400,6 +2409,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     }
     if (shouldShowMediaPanel && !wasVisible) {
       setHeaderCollapsed(true);
+      if (typeof window !== "undefined") {
+        const panel = callPanelRef.current;
+        if (panel) {
+          try {
+            panel.scrollIntoView({ behavior: "smooth", block: "start" });
+          } catch {
+            panel.scrollIntoView();
+          }
+        }
+      }
     }
     if (!shouldShowMediaPanel && wasVisible && !connected) {
       setHeaderCollapsed(false);
