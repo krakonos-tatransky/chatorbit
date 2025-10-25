@@ -2730,6 +2730,39 @@ main {
   }
 }
 
+@media (orientation: landscape) and (max-height: 720px) {
+  .call-panel--fullscreen {
+    padding: calc(env(safe-area-inset-top) + 1rem)
+      clamp(1rem, 3vw, 2.5rem)
+      calc(env(safe-area-inset-bottom) + 1rem);
+    gap: 1.1rem;
+  }
+
+  .call-panel--fullscreen .call-panel__header {
+    gap: clamp(0.2rem, 1.4vw, 0.5rem);
+    padding-right: clamp(0rem, 4vw, 3rem);
+  }
+
+  .call-panel--fullscreen .call-panel__status-text,
+  .call-panel--fullscreen .call-panel__status-timer {
+    gap: clamp(0.12rem, 1vw, 0.2rem);
+  }
+
+  .call-panel--fullscreen .call-panel__actions {
+    gap: clamp(0.2rem, 1.3vw, 0.4rem);
+  }
+
+  .call-panel--fullscreen .call-panel__icon-button {
+    width: clamp(30px, 8vw, 34px);
+    height: clamp(30px, 8vw, 34px);
+  }
+
+  .call-panel--fullscreen .call-panel__icon-button svg {
+    width: clamp(14px, 4.2vw, 17px);
+    height: clamp(14px, 4.2vw, 17px);
+  }
+}
+
 .call-panel--fullscreen .call-panel__notice {
   margin: 0;
 }

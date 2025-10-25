@@ -310,6 +310,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const callPanelRef = useRef<HTMLDivElement | null>(null);
   const pipContainerRef = useRef<HTMLDivElement | null>(null);
+  const shouldRestoreFullscreenOnPortraitRef = useRef(false);
+  const isCallFullscreenRef = useRef(isCallFullscreen);
   const focusComposer = useCallback(() => {
     const composer = composerRef.current;
     if (!composer) {
@@ -319,6 +321,17 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     if (typeof composer.setSelectionRange === "function") {
       const length = composer.value.length;
       composer.setSelectionRange(length, length);
+    }
+  }, []);
+  const focusCallPanel = useCallback(() => {
+    const panel = callPanelRef.current;
+    if (!panel) {
+      return;
+    }
+    try {
+      panel.focus({ preventScroll: true });
+    } catch {
+      panel.focus();
     }
   }, []);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
@@ -403,6 +416,63 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
   useEffect(() => {
     callStateRef.current = callState;
+  }, [callState]);
+
+  useEffect(() => {
+    isCallFullscreenRef.current = isCallFullscreen;
+  }, [isCallFullscreen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !isTouchDevice || callState !== "active") {
+      return;
+    }
+    if (typeof window.matchMedia !== "function") {
+      return;
+    }
+
+    const portraitQuery = window.matchMedia("(orientation: portrait)");
+
+    const handleOrientationChange = () => {
+      const isPortrait = portraitQuery.matches;
+      if (!isPortrait) {
+        if (isCallFullscreenRef.current) {
+          shouldRestoreFullscreenOnPortraitRef.current = true;
+          setIsCallFullscreen(false);
+          setPipPosition(null);
+          pipDragStateRef.current = null;
+          focusCallPanel();
+        } else {
+          shouldRestoreFullscreenOnPortraitRef.current = false;
+        }
+      } else if (shouldRestoreFullscreenOnPortraitRef.current && !isCallFullscreenRef.current) {
+        setIsCallFullscreen(true);
+        shouldRestoreFullscreenOnPortraitRef.current = false;
+      }
+    };
+
+    handleOrientationChange();
+
+    const listener = () => {
+      handleOrientationChange();
+    };
+
+    if (typeof portraitQuery.addEventListener === "function") {
+      portraitQuery.addEventListener("change", listener);
+      return () => {
+        portraitQuery.removeEventListener("change", listener);
+      };
+    }
+
+    portraitQuery.addListener(listener);
+    return () => {
+      portraitQuery.removeListener(listener);
+    };
+  }, [callState, focusCallPanel, isTouchDevice, setIsCallFullscreen, setPipPosition]);
+
+  useEffect(() => {
+    if (callState !== "active") {
+      shouldRestoreFullscreenOnPortraitRef.current = false;
+    }
   }, [callState]);
 
   useEffect(() => {
@@ -2585,18 +2655,21 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     if (callState !== "active") {
       return;
     }
+    shouldRestoreFullscreenOnPortraitRef.current = false;
     setIsCallFullscreen((current) => !current);
     setPipPosition(null);
     pipDragStateRef.current = null;
   }, [callState]);
 
   const handleExitFullscreenOnly = useCallback(() => {
+    shouldRestoreFullscreenOnPortraitRef.current = false;
     setIsCallFullscreen(false);
     setPipPosition(null);
     pipDragStateRef.current = null;
   }, []);
 
   const handleFullscreenEndCall = useCallback(() => {
+    shouldRestoreFullscreenOnPortraitRef.current = false;
     setIsCallFullscreen(false);
     setPipPosition(null);
     pipDragStateRef.current = null;
@@ -3344,6 +3417,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         <div
           className={`call-panel${isCallFullscreen ? " call-panel--fullscreen" : ""}`}
           ref={callPanelRef}
+          tabIndex={-1}
         >
             <div className="call-panel__header">
               <div
