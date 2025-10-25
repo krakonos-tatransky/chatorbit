@@ -12,6 +12,7 @@ import { TermsConsentModal } from "@/components/terms-consent-modal";
 import { ReportAbuseModal, type ReportAbuseFormValues } from "@/components/report-abuse-modal";
 import { apiUrl, wsUrl } from "@/lib/api";
 import { getClientIdentity } from "@/lib/client-identity";
+import { getViewportInfo, subscribeToViewportInfo, type ViewportInfo } from "@/lib/device";
 import { getIceServers } from "@/lib/webrtc";
 
 const textEncoder = new TextEncoder();
@@ -290,6 +291,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const [isLocalVideoMuted, setIsLocalVideoMuted] = useState(false);
   const [isLocalAudioMuted, setIsLocalAudioMuted] = useState(false);
   const [pipPosition, setPipPosition] = useState<{ left: number; top: number } | null>(null);
+  const [viewportInfo, setViewportInfo] = useState<ViewportInfo>({
+    isMobile: false,
+    orientation: "portrait",
+  });
   const sessionHeaderId = useId();
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -2367,7 +2372,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     Boolean(localStream) ||
     Boolean(remoteStream);
 
-  const canShowFullscreenToggle = callState === "active";
+  const isMobileFullscreenLandscape =
+    isCallFullscreen && viewportInfo.isMobile && viewportInfo.orientation === "landscape";
+
+  const canShowFullscreenToggle = callState === "active" && !isMobileFullscreenLandscape;
   const canShowMediaMuteButtons = Boolean(localStream);
   const canShowCallButtonInHeader = shouldShowCallButton && (!isCallFullscreen || callState !== "active");
   const shouldShowHeaderActions =
@@ -2378,6 +2386,21 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setIsCallFullscreen(false);
     }
   }, [callState, shouldShowMediaPanel]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    setViewportInfo(getViewportInfo());
+    const unsubscribe = subscribeToViewportInfo((info) => {
+      setViewportInfo(info);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     const stream = localStreamRef.current;
@@ -3342,7 +3365,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
       {shouldShowMediaPanel ? (
         <div
-          className={`call-panel${isCallFullscreen ? " call-panel--fullscreen" : ""}`}
+          className={`call-panel${
+            isCallFullscreen ? " call-panel--fullscreen" : ""
+          }${isMobileFullscreenLandscape ? " call-panel--fullscreen-mobile-landscape" : ""}`}
           ref={callPanelRef}
         >
             <div className="call-panel__header">
@@ -3356,7 +3381,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                   aria-hidden
                 />
                 <span className="call-panel__status-text">{callPanelStatusLabel}</span>
-                {isCallFullscreen && callState === "active" ? (
+                {isCallFullscreen && callState === "active" && !isMobileFullscreenLandscape ? (
                   <span className="call-panel__status-timer" aria-label="Session timer">
                     {headerTimerLabel}
                   </span>
@@ -3555,22 +3580,54 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             </div>
           </div>
           {isCallFullscreen ? (
-            <div className="call-panel__fullscreen-controls">
-              <button
-                type="button"
-                className="call-panel__fullscreen-control call-panel__fullscreen-control--end"
-                onClick={handleFullscreenEndCall}
-              >
-                End video
-              </button>
-              <button
-                type="button"
-                className="call-panel__fullscreen-control call-panel__fullscreen-control--dismiss"
-                onClick={handleExitFullscreenOnly}
-              >
-                Exit full screen
-              </button>
-            </div>
+            isMobileFullscreenLandscape ? (
+              <>
+                <button
+                  type="button"
+                  className="call-panel__mobile-control call-panel__mobile-control--dismiss"
+                  onClick={handleExitFullscreenOnly}
+                >
+                  Exit full screen
+                </button>
+                <button
+                  type="button"
+                  className="call-panel__mobile-control call-panel__mobile-control--end"
+                  onClick={handleFullscreenEndCall}
+                >
+                  End video
+                </button>
+                {callState === "active" ? (
+                  <div
+                    className={`call-panel__mobile-timer call-panel__mobile-timer--${callPanelStatusVariant}`}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <span
+                      className={`call-panel__status-indicator call-panel__status-indicator--${callPanelStatusVariant}`}
+                      aria-hidden
+                    />
+                    <span aria-label="Session timer">{headerTimerLabel}</span>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="call-panel__fullscreen-controls">
+                <button
+                  type="button"
+                  className="call-panel__fullscreen-control call-panel__fullscreen-control--end"
+                  onClick={handleFullscreenEndCall}
+                >
+                  End video
+                </button>
+                <button
+                  type="button"
+                  className="call-panel__fullscreen-control call-panel__fullscreen-control--dismiss"
+                  onClick={handleExitFullscreenOnly}
+                >
+                  Exit full screen
+                </button>
+              </div>
+            )
           ) : null}
         </div>
       ) : null}

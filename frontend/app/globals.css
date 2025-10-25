@@ -2855,6 +2855,141 @@ main {
   border-color: rgba(148, 163, 184, 0.45);
 }
 
+.call-panel--fullscreen-mobile-landscape {
+  padding: 0;
+  gap: 0;
+  border-radius: 28px;
+  overflow: hidden;
+  position: relative;
+}
+
+.call-panel--fullscreen-mobile-landscape .call-panel__header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(180deg, rgba(2, 6, 23, 0.85) 0%, rgba(2, 6, 23, 0.4) 55%, transparent 100%);
+  z-index: 3;
+  gap: 0.5rem;
+}
+
+.call-panel--fullscreen-mobile-landscape .call-panel__status {
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  gap: 0.3rem;
+}
+
+.call-panel--fullscreen-mobile-landscape .call-panel__status-text {
+  font-size: 0.62rem;
+}
+
+.call-panel--fullscreen-mobile-landscape .call-panel__actions {
+  margin-left: auto;
+  gap: 0.4rem;
+}
+
+.call-panel--fullscreen-mobile-landscape .call-panel__media {
+  flex: 1;
+  min-height: 0;
+  padding: 0;
+  gap: 0;
+}
+
+.call-panel--fullscreen-mobile-landscape .call-panel__media-item--remote {
+  flex: 1;
+}
+
+.call-panel--fullscreen-mobile-landscape .call-panel__media-item--remote .call-panel__media-video,
+.call-panel--fullscreen-mobile-landscape .call-panel__media-item--remote .call-panel__media-placeholder {
+  border-radius: 0;
+  height: 100%;
+}
+
+.call-panel--fullscreen-mobile-landscape .call-panel__media-item--remote .call-panel__media-placeholder {
+  padding: 1.25rem;
+}
+
+.call-panel--fullscreen-mobile-landscape .call-panel__media-item--remote .call-panel__media-label {
+  display: none;
+}
+
+.call-panel--fullscreen-mobile-landscape .call-panel__media-item--local {
+  right: clamp(0.75rem, 4vw, 2.5rem);
+  bottom: clamp(0.75rem, 4vw, 2.5rem);
+  width: min(32%, 220px);
+}
+
+.call-panel__mobile-control {
+  position: absolute;
+  z-index: 4;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: rgba(15, 23, 42, 0.7);
+  color: rgba(226, 232, 240, 0.95);
+  padding: 0.5rem 1.25rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.call-panel__mobile-control:hover,
+.call-panel__mobile-control:focus-visible {
+  outline: none;
+  border-color: rgba(34, 211, 238, 0.6);
+  background: rgba(34, 211, 238, 0.2);
+  color: rgba(224, 242, 254, 1);
+}
+
+.call-panel__mobile-control--dismiss {
+  top: 1rem;
+  right: 1rem;
+}
+
+.call-panel__mobile-control--end {
+  bottom: 1rem;
+  right: 1rem;
+  border-color: rgba(248, 113, 113, 0.65);
+  background: rgba(248, 113, 113, 0.18);
+  color: rgba(255, 228, 230, 0.95);
+}
+
+.call-panel__mobile-control--end:hover,
+.call-panel__mobile-control--end:focus-visible {
+  border-color: rgba(239, 68, 68, 0.7);
+  background: rgba(239, 68, 68, 0.28);
+  color: rgba(255, 241, 242, 1);
+}
+
+.call-panel__mobile-timer {
+  position: absolute;
+  top: 1rem;
+  left: 1rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  background: rgba(2, 6, 23, 0.75);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  color: rgba(148, 163, 184, 0.85);
+  z-index: 4;
+}
+
+.call-panel__mobile-timer--pending,
+.call-panel__mobile-timer--incoming,
+.call-panel__mobile-timer--connecting {
+  color: rgba(191, 219, 254, 0.9);
+}
+
+.call-panel__mobile-timer--active {
+  color: rgba(220, 252, 231, 0.95);
+}
+
 .chat-log {
   flex: 1;
   overflow-y: auto;
