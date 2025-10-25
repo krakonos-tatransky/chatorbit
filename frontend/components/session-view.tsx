@@ -2411,6 +2411,67 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           ? "Connecting camera…"
           : "Camera preview unavailable";
 
+  const handlePipPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!isCallFullscreen) {
+        return;
+      }
+      const pipContainer = pipContainerRef.current;
+      const panel = callPanelRef.current;
+      if (!pipContainer || !panel) {
+        return;
+      }
+      event.preventDefault();
+      const pipRect = pipContainer.getBoundingClientRect();
+      pipDragStateRef.current = {
+        pointerId: event.pointerId,
+        offsetX: event.clientX - pipRect.left,
+        offsetY: event.clientY - pipRect.top,
+        pipWidth: pipRect.width,
+        pipHeight: pipRect.height,
+      };
+      pipContainer.setPointerCapture(event.pointerId);
+    },
+    [isCallFullscreen],
+  );
+
+  const handlePipPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = pipDragStateRef.current;
+      if (!isCallFullscreen || !drag || drag.pointerId !== event.pointerId) {
+        return;
+      }
+      const panel = callPanelRef.current;
+      if (!panel) {
+        return;
+      }
+      const panelRect = panel.getBoundingClientRect();
+      const maxLeft = Math.max(panelRect.width - drag.pipWidth, 0);
+      const maxTop = Math.max(panelRect.height - drag.pipHeight, 0);
+      const proposedLeft = event.clientX - panelRect.left - drag.offsetX;
+      const proposedTop = event.clientY - panelRect.top - drag.offsetY;
+      const nextLeft = Math.min(Math.max(proposedLeft, 0), maxLeft);
+      const nextTop = Math.min(Math.max(proposedTop, 0), maxTop);
+      setPipPosition({ left: nextLeft, top: nextTop });
+    },
+    [isCallFullscreen],
+  );
+
+  const handlePipPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = pipDragStateRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) {
+        return;
+      }
+      const pipContainer = pipContainerRef.current;
+      if (pipContainer && pipContainer.hasPointerCapture(event.pointerId)) {
+        pipContainer.releasePointerCapture(event.pointerId);
+      }
+      pipDragStateRef.current = null;
+    },
+    [],
+  );
+
   const localMediaElement = (
     <div
       className={`call-panel__media-item${
@@ -2720,67 +2781,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     sendCallMessage("reject");
     showCallNotice("Declined video chat request.");
   }, [callState, sendCallMessage, setCallDialogOpen, setCallState, setIncomingCallFrom, showCallNotice]);
-
-  const handlePipPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (!isCallFullscreen) {
-        return;
-      }
-      const pipContainer = pipContainerRef.current;
-      const panel = callPanelRef.current;
-      if (!pipContainer || !panel) {
-        return;
-      }
-      event.preventDefault();
-      const pipRect = pipContainer.getBoundingClientRect();
-      pipDragStateRef.current = {
-        pointerId: event.pointerId,
-        offsetX: event.clientX - pipRect.left,
-        offsetY: event.clientY - pipRect.top,
-        pipWidth: pipRect.width,
-        pipHeight: pipRect.height,
-      };
-      pipContainer.setPointerCapture(event.pointerId);
-    },
-    [isCallFullscreen],
-  );
-
-  const handlePipPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const drag = pipDragStateRef.current;
-      if (!isCallFullscreen || !drag || drag.pointerId !== event.pointerId) {
-        return;
-      }
-      const panel = callPanelRef.current;
-      if (!panel) {
-        return;
-      }
-      const panelRect = panel.getBoundingClientRect();
-      const maxLeft = Math.max(panelRect.width - drag.pipWidth, 0);
-      const maxTop = Math.max(panelRect.height - drag.pipHeight, 0);
-      const proposedLeft = event.clientX - panelRect.left - drag.offsetX;
-      const proposedTop = event.clientY - panelRect.top - drag.offsetY;
-      const nextLeft = Math.min(Math.max(proposedLeft, 0), maxLeft);
-      const nextTop = Math.min(Math.max(proposedTop, 0), maxTop);
-      setPipPosition({ left: nextLeft, top: nextTop });
-    },
-    [isCallFullscreen],
-  );
-
-  const handlePipPointerUp = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const drag = pipDragStateRef.current;
-      if (!drag || drag.pointerId !== event.pointerId) {
-        return;
-      }
-      const pipContainer = pipContainerRef.current;
-      if (pipContainer && pipContainer.hasPointerCapture(event.pointerId)) {
-        pipContainer.releasePointerCapture(event.pointerId);
-      }
-      pipDragStateRef.current = null;
-    },
-    [],
-  );
 
   const connectedParticipantCount = useMemo(() => {
     const connectedIds = new Set(sessionStatus?.connectedParticipants ?? []);
