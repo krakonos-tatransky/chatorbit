@@ -357,6 +357,29 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   } | null>(null);
   const termsStorageKey = useMemo(() => `chatorbit:session:${token}:termsAccepted`, [token]);
 
+  const resetSessionState = useCallback(() => {
+    hashedMessagesRef.current.clear();
+    setMessages([]);
+    encryptionKeyRef.current = null;
+    encryptionPromiseRef.current = null;
+    capabilityAnnouncedRef.current = false;
+    peerSupportsEncryptionRef.current = null;
+    setPeerSupportsEncryption(null);
+    knownMessageIdsRef.current.clear();
+    initialMessagesHandledRef.current = false;
+    sessionEndedRef.current = false;
+    sessionActiveRef.current = false;
+    setSessionEnded(false);
+    setSessionEndedFromStorage(false);
+    wasConnectedRef.current = false;
+    previousMediaPanelVisibleRef.current = false;
+    setHeaderCollapsed(false);
+    if (typeof window !== "undefined" && headerRevealTimeoutRef.current) {
+      window.clearTimeout(headerRevealTimeoutRef.current);
+      headerRevealTimeoutRef.current = null;
+    }
+  }, [setHeaderCollapsed, setMessages, setPeerSupportsEncryption, setSessionEnded, setSessionEndedFromStorage]);
+
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -544,19 +567,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [ensureAudioContext]);
 
   useEffect(() => {
-    hashedMessagesRef.current.clear();
-    setMessages([]);
-    encryptionKeyRef.current = null;
-    encryptionPromiseRef.current = null;
-    capabilityAnnouncedRef.current = false;
-    peerSupportsEncryptionRef.current = null;
-    setPeerSupportsEncryption(null);
-    knownMessageIdsRef.current.clear();
-    initialMessagesHandledRef.current = false;
-    sessionEndedRef.current = false;
-    setSessionEnded(false);
-    setSessionEndedFromStorage(false);
-  }, [token]);
+    resetSessionState();
+  }, [resetSessionState, token]);
 
   useEffect(() => {
     sessionActiveRef.current = sessionStatus?.status === "active";
@@ -1958,34 +1970,132 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     token,
   ]);
 
+  const fetchInitialStatus = useCallback(async () => {
+    logEvent("Fetching initial session status");
+    try {
+      const statusResponse = await fetch(apiUrl(`/api/sessions/${token}/status`));
+
+      if (statusResponse.ok) {
+        const statusPayload = await statusResponse.json();
+        setSessionStatus(mapStatus(statusPayload));
+        setRemainingSeconds(statusPayload.remaining_seconds ?? null);
+        logEvent("Loaded session status", statusPayload);
+      } else if (statusResponse.status === 404) {
+        setError("Session not found or expired.");
+        logEvent("Session status request returned 404");
+        return;
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load session state.");
+      console.error("Failed to load session status", cause);
+    }
+  }, [setError, setRemainingSeconds, setSessionStatus, token]);
+
   useEffect(() => {
     if (!participantId || sessionEnded) {
       return;
     }
 
-    async function bootstrap() {
-      logEvent("Fetching initial session status");
-      try {
-        const statusResponse = await fetch(apiUrl(`/api/sessions/${token}/status`));
+    void fetchInitialStatus();
+  }, [fetchInitialStatus, participantId, sessionEnded]);
 
-        if (statusResponse.ok) {
-          const statusPayload = await statusResponse.json();
-          setSessionStatus(mapStatus(statusPayload));
-          setRemainingSeconds(statusPayload.remaining_seconds ?? null);
-          logEvent("Loaded session status", statusPayload);
-        } else if (statusResponse.status === 404) {
-          setError("Session not found or expired.");
-          logEvent("Session status request returned 404");
-          return;
-        }
+  const restartAfterHistoryNavigation = useCallback(() => {
+    if (!participantId) {
+      return;
+    }
+    if (sessionEnded || sessionEndedRef.current) {
+      return;
+    }
+    const status = sessionStatus?.status;
+    if (status === "closed" || status === "expired" || status === "deleted") {
+      return;
+    }
+
+    logEvent("Restarting session after history navigation");
+
+    const socket = socketRef.current;
+    if (socket) {
+      socketRef.current = null;
+      try {
+        socket.close();
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "Unable to load session state.");
-        console.error("Failed to load session status", cause);
+        console.warn("Failed to close WebSocket during history navigation restart", cause);
       }
     }
 
-    bootstrap();
-  }, [participantId, sessionEnded, token]);
+    resetPeerConnection({ recreate: false });
+    resetSessionState();
+    setSessionStatus(null);
+    setRemainingSeconds(null);
+    setError(null);
+    setSocketReady(false);
+    setIsReconnecting(false);
+    setConnected(false);
+    sessionEndedRef.current = false;
+    sessionActiveRef.current = false;
+    setSocketReconnectNonce((value) => value + 1);
+
+    void fetchInitialStatus();
+  }, [
+    fetchInitialStatus,
+    participantId,
+    resetPeerConnection,
+    resetSessionState,
+    sessionEnded,
+    sessionStatus,
+    setConnected,
+    setError,
+    setIsReconnecting,
+    setRemainingSeconds,
+    setSessionStatus,
+    setSocketReady,
+    setSocketReconnectNonce,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handlePageShow = (event: PageTransitionEvent) => {
+      let fromHistory = event.persisted;
+
+      if (!fromHistory && typeof performance !== "undefined") {
+        if (typeof performance.getEntriesByType === "function") {
+          const entries = performance.getEntriesByType("navigation") as PerformanceNavigationTiming[];
+          const latest = entries[entries.length - 1];
+          if (latest && latest.type === "back_forward") {
+            fromHistory = true;
+          }
+        }
+
+        if (!fromHistory) {
+          const legacyNav = (performance as Performance & {
+            navigation?: { type?: number; TYPE_BACK_FORWARD?: number };
+          }).navigation;
+          if (legacyNav) {
+            const backForwardType =
+              typeof legacyNav.TYPE_BACK_FORWARD === "number" ? legacyNav.TYPE_BACK_FORWARD : 2;
+            if (legacyNav.type === backForwardType) {
+              fromHistory = true;
+            }
+          }
+        }
+      }
+
+      if (!fromHistory) {
+        return;
+      }
+
+      restartAfterHistoryNavigation();
+    };
+
+    window.addEventListener("pageshow", handlePageShow);
+
+    return () => {
+      window.removeEventListener("pageshow", handlePageShow);
+    };
+  }, [restartAfterHistoryNavigation]);
 
   useEffect(() => {
     if (!participantId || !sessionStatus) {
