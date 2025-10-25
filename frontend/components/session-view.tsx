@@ -2399,6 +2399,25 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     }
   }, [callState, shouldShowMediaPanel]);
 
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const root = document.documentElement;
+    const className = "mobile-landscape-call-active";
+
+    if (isMobileFullscreenLandscape) {
+      root.classList.add(className);
+    } else {
+      root.classList.remove(className);
+    }
+
+    return () => {
+      root.classList.remove(className);
+    };
+  }, [isMobileFullscreenLandscape]);
+
   const remotePlaceholderMessage =
     callState === "active"
       ? "Waiting for peer video…"

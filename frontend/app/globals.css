@@ -2878,6 +2878,12 @@ main {
   gap: 0.5rem;
 }
 
+.call-panel--fullscreen-mobile-landscape .call-panel__header,
+.call-panel--fullscreen-mobile-landscape .call-panel__status,
+.call-panel--fullscreen-mobile-landscape .call-panel__actions {
+  display: none;
+}
+
 .call-panel--fullscreen-mobile-landscape .call-panel__status {
   font-size: 0.62rem;
   letter-spacing: 0.1em;
@@ -2940,11 +2946,11 @@ main {
 }
 
 .call-panel__mobile-overlay .call-panel__media-video {
-  width: auto;
+  width: 100%;
   height: auto;
   max-width: 100%;
   max-height: 100%;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: auto;
   object-fit: contain;
   border-radius: 18px;
   background: #000;
@@ -3033,6 +3039,10 @@ main {
 
 .call-panel__mobile-timer--active {
   color: rgba(220, 252, 231, 0.95);
+}
+
+.mobile-landscape-call-active .site-header {
+  display: none;
 }
 
 .chat-log {
