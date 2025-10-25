@@ -12,6 +12,7 @@ import { TermsConsentModal } from "@/components/terms-consent-modal";
 import { ReportAbuseModal, type ReportAbuseFormValues } from "@/components/report-abuse-modal";
 import { apiUrl, wsUrl } from "@/lib/api";
 import { getClientIdentity } from "@/lib/client-identity";
+import { useDeviceProfile } from "@/lib/device";
 import { getIceServers } from "@/lib/webrtc";
 
 const textEncoder = new TextEncoder();
@@ -310,6 +311,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const callPanelRef = useRef<HTMLDivElement | null>(null);
   const pipContainerRef = useRef<HTMLDivElement | null>(null);
+  const { isIOS, isSmallScreen } = useDeviceProfile();
+  const shouldUseCompactFullscreenHeader = isCallFullscreen && (isIOS || isSmallScreen);
   const focusComposer = useCallback(() => {
     const composer = composerRef.current;
     if (!composer) {
@@ -2562,12 +2565,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     pipDragStateRef.current = null;
   }, [callState]);
 
-  const handleExitFullscreenOnly = useCallback(() => {
-    setIsCallFullscreen(false);
-    setPipPosition(null);
-    pipDragStateRef.current = null;
-  }, []);
-
   const handleFullscreenEndCall = useCallback(() => {
     setIsCallFullscreen(false);
     setPipPosition(null);
@@ -3372,28 +3369,48 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
       {shouldShowMediaPanel ? (
         <div
-          className={`call-panel${isCallFullscreen ? " call-panel--fullscreen" : ""}`}
+          className={`call-panel${isCallFullscreen ? " call-panel--fullscreen" : ""}${
+            shouldUseCompactFullscreenHeader ? " call-panel--fullscreen-compact" : ""
+          }`}
           ref={callPanelRef}
         >
-            <div className="call-panel__header">
-              <div
-                className={`call-panel__status call-panel__status--${callPanelStatusVariant}`}
-                role="status"
-                aria-live="polite"
-              >
-                <span
-                  className={`call-panel__status-indicator call-panel__status-indicator--${callPanelStatusVariant}`}
-                  aria-hidden
-                />
-                <span className="call-panel__status-text">{callPanelStatusLabel}</span>
-                {isCallFullscreen && callState === "active" ? (
-                  <span className="call-panel__status-timer" aria-label="Session timer">
-                    {headerTimerLabel}
-                  </span>
-                ) : null}
-              </div>
+          <div
+            className={`call-panel__header${shouldUseCompactFullscreenHeader ? " call-panel__header--compact" : ""}`}
+          >
+            <div
+              className={`call-panel__status call-panel__status--${callPanelStatusVariant}${
+                shouldUseCompactFullscreenHeader ? " call-panel__status--compact" : ""
+              }`}
+              role="status"
+              aria-live="polite"
+              aria-label={shouldUseCompactFullscreenHeader ? callPanelStatusLabel : undefined}
+            >
+              <span
+                className={`call-panel__status-indicator call-panel__status-indicator--${callPanelStatusVariant}`}
+                aria-hidden
+              />
+              {!shouldUseCompactFullscreenHeader ? (
+                <>
+                  <span className="call-panel__status-text">{callPanelStatusLabel}</span>
+                  {isCallFullscreen && callState === "active" ? (
+                    <span className="call-panel__status-timer" aria-label="Session timer">
+                      {headerTimerLabel}
+                    </span>
+                  ) : null}
+                </>
+              ) : null}
+            </div>
+            {shouldUseCompactFullscreenHeader && isCallFullscreen && callState === "active" ? (
+              <span className="call-panel__status-timer call-panel__status-timer--compact" aria-label="Session timer">
+                {headerTimerLabel}
+              </span>
+            ) : null}
             {shouldShowHeaderActions ? (
-              <div className="call-panel__actions">
+              <div
+                className={`call-panel__actions${
+                  shouldUseCompactFullscreenHeader ? " call-panel__actions--stacked" : ""
+                }`}
+              >
                 {canShowFullscreenToggle ? (
                   <button
                     type="button"
@@ -3585,20 +3602,27 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             </div>
           </div>
           {isCallFullscreen ? (
-            <div className="call-panel__fullscreen-controls">
+            <div
+              className={`call-panel__fullscreen-controls${
+                shouldUseCompactFullscreenHeader ? " call-panel__fullscreen-controls--compact" : ""
+              }`}
+            >
               <button
                 type="button"
-                className="call-panel__fullscreen-control call-panel__fullscreen-control--end"
+                className="call-panel__fullscreen-control call-panel__fullscreen-control--end call-panel__fullscreen-control--icon"
                 onClick={handleFullscreenEndCall}
+                aria-label="End video call"
               >
-                End video
-              </button>
-              <button
-                type="button"
-                className="call-panel__fullscreen-control call-panel__fullscreen-control--dismiss"
-                onClick={handleExitFullscreenOnly}
-              >
-                Exit full screen
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path
+                    fill="currentColor"
+                    d="M4.5 6.75A2.25 2.25 0 0 1 6.75 4.5h6.5A2.25 2.25 0 0 1 15.5 6.75v3.086l2.126-1.895A1.25 1.25 0 0 1 20.5 8.97v6.06a1.25 1.25 0 0 1-2.874.928l-2.126-1.895v3.086A2.25 2.25 0 0 1 13.25 19.5h-6.5A2.25 2.25 0 0 1 4.5 17.25V6.75Z"
+                  />
+                  <path
+                    fill="currentColor"
+                    d="M9.22 9.22a.75.75 0 0 1 1.06 0L12 10.94l1.72-1.72a.75.75 0 1 1 1.06 1.06L13.06 12l1.72 1.72a.75.75 0 1 1-1.06 1.06L12 13.06l-1.72 1.72a.75.75 0 1 1-1.06-1.06L10.94 12 9.22 10.28a.75.75 0 0 1 0-1.06Z"
+                  />
+                </svg>
               </button>
             </div>
           ) : null}
