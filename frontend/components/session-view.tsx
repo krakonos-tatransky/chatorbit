@@ -357,6 +357,44 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   } | null>(null);
   const termsStorageKey = useMemo(() => `chatorbit:session:${token}:termsAccepted`, [token]);
 
+  /**
+   * Build MediaStreamConstraints from the current mute UI state.
+   * Returns `false` for a kind when the user has turned it off.
+   */
+  const getConstraints = (): MediaStreamConstraints => {
+    const video = !isLocalVideoMuted
+      ? {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 },
+          // Uncomment if you want front/back camera switching
+          // facingMode: isFrontCamera ? "user" : "environment",
+        }
+      : false;
+
+    const audio = !isLocalAudioMuted
+      ? {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        }
+      : false;
+
+    return { video, audio };
+  };
+
+  // Helper – boost reconnect delay on mobile after the page becomes visible again
+  const boostReconnectDelayOnWake = () => {
+    setReconnectBaseDelayMs((current) => Math.max(current, 800)); // 800 ms minimum after wake
+  };
+  
+  interface SignalPayload {
+    type: 'offer' | 'answer' | 'candidate';
+    sdp?: string;               // For offer/answer
+    candidate?: RTCIceCandidateInit;  // For ICE candidate
+    [key: string]: any;         // Allow extra fields if needed
+  }
+
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -1039,6 +1077,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         downlink: connection.downlink,
         rtt: connection.rtt,
       });
+      boostReconnectDelayOnWake();
       if (!sessionActiveRef.current) {
         return;
       }
@@ -1192,33 +1231,25 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       throw new Error("Media devices are not available.");
     }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-    for (const track of stream.getVideoTracks()) {
-      track.enabled = !isLocalVideoMuted;
-    }
-    for (const track of stream.getAudioTracks()) {
-      track.enabled = !isLocalAudioMuted;
-    }
+
+    const constraints = getConstraints();               // ← NEW
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
     localStreamRef.current = stream;
     setLocalStream(stream);
     return stream;
-  }, [isLocalAudioMuted, isLocalVideoMuted]);
+  }, [isLocalAudioMuted, isLocalVideoMuted]);           // ← deps added
 
   const attachLocalMedia = useCallback(async () => {
-    const stream = await ensureLocalStream();
+    const stream = await ensureLocalStream();   // already uses getConstraints()
     const pc = peerConnectionRef.current;
-    if (!pc) {
-      throw new Error("Peer connection is not ready.");
-    }
+    if (!pc) throw new Error("Peer connection is not ready.");
+
     const senders = pc.getSenders();
     for (const track of stream.getTracks()) {
-      const sender = senders.find((candidate) => candidate.track?.kind === track.kind);
+      const sender = senders.find(s => s.track?.kind === track.kind);
       if (sender) {
-        try {
-          await sender.replaceTrack(track);
-        } catch (cause) {
-          console.warn("Failed to replace track on sender", cause);
-        }
+        await sender.replaceTrack(track);
       } else {
         pc.addTrack(track, stream);
       }
@@ -1534,7 +1565,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   );
 
   const processSignalPayload = useCallback(
-    async (pc: RTCPeerConnection, payload: any) => {
+    async (pc: RTCPeerConnection, payload: SignalPayload) => {
       const signalType = payload.signalType as string;
       const detail = payload.payload;
 
@@ -1831,11 +1862,18 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           }
         }, delay);
       }
+      if (errorCode >= 700) {
+        logEvent("TURN server unreachable", { url, errorCode });
+        // Optionally fall back to different ICE servers
+      }
     });
 
     if (participantRole === "host") {
       logEvent("Creating data channel as host");
-      const channel = peerConnection.createDataChannel("chat");
+      const channel = peerConnection.createDataChannel("chat", {
+        ordered: true,
+        maxRetransmits: 5, // Critical for message delivery
+      });
       attachDataChannel(channel, peerConnection);
     } else {
       peerConnection.ondatachannel = (event) => {
@@ -2222,6 +2260,12 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return;
     }
 
+    const pc = peerConnectionRef.current;
+
+    // Only send if no remote description and signaling stable
+    if (pc.remoteDescription || pc.signalingState !== "stable") {
+      return;
+    }
     const timer = window.setTimeout(async () => {
       logEvent("Attempting to create WebRTC offer");
       try {
@@ -3058,6 +3102,64 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       }
     };
   }, [clearHeaderRevealTimeout, resetPeerConnection]);
+  
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    let wakeTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+
+      // -----------------------------------------------------------------
+      // Page just woke up → give the browser a tick to settle
+      // -----------------------------------------------------------------
+      if (wakeTimeout) clearTimeout(wakeTimeout);
+      wakeTimeout = setTimeout(() => {
+        wakeTimeout = null;
+        logEvent("Page visible again – recovering from sleep");
+        
+        boostReconnectDelayOnWake();
+
+        // 1. Re-open WebSocket (if it was closed by the OS)
+        if (socketRef.current?.readyState !== WebSocket.OPEN) {
+          setSocketReconnectNonce((n) => n + 1); // forces the WS useEffect
+        }
+
+        // 2. Re-acquire camera/mic *before* a new PC is built
+        if (callStateRef.current !== "idle" && !localStreamRef.current) {
+          void ensureLocalStream().catch((e) => {
+            console.warn("Failed to re-acquire media on wake", e);
+            showCallNotice("Camera/mic unavailable after wake-up");
+          });
+        }
+
+        // 3. Force a fresh PC (host will send a new offer automatically)
+        resetPeerConnection({ delayMs: 300 }); // small extra safety
+      }, 0);
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (wakeTimeout) clearTimeout(wakeTimeout);
+    };
+  }, [
+    resetPeerConnection,
+    ensureLocalStream,
+    showCallNotice,
+    // (no need to list every dep – the ones above are stable)
+  ]);
+  
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden" && localStreamRef.current) {
+        stopLocalMediaTracks(); // already stops + removes from senders
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [stopLocalMediaTracks]);
 
   if (!participantId) {
     return (
