@@ -465,6 +465,52 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [remoteStream]);
 
   useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+
+    const resumeVideoPlayback = () => {
+      if (document.hidden) {
+        return;
+      }
+
+      const localElement = localVideoRef.current;
+      const localStream = localStreamRef.current;
+      if (localElement && localStream) {
+        if (localElement.srcObject !== localStream) {
+          localElement.srcObject = localStream;
+        }
+        const playPromise = localElement.play();
+        if (playPromise) {
+          void playPromise.catch(() => {});
+        }
+      }
+
+      const remoteElement = remoteVideoRef.current;
+      const remoteStream = remoteStreamRef.current;
+      if (remoteElement && remoteStream) {
+        if (remoteElement.srcObject !== remoteStream) {
+          remoteElement.srcObject = remoteStream;
+        }
+        const playPromise = remoteElement.play();
+        if (playPromise) {
+          void playPromise.catch(() => {});
+        }
+      }
+    };
+
+    window.addEventListener("focus", resumeVideoPlayback);
+    window.addEventListener("pageshow", resumeVideoPlayback);
+    document.addEventListener("visibilitychange", resumeVideoPlayback);
+
+    return () => {
+      window.removeEventListener("focus", resumeVideoPlayback);
+      window.removeEventListener("pageshow", resumeVideoPlayback);
+      document.removeEventListener("visibilitychange", resumeVideoPlayback);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!isCallFullscreen) {
       return;
     }
