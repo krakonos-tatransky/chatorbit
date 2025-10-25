@@ -12,6 +12,7 @@ import { TermsConsentModal } from "@/components/terms-consent-modal";
 import { ReportAbuseModal, type ReportAbuseFormValues } from "@/components/report-abuse-modal";
 import { apiUrl, wsUrl } from "@/lib/api";
 import { getClientIdentity } from "@/lib/client-identity";
+import { getViewportInfo, subscribeToViewportInfo, type ViewportInfo } from "@/lib/device";
 import { getIceServers } from "@/lib/webrtc";
 
 const textEncoder = new TextEncoder();
@@ -290,6 +291,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const [isLocalVideoMuted, setIsLocalVideoMuted] = useState(false);
   const [isLocalAudioMuted, setIsLocalAudioMuted] = useState(false);
   const [pipPosition, setPipPosition] = useState<{ left: number; top: number } | null>(null);
+  const [viewportInfo, setViewportInfo] = useState<ViewportInfo>({
+    isMobile: false,
+    orientation: "portrait",
+  });
   const sessionHeaderId = useId();
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -310,6 +315,42 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const callPanelRef = useRef<HTMLDivElement | null>(null);
   const pipContainerRef = useRef<HTMLDivElement | null>(null);
+  const syncVideoElementStream = useCallback(
+    (element: HTMLVideoElement | null, stream: MediaStream | null) => {
+      if (!element) {
+        return;
+      }
+      if (stream) {
+        if (element.srcObject !== stream) {
+          element.srcObject = stream;
+        }
+        const playPromise = element.play();
+        if (playPromise) {
+          void playPromise.catch(() => {});
+        }
+      } else {
+        element.srcObject = null;
+      }
+    },
+    [],
+  );
+
+  const setLocalVideoNode = useCallback(
+    (node: HTMLVideoElement | null) => {
+      localVideoRef.current = node;
+      syncVideoElementStream(node, localStreamRef.current);
+    },
+    [syncVideoElementStream],
+  );
+
+  const setRemoteVideoNode = useCallback(
+    (node: HTMLVideoElement | null) => {
+      remoteVideoRef.current = node;
+      syncVideoElementStream(node, remoteStreamRef.current);
+    },
+    [syncVideoElementStream],
+  );
+
   const focusComposer = useCallback(() => {
     const composer = composerRef.current;
     if (!composer) {
@@ -421,36 +462,12 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [callState]);
 
   useEffect(() => {
-    const element = localVideoRef.current;
-    if (!element) {
-      return;
-    }
-    if (localStream) {
-      element.srcObject = localStream;
-      const playPromise = element.play();
-      if (playPromise) {
-        void playPromise.catch(() => {});
-      }
-    } else {
-      element.srcObject = null;
-    }
-  }, [localStream]);
+    syncVideoElementStream(localVideoRef.current, localStream);
+  }, [localStream, syncVideoElementStream]);
 
   useEffect(() => {
-    const element = remoteVideoRef.current;
-    if (!element) {
-      return;
-    }
-    if (remoteStream) {
-      element.srcObject = remoteStream;
-      const playPromise = element.play();
-      if (playPromise) {
-        void playPromise.catch(() => {});
-      }
-    } else {
-      element.srcObject = null;
-    }
-  }, [remoteStream]);
+    syncVideoElementStream(remoteVideoRef.current, remoteStream);
+  }, [remoteStream, syncVideoElementStream]);
 
   useEffect(() => {
     if (!remoteStream) {
@@ -2367,7 +2384,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     Boolean(localStream) ||
     Boolean(remoteStream);
 
-  const canShowFullscreenToggle = callState === "active";
+  const isMobileFullscreenLandscape =
+    isCallFullscreen && viewportInfo.isMobile && viewportInfo.orientation === "landscape";
+
+  const canShowFullscreenToggle = callState === "active" && !isMobileFullscreenLandscape;
   const canShowMediaMuteButtons = Boolean(localStream);
   const canShowCallButtonInHeader = shouldShowCallButton && (!isCallFullscreen || callState !== "active");
   const shouldShowHeaderActions =
@@ -2378,6 +2398,161 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setIsCallFullscreen(false);
     }
   }, [callState, shouldShowMediaPanel]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const root = document.documentElement;
+    const className = "mobile-landscape-call-active";
+
+    if (isMobileFullscreenLandscape) {
+      root.classList.add(className);
+    } else {
+      root.classList.remove(className);
+    }
+
+    return () => {
+      root.classList.remove(className);
+    };
+  }, [isMobileFullscreenLandscape]);
+
+  const remotePlaceholderMessage =
+    callState === "active"
+      ? "Waiting for peer video…"
+      : callState === "incoming"
+        ? "Incoming video chat request"
+        : callState === "requesting"
+          ? "Awaiting peer response…"
+          : callState === "connecting"
+            ? "Connecting to peer…"
+            : "Remote video unavailable";
+
+  const remoteVideoElement = (
+    <video ref={setRemoteVideoNode} autoPlay playsInline className="call-panel__media-video" />
+  );
+
+  const localPlaceholderMessage =
+    callState === "incoming"
+      ? "Accept to share your camera."
+      : callState === "requesting"
+        ? "Waiting for peer to accept…"
+        : callState === "connecting"
+          ? "Connecting camera…"
+          : "Camera preview unavailable";
+
+  const handlePipPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!isCallFullscreen) {
+        return;
+      }
+      const pipContainer = pipContainerRef.current;
+      const panel = callPanelRef.current;
+      if (!pipContainer || !panel) {
+        return;
+      }
+      event.preventDefault();
+      const pipRect = pipContainer.getBoundingClientRect();
+      pipDragStateRef.current = {
+        pointerId: event.pointerId,
+        offsetX: event.clientX - pipRect.left,
+        offsetY: event.clientY - pipRect.top,
+        pipWidth: pipRect.width,
+        pipHeight: pipRect.height,
+      };
+      pipContainer.setPointerCapture(event.pointerId);
+    },
+    [isCallFullscreen],
+  );
+
+  const handlePipPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = pipDragStateRef.current;
+      if (!isCallFullscreen || !drag || drag.pointerId !== event.pointerId) {
+        return;
+      }
+      const panel = callPanelRef.current;
+      if (!panel) {
+        return;
+      }
+      const panelRect = panel.getBoundingClientRect();
+      const maxLeft = Math.max(panelRect.width - drag.pipWidth, 0);
+      const maxTop = Math.max(panelRect.height - drag.pipHeight, 0);
+      const proposedLeft = event.clientX - panelRect.left - drag.offsetX;
+      const proposedTop = event.clientY - panelRect.top - drag.offsetY;
+      const nextLeft = Math.min(Math.max(proposedLeft, 0), maxLeft);
+      const nextTop = Math.min(Math.max(proposedTop, 0), maxTop);
+      setPipPosition({ left: nextLeft, top: nextTop });
+    },
+    [isCallFullscreen],
+  );
+
+  const handlePipPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = pipDragStateRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) {
+        return;
+      }
+      const pipContainer = pipContainerRef.current;
+      if (pipContainer && pipContainer.hasPointerCapture(event.pointerId)) {
+        pipContainer.releasePointerCapture(event.pointerId);
+      }
+      pipDragStateRef.current = null;
+    },
+    [],
+  );
+
+  const localMediaElement = (
+    <div
+      className={`call-panel__media-item${
+        isCallFullscreen ? " call-panel__media-item--local" : ""
+      }`}
+      ref={pipContainerRef}
+      style={
+        isCallFullscreen && pipPosition
+          ? {
+              top: `${pipPosition.top}px`,
+              left: `${pipPosition.left}px`,
+              bottom: "auto",
+              right: "auto",
+            }
+          : undefined
+      }
+      onPointerDown={isCallFullscreen ? handlePipPointerDown : undefined}
+      onPointerMove={isCallFullscreen ? handlePipPointerMove : undefined}
+      onPointerUp={isCallFullscreen ? handlePipPointerUp : undefined}
+      onPointerCancel={isCallFullscreen ? handlePipPointerUp : undefined}
+    >
+      {localStream ? (
+        <video
+          ref={setLocalVideoNode}
+          autoPlay
+          muted
+          playsInline
+          className="call-panel__media-video"
+        />
+      ) : (
+        <div className="call-panel__media-placeholder">{localPlaceholderMessage}</div>
+      )}
+      <span className="call-panel__media-label">You</span>
+    </div>
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    setViewportInfo(getViewportInfo());
+    const unsubscribe = subscribeToViewportInfo((info) => {
+      setViewportInfo(info);
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     const stream = localStreamRef.current;
@@ -2643,67 +2818,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     sendCallMessage("reject");
     showCallNotice("Declined video chat request.");
   }, [callState, sendCallMessage, setCallDialogOpen, setCallState, setIncomingCallFrom, showCallNotice]);
-
-  const handlePipPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      if (!isCallFullscreen) {
-        return;
-      }
-      const pipContainer = pipContainerRef.current;
-      const panel = callPanelRef.current;
-      if (!pipContainer || !panel) {
-        return;
-      }
-      event.preventDefault();
-      const pipRect = pipContainer.getBoundingClientRect();
-      pipDragStateRef.current = {
-        pointerId: event.pointerId,
-        offsetX: event.clientX - pipRect.left,
-        offsetY: event.clientY - pipRect.top,
-        pipWidth: pipRect.width,
-        pipHeight: pipRect.height,
-      };
-      pipContainer.setPointerCapture(event.pointerId);
-    },
-    [isCallFullscreen],
-  );
-
-  const handlePipPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const drag = pipDragStateRef.current;
-      if (!isCallFullscreen || !drag || drag.pointerId !== event.pointerId) {
-        return;
-      }
-      const panel = callPanelRef.current;
-      if (!panel) {
-        return;
-      }
-      const panelRect = panel.getBoundingClientRect();
-      const maxLeft = Math.max(panelRect.width - drag.pipWidth, 0);
-      const maxTop = Math.max(panelRect.height - drag.pipHeight, 0);
-      const proposedLeft = event.clientX - panelRect.left - drag.offsetX;
-      const proposedTop = event.clientY - panelRect.top - drag.offsetY;
-      const nextLeft = Math.min(Math.max(proposedLeft, 0), maxLeft);
-      const nextTop = Math.min(Math.max(proposedTop, 0), maxTop);
-      setPipPosition({ left: nextLeft, top: nextTop });
-    },
-    [isCallFullscreen],
-  );
-
-  const handlePipPointerUp = useCallback(
-    (event: ReactPointerEvent<HTMLDivElement>) => {
-      const drag = pipDragStateRef.current;
-      if (!drag || drag.pointerId !== event.pointerId) {
-        return;
-      }
-      const pipContainer = pipContainerRef.current;
-      if (pipContainer && pipContainer.hasPointerCapture(event.pointerId)) {
-        pipContainer.releasePointerCapture(event.pointerId);
-      }
-      pipDragStateRef.current = null;
-    },
-    [],
-  );
 
   const connectedParticipantCount = useMemo(() => {
     const connectedIds = new Set(sessionStatus?.connectedParticipants ?? []);
@@ -3342,9 +3456,27 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
       {shouldShowMediaPanel ? (
         <div
-          className={`call-panel${isCallFullscreen ? " call-panel--fullscreen" : ""}`}
+          className={`call-panel${
+            isCallFullscreen ? " call-panel--fullscreen" : ""
+          }${isMobileFullscreenLandscape ? " call-panel--fullscreen-mobile-landscape" : ""}`}
           ref={callPanelRef}
         >
+          {isMobileFullscreenLandscape ? (
+            <div
+              className="call-panel__mobile-overlay"
+              aria-hidden={remoteStream ? true : undefined}
+              role={remoteStream ? undefined : "status"}
+              aria-live={remoteStream ? undefined : "polite"}
+            >
+              <div className="call-panel__mobile-overlay-media">
+                {remoteStream ? (
+                  remoteVideoElement
+                ) : (
+                  <div className="call-panel__mobile-overlay-placeholder">{remotePlaceholderMessage}</div>
+                )}
+              </div>
+            </div>
+          ) : null}
             <div className="call-panel__header">
               <div
                 className={`call-panel__status call-panel__status--${callPanelStatusVariant}`}
@@ -3356,7 +3488,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                   aria-hidden
                 />
                 <span className="call-panel__status-text">{callPanelStatusLabel}</span>
-                {isCallFullscreen && callState === "active" ? (
+                {isCallFullscreen && callState === "active" && !isMobileFullscreenLandscape ? (
                   <span className="call-panel__status-timer" aria-label="Session timer">
                     {headerTimerLabel}
                   </span>
@@ -3490,87 +3622,71 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             </div>
           ) : null}
           <div className="call-panel__media" aria-live="polite">
-            <div
-              className={`call-panel__media-item${
-                isCallFullscreen ? " call-panel__media-item--remote" : ""
-              }`}
-            >
-              {remoteStream ? (
-                <video ref={remoteVideoRef} autoPlay playsInline className="call-panel__media-video" />
-              ) : (
-                <div className="call-panel__media-placeholder">
-                  {callState === "active"
-                    ? "Waiting for peer video…"
-                    : callState === "incoming"
-                      ? "Incoming video chat request"
-                      : callState === "requesting"
-                        ? "Awaiting peer response…"
-                        : callState === "connecting"
-                          ? "Connecting to peer…"
-                          : "Remote video unavailable"}
-                </div>
-              )}
-              <span className="call-panel__media-label">Partner</span>
-            </div>
-            <div
-              className={`call-panel__media-item${
-                isCallFullscreen ? " call-panel__media-item--local" : ""
-              }`}
-              ref={pipContainerRef}
-              style={
-                isCallFullscreen && pipPosition
-                  ? {
-                      top: `${pipPosition.top}px`,
-                      left: `${pipPosition.left}px`,
-                      bottom: "auto",
-                      right: "auto",
-                    }
-                  : undefined
-              }
-              onPointerDown={isCallFullscreen ? handlePipPointerDown : undefined}
-              onPointerMove={isCallFullscreen ? handlePipPointerMove : undefined}
-              onPointerUp={isCallFullscreen ? handlePipPointerUp : undefined}
-              onPointerCancel={isCallFullscreen ? handlePipPointerUp : undefined}
-            >
-              {localStream ? (
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  className="call-panel__media-video"
-                />
-              ) : (
-                <div className="call-panel__media-placeholder">
-                  {callState === "incoming"
-                    ? "Accept to share your camera."
-                    : callState === "requesting"
-                      ? "Waiting for peer to accept…"
-                      : callState === "connecting"
-                        ? "Connecting camera…"
-                        : "Camera preview unavailable"}
-                </div>
-              )}
-              <span className="call-panel__media-label">You</span>
-            </div>
+            {!isMobileFullscreenLandscape ? (
+              <div
+                className={`call-panel__media-item${
+                  isCallFullscreen ? " call-panel__media-item--remote" : ""
+                }`}
+              >
+                {remoteStream ? (
+                  remoteVideoElement
+                ) : (
+                  <div className="call-panel__media-placeholder">{remotePlaceholderMessage}</div>
+                )}
+                <span className="call-panel__media-label">Partner</span>
+              </div>
+            ) : null}
+            {localMediaElement}
           </div>
           {isCallFullscreen ? (
-            <div className="call-panel__fullscreen-controls">
-              <button
-                type="button"
-                className="call-panel__fullscreen-control call-panel__fullscreen-control--end"
-                onClick={handleFullscreenEndCall}
-              >
-                End video
-              </button>
-              <button
-                type="button"
-                className="call-panel__fullscreen-control call-panel__fullscreen-control--dismiss"
-                onClick={handleExitFullscreenOnly}
-              >
-                Exit full screen
-              </button>
-            </div>
+            isMobileFullscreenLandscape ? (
+              <>
+                <button
+                  type="button"
+                  className="call-panel__mobile-control call-panel__mobile-control--dismiss"
+                  onClick={handleExitFullscreenOnly}
+                >
+                  Exit full screen
+                </button>
+                <button
+                  type="button"
+                  className="call-panel__mobile-control call-panel__mobile-control--end"
+                  onClick={handleFullscreenEndCall}
+                >
+                  End video
+                </button>
+                {callState === "active" ? (
+                  <div
+                    className={`call-panel__mobile-timer call-panel__mobile-timer--${callPanelStatusVariant}`}
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <span
+                      className={`call-panel__status-indicator call-panel__status-indicator--${callPanelStatusVariant}`}
+                      aria-hidden
+                    />
+                    <span aria-label="Session timer">{headerTimerLabel}</span>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className="call-panel__fullscreen-controls">
+                <button
+                  type="button"
+                  className="call-panel__fullscreen-control call-panel__fullscreen-control--end"
+                  onClick={handleFullscreenEndCall}
+                >
+                  End video
+                </button>
+                <button
+                  type="button"
+                  className="call-panel__fullscreen-control call-panel__fullscreen-control--dismiss"
+                  onClick={handleExitFullscreenOnly}
+                >
+                  Exit full screen
+                </button>
+              </div>
+            )
           ) : null}
         </div>
       ) : null}
