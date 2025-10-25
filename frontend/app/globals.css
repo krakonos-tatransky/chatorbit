@@ -2728,6 +2728,13 @@ main {
     width: clamp(15px, 4.8vw, 18px);
     height: clamp(15px, 4.8vw, 18px);
   }
+  .page-wrapper {
+    padding: 1rem 0.5rem;
+  }
+
+  .page-inner {
+    gap: 2rem;
+}
 }
 
 @media (orientation: landscape) and (max-height: 720px) {
