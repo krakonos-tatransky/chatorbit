@@ -310,6 +310,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const callPanelRef = useRef<HTMLDivElement | null>(null);
   const pipContainerRef = useRef<HTMLDivElement | null>(null);
+  const shouldRestoreFullscreenOnPortraitRef = useRef(false);
+  const isCallFullscreenRef = useRef(isCallFullscreen);
   const focusComposer = useCallback(() => {
     const composer = composerRef.current;
     if (!composer) {
@@ -319,6 +321,17 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     if (typeof composer.setSelectionRange === "function") {
       const length = composer.value.length;
       composer.setSelectionRange(length, length);
+    }
+  }, []);
+  const focusCallPanel = useCallback(() => {
+    const panel = callPanelRef.current;
+    if (!panel) {
+      return;
+    }
+    try {
+      panel.focus({ preventScroll: true });
+    } catch {
+      panel.focus();
     }
   }, []);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
@@ -406,6 +419,78 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [callState]);
 
   useEffect(() => {
+    isCallFullscreenRef.current = isCallFullscreen;
+  }, [isCallFullscreen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !isTouchDevice || callState !== "active") {
+      return;
+    }
+    if (typeof window.matchMedia !== "function") {
+      return;
+    }
+
+    const portraitQuery = window.matchMedia("(orientation: portrait)");
+
+    const handleOrientationChange = () => {
+      const isPortrait = portraitQuery.matches;
+      if (!isPortrait) {
+        if (isCallFullscreenRef.current) {
+          shouldRestoreFullscreenOnPortraitRef.current = true;
+          setIsCallFullscreen(false);
+          setPipPosition(null);
+          pipDragStateRef.current = null;
+          focusCallPanel();
+        } else {
+          shouldRestoreFullscreenOnPortraitRef.current = false;
+        }
+      } else if (shouldRestoreFullscreenOnPortraitRef.current && !isCallFullscreenRef.current) {
+        setIsCallFullscreen(true);
+        shouldRestoreFullscreenOnPortraitRef.current = false;
+      }
+    };
+
+    handleOrientationChange();
+
+    const listener = () => {
+      handleOrientationChange();
+    };
+
+    if (typeof portraitQuery.addEventListener === "function") {
+      portraitQuery.addEventListener("change", listener);
+      return () => {
+        portraitQuery.removeEventListener("change", listener);
+      };
+    }
+
+    portraitQuery.addListener(listener);
+    return () => {
+      portraitQuery.removeListener(listener);
+    };
+  }, [callState, focusCallPanel, isTouchDevice, setIsCallFullscreen, setPipPosition]);
+
+  useEffect(() => {
+    if (callState !== "active") {
+      shouldRestoreFullscreenOnPortraitRef.current = false;
+    }
+  }, [callState]);
+
+  useEffect(() => {
+    if (callState !== "active") {
+      return;
+    }
+    const panel = callPanelRef.current;
+    if (!panel) {
+      return;
+    }
+    try {
+      panel.scrollIntoView({ block: "start", behavior: "smooth" });
+    } catch {
+      panel.scrollIntoView({ block: "start" });
+    }
+  }, [callState]);
+
+  useEffect(() => {
     const element = localVideoRef.current;
     if (!element) {
       return;
@@ -448,6 +533,52 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return current;
     });
   }, [remoteStream]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+
+    const resumeVideoPlayback = () => {
+      if (document.hidden) {
+        return;
+      }
+
+      const localElement = localVideoRef.current;
+      const localStream = localStreamRef.current;
+      if (localElement && localStream) {
+        if (localElement.srcObject !== localStream) {
+          localElement.srcObject = localStream;
+        }
+        const playPromise = localElement.play();
+        if (playPromise) {
+          void playPromise.catch(() => {});
+        }
+      }
+
+      const remoteElement = remoteVideoRef.current;
+      const remoteStream = remoteStreamRef.current;
+      if (remoteElement && remoteStream) {
+        if (remoteElement.srcObject !== remoteStream) {
+          remoteElement.srcObject = remoteStream;
+        }
+        const playPromise = remoteElement.play();
+        if (playPromise) {
+          void playPromise.catch(() => {});
+        }
+      }
+    };
+
+    window.addEventListener("focus", resumeVideoPlayback);
+    window.addEventListener("pageshow", resumeVideoPlayback);
+    document.addEventListener("visibilitychange", resumeVideoPlayback);
+
+    return () => {
+      window.removeEventListener("focus", resumeVideoPlayback);
+      window.removeEventListener("pageshow", resumeVideoPlayback);
+      document.removeEventListener("visibilitychange", resumeVideoPlayback);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isCallFullscreen) {
@@ -1604,6 +1735,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   );
 
   useEffect(() => {
+    if (!termsAccepted) {
+      return;
+    }
     if (!participantId || !participantRole) {
       return;
     }
@@ -1877,6 +2011,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     setRemoteStream,
     showCallNotice,
     teardownCall,
+    termsAccepted,
   ]);
 
   useEffect(() => {
@@ -1959,6 +2094,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   ]);
 
   useEffect(() => {
+    if (!termsAccepted) {
+      return;
+    }
     if (!participantId || sessionEnded) {
       return;
     }
@@ -2026,6 +2164,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [participantId, participantRole, remainingSeconds, sessionEnded, sessionStatus, token]);
 
   useEffect(() => {
+    if (!termsAccepted) {
+      return;
+    }
     if (!participantId || sessionEnded) {
       return;
     }
@@ -2180,6 +2321,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     setIsReconnecting,
     sessionEnded,
     socketReconnectNonce,
+    termsAccepted,
     token,
   ]);
 
@@ -2513,18 +2655,21 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     if (callState !== "active") {
       return;
     }
+    shouldRestoreFullscreenOnPortraitRef.current = false;
     setIsCallFullscreen((current) => !current);
     setPipPosition(null);
     pipDragStateRef.current = null;
   }, [callState]);
 
   const handleExitFullscreenOnly = useCallback(() => {
+    shouldRestoreFullscreenOnPortraitRef.current = false;
     setIsCallFullscreen(false);
     setPipPosition(null);
     pipDragStateRef.current = null;
   }, []);
 
   const handleFullscreenEndCall = useCallback(() => {
+    shouldRestoreFullscreenOnPortraitRef.current = false;
     setIsCallFullscreen(false);
     setPipPosition(null);
     pipDragStateRef.current = null;
@@ -3072,6 +3217,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const showCompactHeader = headerCollapsed && !shouldForceExpandedHeader;
 
   const headerExpanded = !headerCollapsed || shouldForceExpandedHeader;
+
   const headerTimerPortal =
     headerTimerContainer && headerTimerLabel
       ? createPortal(
@@ -3115,6 +3261,18 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
               <div className="session-header__top">
                 <div className="session-token-header">
                   <p className="session-token">Token</p>
+                  {sessionIsActive ? (
+                    <button
+                      type="button"
+                      className="session-header__collapse-button"
+                      onClick={handleHeaderCollapse}
+                    >
+                      Hide details
+                    </button>
+                  ) : null}
+                </div>
+                <div className="session-token-body">
+                  <p className="session-token-value">{token}</p>
                   <button
                     type="button"
                     className={`session-token-copy${
@@ -3133,26 +3291,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                         : ""}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  className="session-end-button"
-                  onClick={handleEndSessionRequest}
-                  disabled={endSessionLoading || hasSessionEnded}
-                  aria-haspopup="dialog"
-                  aria-expanded={confirmEndSessionOpen}
-                >
-                  {endSessionButtonLabel}
-                </button>
               </div>
-              <p className="session-token-value">{token}</p>
-              <p className="session-role">
-                You are signed in as
-                <span>
-                  {" "}
-                  {sessionStatus?.participants.find((p) => p.participantId === participantId)?.role ?? "guest"}
-                </span>
-                .
-              </p>
               {showDebugPanel ? (
                 <div className="session-debug" data-test="session-debug-panel">
                   <div className="session-debug__header">
@@ -3241,13 +3380,26 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
               </div>
               <p className="countdown-label">Session timer</p>
               <p className="countdown-time">{countdownLabel}</p>
-              <button
-                type="button"
-                className="session-header__collapse-button"
-                onClick={handleHeaderCollapse}
-              >
-                Hide details
-              </button>
+              <div className="session-role-row">
+                <p className="session-role">
+                  You are signed in as
+                  <span>
+                    {" "}
+                    {sessionStatus?.participants.find((p) => p.participantId === participantId)?.role ?? "guest"}
+                  </span>
+                  .
+                </p>
+                <button
+                  type="button"
+                  className="session-end-button"
+                  onClick={handleEndSessionRequest}
+                  disabled={endSessionLoading || hasSessionEnded}
+                  aria-haspopup="dialog"
+                  aria-expanded={confirmEndSessionOpen}
+                >
+                  {endSessionButtonLabel}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -3272,6 +3424,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         <div
           className={`call-panel${isCallFullscreen ? " call-panel--fullscreen" : ""}`}
           ref={callPanelRef}
+          tabIndex={-1}
         >
             <div className="call-panel__header">
               <div
