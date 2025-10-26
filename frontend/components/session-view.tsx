@@ -3217,6 +3217,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const showCompactHeader = headerCollapsed && !shouldForceExpandedHeader;
 
   const headerExpanded = !headerCollapsed || shouldForceExpandedHeader;
+  const showHeaderStatusPill = !headerExpanded;
+
   const headerTimerPortal =
     headerTimerContainer && headerTimerLabel
       ? createPortal(
@@ -3230,10 +3232,12 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             title={headerExpanded ? "Session details visible" : "Show session details"}
             aria-live="polite"
           >
-            <span className="site-header-timer__status">
-              <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
-              <span>{sessionStatusLabel}</span>
-            </span>
+            {showHeaderStatusPill ? (
+              <span className="site-header-timer__status">
+                <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
+                <span>{sessionStatusLabel}</span>
+              </span>
+            ) : null}
             <span className="site-header-timer__time">{headerTimerLabel}</span>
           </button>,
           headerTimerContainer
