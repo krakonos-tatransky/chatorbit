@@ -3261,13 +3261,15 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
               <div className="session-header__top">
                 <div className="session-token-header">
                   <p className="session-token">Token</p>
-                  <button
-                    type="button"
-                    className="session-header__collapse-button"
-                    onClick={handleHeaderCollapse}
-                  >
-                    Hide details
-                  </button>
+                  {sessionIsActive ? (
+                    <button
+                      type="button"
+                      className="session-header__collapse-button"
+                      onClick={handleHeaderCollapse}
+                    >
+                      Hide details
+                    </button>
+                  ) : null}
                 </div>
                 <div className="session-token-body">
                   <p className="session-token-value">{token}</p>
