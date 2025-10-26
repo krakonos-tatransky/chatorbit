@@ -378,6 +378,8 @@ extension SessionPeerConnection: RTCPeerConnectionDelegate {
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState) {}
 
+    func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState) {}
+
     func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
         guard candidate.sdp.count > 0 else { return }
         var payload: [String: Any] = ["candidate": candidate.sdp]
