@@ -200,7 +200,7 @@ body {
   outline: none;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 900px) {
   .site-nav__toggle {
     display: inline-flex;
   }
