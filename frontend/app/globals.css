@@ -1009,7 +1009,6 @@ main {
 }
 
 .session-end-button {
-  align-self: flex-start;
   border-radius: 999px;
   border: 1px solid rgba(248, 113, 113, 0.7);
   background: rgba(15, 23, 42, 0.75);
@@ -1022,8 +1021,6 @@ main {
 }
 
 .session-header__collapse-button {
-  margin-top: 1rem;
-  align-self: flex-end;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.35);
   background: rgba(15, 23, 42, 0.45);
@@ -2067,6 +2064,10 @@ main {
   flex-wrap: wrap;
 }
 
+.session-token-header .session-header__collapse-button {
+  margin-left: auto;
+}
+
 .session-token-body {
   display: flex;
   flex-direction: column;
@@ -2298,9 +2299,7 @@ main {
 
 @media (max-width: 640px) {
   .session-token-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.35rem;
+    row-gap: 0.35rem;
   }
 
   .session-token-copy {
@@ -2345,7 +2344,15 @@ main {
 }
 
 .countdown {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   text-align: right;
+  gap: 0.75rem;
+}
+
+.countdown .session-end-button {
+  margin-top: 0.25rem;
 }
 
 .countdown-label {

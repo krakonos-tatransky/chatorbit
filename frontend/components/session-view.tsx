@@ -3262,6 +3262,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                   <p className="session-token">Token</p>
                   <button
                     type="button"
+                    className="session-header__collapse-button"
+                    onClick={handleHeaderCollapse}
+                  >
+                    Hide details
+                  </button>
+                </div>
+                <div className="session-token-body">
+                  <p className="session-token-value">{token}</p>
+                  <button
+                    type="button"
                     className={`session-token-copy${
                       tokenCopyState === "copied" ? " session-token-copy--success" : ""
                     }${tokenCopyState === "failed" ? " session-token-copy--error" : ""}`}
@@ -3277,19 +3287,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                         ? "Unable to copy token"
                         : ""}
                   </span>
-                </div>
-                <div className="session-token-body">
-                  <p className="session-token-value">{token}</p>
-                  <button
-                    type="button"
-                    className="session-end-button"
-                    onClick={handleEndSessionRequest}
-                    disabled={endSessionLoading || hasSessionEnded}
-                    aria-haspopup="dialog"
-                    aria-expanded={confirmEndSessionOpen}
-                  >
-                    {endSessionButtonLabel}
-                  </button>
                 </div>
               </div>
               <p className="session-role">
@@ -3390,10 +3387,13 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
               <p className="countdown-time">{countdownLabel}</p>
               <button
                 type="button"
-                className="session-header__collapse-button"
-                onClick={handleHeaderCollapse}
+                className="session-end-button"
+                onClick={handleEndSessionRequest}
+                disabled={endSessionLoading || hasSessionEnded}
+                aria-haspopup="dialog"
+                aria-expanded={confirmEndSessionOpen}
               >
-                Hide details
+                {endSessionButtonLabel}
               </button>
             </div>
           </div>
