@@ -3217,7 +3217,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const showCompactHeader = headerCollapsed && !shouldForceExpandedHeader;
 
   const headerExpanded = !headerCollapsed || shouldForceExpandedHeader;
-  const showHeaderStatusPill = !headerExpanded;
 
   const headerTimerPortal =
     headerTimerContainer && headerTimerLabel
@@ -3232,12 +3231,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             title={headerExpanded ? "Session details visible" : "Show session details"}
             aria-live="polite"
           >
-            {showHeaderStatusPill ? (
-              <span className="site-header-timer__status">
-                <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
-                <span>{sessionStatusLabel}</span>
-              </span>
-            ) : null}
+            <span className="site-header-timer__status">
+              <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
+              <span>{sessionStatusLabel}</span>
+            </span>
             <span className="site-header-timer__time">{headerTimerLabel}</span>
           </button>,
           headerTimerContainer
@@ -3293,14 +3290,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                   </span>
                 </div>
               </div>
-              <p className="session-role">
-                You are signed in as
-                <span>
-                  {" "}
-                  {sessionStatus?.participants.find((p) => p.participantId === participantId)?.role ?? "guest"}
-                </span>
-                .
-              </p>
               {showDebugPanel ? (
                 <div className="session-debug" data-test="session-debug-panel">
                   <div className="session-debug__header">
@@ -3389,16 +3378,26 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
               </div>
               <p className="countdown-label">Session timer</p>
               <p className="countdown-time">{countdownLabel}</p>
-              <button
-                type="button"
-                className="session-end-button"
-                onClick={handleEndSessionRequest}
-                disabled={endSessionLoading || hasSessionEnded}
-                aria-haspopup="dialog"
-                aria-expanded={confirmEndSessionOpen}
-              >
-                {endSessionButtonLabel}
-              </button>
+              <div className="session-role-row">
+                <p className="session-role">
+                  You are signed in as
+                  <span>
+                    {" "}
+                    {sessionStatus?.participants.find((p) => p.participantId === participantId)?.role ?? "guest"}
+                  </span>
+                  .
+                </p>
+                <button
+                  type="button"
+                  className="session-end-button"
+                  onClick={handleEndSessionRequest}
+                  disabled={endSessionLoading || hasSessionEnded}
+                  aria-haspopup="dialog"
+                  aria-expanded={confirmEndSessionOpen}
+                >
+                  {endSessionButtonLabel}
+                </button>
+              </div>
             </div>
           </div>
         </div>

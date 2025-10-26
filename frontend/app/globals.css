@@ -2147,8 +2147,17 @@ main {
   max-width: 100%;
 }
 
+.session-role-row {
+  margin-top: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
 .session-role {
-  margin-top: 1rem;
+  margin: 0;
   font-size: 0.95rem;
   color: rgba(203, 213, 225, 0.9);
 }
