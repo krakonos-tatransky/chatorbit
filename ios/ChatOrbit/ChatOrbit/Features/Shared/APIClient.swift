@@ -13,6 +13,18 @@ struct APIClient {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
+    private static let iso8601Formatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let iso8601NoFractionalFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
     init(session: URLSession? = nil, baseURL: URL = AppEnvironment.apiBaseURL) {
         if let session {
             self.session = session
@@ -28,10 +40,36 @@ struct APIClient {
         }
         self.baseURL = baseURL
         self.decoder = JSONDecoder()
-        self.decoder.dateDecodingStrategy = .iso8601
+        self.decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+
+            if let timestamp = try? container.decode(Double.self) {
+                return Date(timeIntervalSince1970: timestamp)
+            }
+
+            if let timestampString = try? container.decode(String.self) {
+                if let doubleValue = Double(timestampString) {
+                    return Date(timeIntervalSince1970: doubleValue)
+                }
+
+                if let date = APIClient.iso8601Formatter.date(from: timestampString) {
+                    return date
+                }
+
+                if let date = APIClient.iso8601NoFractionalFormatter.date(from: timestampString) {
+                    return date
+                }
+            }
+
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Unsupported date format")
+        }
         self.decoder.keyDecodingStrategy = .convertFromSnakeCase
         self.encoder = JSONEncoder()
-        self.encoder.dateEncodingStrategy = .iso8601
+        self.encoder.dateEncodingStrategy = .custom { date, encoder in
+            var container = encoder.singleValueContainer()
+            let string = APIClient.iso8601Formatter.string(from: date)
+            try container.encode(string)
+        }
         self.encoder.keyEncodingStrategy = .convertToSnakeCase
     }
 
@@ -78,7 +116,13 @@ struct APIClient {
 
         switch httpResponse.statusCode {
         case 200..<300:
-            return try decoder.decode(T.self, from: data)
+            do {
+                return try decoder.decode(T.self, from: data)
+            } catch let decodingError as DecodingError {
+                throw APIError.decoding(decodingError)
+            } catch {
+                throw APIError.unknown(error)
+            }
         case 401:
             throw APIError.unauthorized
         default:
@@ -109,6 +153,7 @@ enum APIError: Error, LocalizedError {
     case unauthorized
     case server(statusCode: Int, message: String)
     case transport(URLError)
+    case decoding(DecodingError)
     case unknown(Error)
 
     var errorDescription: String? {
@@ -123,8 +168,27 @@ enum APIError: Error, LocalizedError {
             return message.isEmpty ? "Server error (\(code))" : message
         case let .transport(error):
             return "Network error: \(error.localizedDescription)"
+        case let .decoding(error):
+            return "Failed to parse server response: \(APIClient.describe(decodingError: error))"
         case let .unknown(error):
             return error.localizedDescription
+        }
+    }
+}
+
+private extension APIClient {
+    static func describe(decodingError: DecodingError) -> String {
+        switch decodingError {
+        case let .dataCorrupted(context):
+            return context.debugDescription
+        case let .keyNotFound(key, context):
+            return "Missing key '\(key.stringValue)' – \(context.debugDescription)"
+        case let .typeMismatch(type, context):
+            return "Type mismatch for \(type): \(context.debugDescription)"
+        case let .valueNotFound(type, context):
+            return "Missing value for \(type): \(context.debugDescription)"
+        @unknown default:
+            return decodingError.localizedDescription
         }
     }
 }
