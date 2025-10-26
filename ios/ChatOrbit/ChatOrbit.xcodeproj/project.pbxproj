@@ -18,7 +18,7 @@ objects = {
 001D1D572C5D5C5A00A5DCA1 /* ChatDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001D1D432C5D5C5A00A5DCA1 /* ChatDetailViewModel.swift */; };
 001D1D582C5D5C5A00A5DCA1 /* MessageComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001D1D442C5D5C5A00A5DCA1 /* MessageComposerView.swift */; };
 001D1D592C5D5C5A00A5DCA1 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001D1D452C5D5C5A00A5DCA1 /* APIClient.swift */; };
-001D1D5A2C5D5C5A00A5DCA1 /* Environment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001D1D462C5D5C5A00A5DCA1 /* Environment.swift */; };
+001D1D5A2C5D5C5A00A5DCA1 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001D1D462C5D5C5A00A5DCA1 /* AppEnvironment.swift */; };
 001D1D5B2C5D5C5A00A5DCA1 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001D1D472C5D5C5A00A5DCA1 /* Models.swift */; };
 001D1D5C2C5D5C5A00A5DCA1 /* SessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001D1D482C5D5C5A00A5DCA1 /* SessionController.swift */; };
 001D1D5D2C5D5C5A00A5DCA1 /* WebSocketManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 001D1D492C5D5C5A00A5DCA1 /* WebSocketManager.swift */; };
@@ -44,7 +44,7 @@ objects = {
 001D1D432C5D5C5A00A5DCA1 /* ChatDetailViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatDetailViewModel.swift; sourceTree = "<group>"; };
 001D1D442C5D5C5A00A5DCA1 /* MessageComposerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageComposerView.swift; sourceTree = "<group>"; };
 001D1D452C5D5C5A00A5DCA1 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
-001D1D462C5D5C5A00A5DCA1 /* Environment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Environment.swift; sourceTree = "<group>"; };
+001D1D462C5D5C5A00A5DCA1 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 001D1D472C5D5C5A00A5DCA1 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 001D1D482C5D5C5A00A5DCA1 /* SessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionController.swift; sourceTree = "<group>"; };
 001D1D492C5D5C5A00A5DCA1 /* WebSocketManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSocketManager.swift; sourceTree = "<group>"; };
@@ -140,7 +140,7 @@ sourceTree = "<group>";
 isa = PBXGroup;
 children = (
 001D1D452C5D5C5A00A5DCA1 /* APIClient.swift */,
-001D1D462C5D5C5A00A5DCA1 /* Environment.swift */,
+001D1D462C5D5C5A00A5DCA1 /* AppEnvironment.swift */,
 001D1D472C5D5C5A00A5DCA1 /* Models.swift */,
 001D1D482C5D5C5A00A5DCA1 /* SessionController.swift */,
 001D1D492C5D5C5A00A5DCA1 /* WebSocketManager.swift */,
@@ -246,7 +246,7 @@ files = (
 001D1D5F2C5D5C5A00A5DCA1 /* VideoLobbyView.swift in Sources */,
 001D1D522C5D5C5A00A5DCA1 /* AuthViewModel.swift in Sources */,
 001D1D532C5D5C5A00A5DCA1 /* ChatService.swift in Sources */,
-001D1D5A2C5D5C5A00A5DCA1 /* Environment.swift in Sources */,
+001D1D5A2C5D5C5A00A5DCA1 /* AppEnvironment.swift in Sources */,
 001D1D4E2C5D5C5A00A5DCA1 /* ChatOrbitApp.swift in Sources */,
 001D1D602C5D5C5A00A5DCA1 /* VideoCallView.swift in Sources */,
 001D1D4F2C5D5C5A00A5DCA1 /* RootView.swift in Sources */,

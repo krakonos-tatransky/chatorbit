@@ -13,7 +13,7 @@ struct APIClient {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    init(session: URLSession = .shared, baseURL: URL = Environment.apiBaseURL) {
+    init(session: URLSession = .shared, baseURL: URL = AppEnvironment.apiBaseURL) {
         self.session = session
         self.baseURL = baseURL
         self.decoder = JSONDecoder()

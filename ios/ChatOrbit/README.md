@@ -29,7 +29,7 @@ ios/ChatOrbit
 1. Install dependencies by running `pod install` inside `ios/ChatOrbit`. The Podfile pins the [`GoogleWebRTC`](https://github.com/google/ios-webrtc) distribution that exposes the `WebRTC` module used by the video stack.
 2. Open the generated `ChatOrbit.xcworkspace` in Xcode.
 3. Update the bundle identifier (`com.chatorbit.app`) and signing team under *Signing & Capabilities*.
-4. Set the backend URL environment values if you are not using the default `https://api.chatorbit.com` domain. You can do this via the `CHAT_ORBIT_API_URL` user-defined build setting or by editing `Environment.swift`.
+4. Set the backend URL environment values if you are not using the default `https://api.chatorbit.com` domain. You can do this via the `CHAT_ORBIT_API_URL` user-defined build setting or by editing `AppEnvironment.swift`.
 
 ## Building & running
 
@@ -44,10 +44,10 @@ ios/ChatOrbit
 
 ## Configuration
 
-Key runtime values live in `Environment.swift`. Update these if your backend deployment differs from the default values or if you need to point to a staging environment.
+Key runtime values live in `AppEnvironment.swift`. Update these if your backend deployment differs from the default values or if you need to point to a staging environment.
 
 ```
-struct Environment {
+struct AppEnvironment {
     static var apiBaseURL: URL = URL(string: "https://api.chatorbit.com")!
     static var websocketURL: URL = URL(string: "wss://api.chatorbit.com/ws")!
 }

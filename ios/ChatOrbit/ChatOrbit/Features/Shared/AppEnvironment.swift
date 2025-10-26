@@ -1,6 +1,6 @@
 import Foundation
 
-enum Environment {
+enum AppEnvironment {
     static var apiBaseURL: URL {
         if let override = Bundle.main.object(forInfoDictionaryKey: "CHAT_ORBIT_API_URL") as? String,
            let url = URL(string: override) {

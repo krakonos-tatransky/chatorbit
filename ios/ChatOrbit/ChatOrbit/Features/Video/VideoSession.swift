@@ -141,7 +141,7 @@ final class VideoSession: NSObject {
     }
 
     private func connectSignaling(token: String, meetingID: UUID) {
-        var components = URLComponents(url: Environment.websocketURL, resolvingAgainstBaseURL: false)
+        var components = URLComponents(url: AppEnvironment.websocketURL, resolvingAgainstBaseURL: false)
         components?.queryItems = [URLQueryItem(name: "meeting", value: meetingID.uuidString)]
         guard let url = components?.url else { return }
 
