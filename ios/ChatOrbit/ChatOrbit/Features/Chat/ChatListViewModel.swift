@@ -101,6 +101,7 @@ final class SessionHomeViewModel: ObservableObject {
         isJoining = true
         joinError = nil
         startError = nil
+        defer { isJoining = false }
 
         do {
             let identity = identityStore.identity()
@@ -136,8 +137,6 @@ final class SessionHomeViewModel: ObservableObject {
             joinError = error.localizedDescription
             startError = error.localizedDescription
             throw error
-        } finally {
-            isJoining = false
         }
     }
 }
