@@ -15,26 +15,25 @@ ios/ChatOrbit
 │   │   ├── Shared               # Shared models, networking, and utilities
 │   │   └── Video                # Native video calling stack powered by WebRTC
 │   └── Resources                # Assets, Info.plist, and preview fixtures
-└── Package.resolved             # Swift Package Manager lockfile for third-party deps
+└── Podfile                      # CocoaPods dependencies (WebRTC)
 ```
 
 ## Requirements
 
 - Xcode 15 or later (iOS 16 deployment target)
 - Swift 5.9
-- CocoaPods is **not** required; all dependencies are delivered through Swift Package Manager
+- [CocoaPods](https://cocoapods.org) 1.13 or later
 
 ## First-time setup
 
-1. Open `ChatOrbit.xcodeproj` in Xcode.
-2. Resolve the Swift Package dependencies (Xcode will prompt automatically). The project currently references:
-   - [`WebRTC`](https://github.com/stasel/WebRTC) for real-time audio and video (tracking the `latest` branch).
+1. Install dependencies by running `pod install` inside `ios/ChatOrbit`. The Podfile pins the [`GoogleWebRTC`](https://github.com/google/ios-webrtc) distribution that exposes the `WebRTC` module used by the video stack.
+2. Open the generated `ChatOrbit.xcworkspace` in Xcode.
 3. Update the bundle identifier (`com.chatorbit.app`) and signing team under *Signing & Capabilities*.
 4. Set the backend URL environment values if you are not using the default `https://api.chatorbit.com` domain. You can do this via the `CHAT_ORBIT_API_URL` user-defined build setting or by editing `Environment.swift`.
 
 ## Building & running
 
-- Select the `ChatOrbit` scheme and run on an iOS 16 simulator or device.
+- Select the `ChatOrbit` scheme (within the workspace) and run on an iOS 16 simulator or device.
 - The app automatically handles authentication, chat messaging, presence updates, and video calling by leveraging the backend REST and WebSocket APIs already used by the web application.
 
 ## Configuration

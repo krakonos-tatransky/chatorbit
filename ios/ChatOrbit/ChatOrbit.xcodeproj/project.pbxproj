@@ -185,9 +185,6 @@ buildRules = (
 dependencies = (
 );
 name = ChatOrbit;
-packageProductDependencies = (
-001D1D6A2C5D5D4200A5DCA1 /* WebRTC */,
-);
 productName = ChatOrbit;
 productReference = 001D1D312C5D5C2B00A5DCA1 /* ChatOrbit.app */;
 productType = "com.apple.product-type.application";
@@ -215,9 +212,6 @@ knownRegions = (
 en,
 );
 mainGroup = 001D1D262C5D5C2B00A5DCA1;
-packageReferences = (
-001D1D692C5D5D3D00A5DCA1 /* XCRemoteSwiftPackageReference "WebRTC" */,
-);
 productRefGroup = 001D1D322C5D5C2B00A5DCA1 /* Products */;
 projectDirPath = "";
 projectRoot = "";
@@ -438,24 +432,6 @@ defaultConfigurationIsVisible = 0;
 defaultConfigurationName = Release;
 };
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-001D1D692C5D5D3D00A5DCA1 /* XCRemoteSwiftPackageReference "WebRTC" */ = {
-isa = XCRemoteSwiftPackageReference;
-repositoryURL = "https://github.com/stasel/WebRTC";
-requirement = {
-            branch = latest;
-            kind = branch;
-};
-};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-001D1D6A2C5D5D4200A5DCA1 /* WebRTC */ = {
-isa = XCSwiftPackageProductDependency;
-productName = WebRTC;
-};
-/* End XCSwiftPackageProductDependency section */
 
 };
 rootObject = 001D1D272C5D5C2B00A5DCA1 /* Project object */;
