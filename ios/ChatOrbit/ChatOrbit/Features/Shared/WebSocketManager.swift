@@ -1,0 +1,63 @@
+import Foundation
+
+final class WebSocketManager: NSObject {
+    enum Event {
+        case connected
+        case disconnected(Error?)
+        case message(Data)
+    }
+
+    private var webSocketTask: URLSessionWebSocketTask?
+    private let session: URLSession
+    private let eventHandler: (Event) -> Void
+
+    init(url: URL, tokenProvider: @escaping () -> String?, eventHandler: @escaping (Event) -> Void) {
+        self.eventHandler = eventHandler
+        let configuration = URLSessionConfiguration.default
+        if let token = tokenProvider() {
+            configuration.httpAdditionalHeaders = ["Authorization": "Bearer \(token)"]
+        }
+        self.session = URLSession(configuration: configuration)
+        super.init()
+        connect(url: url)
+    }
+
+    func send(data: Data) {
+        webSocketTask?.send(.data(data)) { [weak self] error in
+            if let error {
+                self?.eventHandler(.disconnected(error))
+            }
+        }
+    }
+
+    func disconnect() {
+        webSocketTask?.cancel(with: .goingAway, reason: nil)
+    }
+
+    private func connect(url: URL) {
+        webSocketTask = session.webSocketTask(with: url)
+        listen()
+        webSocketTask?.resume()
+        eventHandler(.connected)
+    }
+
+    private func listen() {
+        webSocketTask?.receive { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case let .success(message):
+                switch message {
+                case let .data(data):
+                    self.eventHandler(.message(data))
+                case let .string(string):
+                    self.eventHandler(.message(Data(string.utf8)))
+                @unknown default:
+                    break
+                }
+                self.listen()
+            case let .failure(error):
+                self.eventHandler(.disconnected(error))
+            }
+        }
+    }
+}
