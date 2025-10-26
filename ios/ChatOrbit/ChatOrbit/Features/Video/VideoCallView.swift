@@ -126,7 +126,7 @@ private struct RTCVideoView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> RTCEAGLVideoView {
         let view = RTCEAGLVideoView()
-        view.videoContentMode = .scaleAspectFill
+        view.contentMode = .scaleAspectFill
         track.add(view)
         context.coordinator.view = view
         return view
