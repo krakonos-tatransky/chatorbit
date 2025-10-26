@@ -1,6 +1,6 @@
 import Foundation
 
-struct User: Codable, Identifiable, Equatable {
+struct User: Codable, Identifiable, Equatable, Hashable {
     let id: UUID
     let email: String
     let displayName: String
@@ -8,7 +8,7 @@ struct User: Codable, Identifiable, Equatable {
     let createdAt: Date
 }
 
-struct Conversation: Codable, Identifiable, Equatable {
+struct Conversation: Codable, Identifiable, Equatable, Hashable {
     let id: UUID
     let title: String
     let participants: [User]
@@ -16,7 +16,7 @@ struct Conversation: Codable, Identifiable, Equatable {
     let unreadCount: Int
 }
 
-struct Message: Codable, Identifiable, Equatable {
+struct Message: Codable, Identifiable, Equatable, Hashable {
     let id: UUID
     let body: String
     let sender: User
@@ -24,7 +24,7 @@ struct Message: Codable, Identifiable, Equatable {
     let attachments: [Attachment]
 }
 
-struct Attachment: Codable, Identifiable, Equatable {
+struct Attachment: Codable, Identifiable, Equatable, Hashable {
     let id: UUID
     let url: URL
     let thumbnailURL: URL?
