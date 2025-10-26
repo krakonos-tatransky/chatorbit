@@ -10,10 +10,22 @@ protocol SessionPeerConnectionDelegate: AnyObject {
     func sessionPeerConnection(_ connection: SessionPeerConnection, didDeleteMessageWithId id: String)
     func sessionPeerConnection(_ connection: SessionPeerConnection, didGenerateSignal type: String, payload: [String: Any]?)
     func sessionPeerConnection(_ connection: SessionPeerConnection, didChangeState state: RTCPeerConnectionState)
+    func sessionPeerConnection(_ connection: SessionPeerConnection, dataChannelIsReady ready: Bool)
+    func sessionPeerConnection(_ connection: SessionPeerConnection, didReceiveCallAction action: SessionPeerConnection.CallAction, from participant: String?)
     func sessionPeerConnection(_ connection: SessionPeerConnection, didEncounter error: Error)
 }
 
 final class SessionPeerConnection: NSObject {
+    enum CallAction: String {
+        case request
+        case cancel
+        case accept
+        case reject
+        case end
+        case renegotiate
+        case busy
+    }
+
     enum Role {
         case host
         case guest
@@ -76,9 +88,9 @@ final class SessionPeerConnection: NSObject {
         attachDataChannel(on: connection)
     }
 
-    func makeOfferIfNeeded() {
+    func makeOfferIfNeeded(force: Bool = false) {
         guard role == .host else { return }
-        guard hasSentOffer == false else { return }
+        guard hasSentOffer == false || force else { return }
         guard let connection = peerConnection else { return }
         let constraints = RTCMediaConstraints(mandatoryConstraints: [
             "OfferToReceiveAudio": "true",
@@ -198,6 +210,18 @@ final class SessionPeerConnection: NSObject {
         localVideoTrack?.isEnabled = enabled
     }
 
+    func sendCallAction(_ action: CallAction) {
+        guard let dataChannel, dataChannel.readyState == .open else { return }
+        var payload: [String: Any] = [
+            "type": "call",
+            "action": action.rawValue
+        ]
+        payload["from"] = participantId
+        if let data = try? JSONSerialization.data(withJSONObject: payload) {
+            dataChannel.sendData(RTCDataBuffer(data: data, isBinary: false))
+        }
+    }
+
     func teardown() {
         dataChannel?.delegate = nil
         dataChannel?.close()
@@ -248,6 +272,9 @@ final class SessionPeerConnection: NSObject {
             let channel = connection.dataChannel(forLabel: "chat", configuration: config)
             channel?.delegate = self
             dataChannel = channel
+            if let channel {
+                delegate?.sessionPeerConnection(self, dataChannelIsReady: channel.readyState == .open)
+            }
         }
     }
 
@@ -287,6 +314,7 @@ final class SessionPeerConnection: NSObject {
     private func ensureDataChannel(_ channel: RTCDataChannel) {
         dataChannel = channel
         dataChannel?.delegate = self
+        delegate?.sessionPeerConnection(self, dataChannelIsReady: channel.readyState == .open)
     }
 
     private func computeHash(messageId: String, content: String) throws -> String {
@@ -408,6 +436,7 @@ extension SessionPeerConnection: RTCDataChannelDelegate {
                 dataChannel.sendData(RTCDataBuffer(data: data, isBinary: false))
             }
         }
+        delegate?.sessionPeerConnection(self, dataChannelIsReady: dataChannel.readyState == .open)
     }
 
     func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer) {
@@ -419,6 +448,14 @@ extension SessionPeerConnection: RTCDataChannelDelegate {
         if type == "capabilities" {
             let remoteSupports = (json["supportsEncryption"] as? Bool) ?? false
             peerSupportsEncryption = remoteSupports
+            return
+        }
+        if type == "call" {
+            if let actionString = json["action"] as? String,
+               let action = CallAction(rawValue: actionString.lowercased()) {
+                let sender = json["from"] as? String
+                delegate?.sessionPeerConnection(self, didReceiveCallAction: action, from: sender)
+            }
             return
         }
         if type == "message", let payload = json["message"] {

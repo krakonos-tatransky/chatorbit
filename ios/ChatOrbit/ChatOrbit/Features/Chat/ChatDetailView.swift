@@ -51,6 +51,15 @@ struct SessionView: View {
                 }
             }
         }
+        .confirmationDialog("Video chat request", isPresented: $viewModel.isCallDialogPresented, titleVisibility: .visible) {
+            Button("Accept", action: viewModel.acceptCall)
+            Button("Decline", role: .destructive, action: viewModel.declineCall)
+            Button("Ignore", role: .cancel) {
+                viewModel.isCallDialogPresented = false
+            }
+        } message: {
+            Text(callDialogMessage())
+        }
         .task {
             await viewModel.start()
         }
@@ -106,36 +115,74 @@ struct SessionView: View {
     }
 
     private var videoSection: some View {
-        Group {
-            if viewModel.remoteVideoTrack != nil || viewModel.localVideoTrack != nil {
-                ZStack(alignment: .topTrailing) {
-                    if let remote = viewModel.remoteVideoTrack {
-                        RTCVideoRenderer(track: remote)
-                            .frame(maxWidth: .infinity, maxHeight: 280)
-                            .background(Color.black)
-                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    } else {
-                        Color.black
-                            .frame(maxWidth: .infinity, maxHeight: 220)
-                            .overlay(alignment: .center) {
-                                Text("Waiting for partner…")
-                                    .foregroundStyle(.white)
-                            }
-                            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                    }
-                    if let local = viewModel.localVideoTrack {
-                        RTCVideoRenderer(track: local)
-                            .frame(width: 140, height: 200)
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                            .padding(12)
-                            .shadow(radius: 6)
-                    }
+        VStack(spacing: 12) {
+            ZStack(alignment: .topTrailing) {
+                if let remote = viewModel.remoteVideoTrack {
+                    RTCVideoRenderer(track: remote)
+                        .frame(maxWidth: .infinity, maxHeight: 280)
+                        .background(Color.black)
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                } else {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color.black)
+                        .frame(maxWidth: .infinity, maxHeight: 220)
+                        .overlay(alignment: .center) {
+                            Text(callPlaceholderText())
+                                .foregroundStyle(.white)
+                                .font(.headline)
+                        }
                 }
-                .padding([.horizontal, .bottom])
-            } else {
-                EmptyView()
+                if let local = viewModel.localVideoTrack {
+                    RTCVideoRenderer(track: local)
+                        .frame(width: 140, height: 200)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .padding(12)
+                        .shadow(radius: 6)
+                }
+            }
+
+            if let notice = viewModel.callNotice, notice.isEmpty == false {
+                Text(notice)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            HStack(spacing: 16) {
+                Button(action: viewModel.toggleCall) {
+                    Label(viewModel.callButtonTitle, systemImage: viewModel.callButtonIconName)
+                        .font(.callout.bold())
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .background(callButtonBackground())
+                        .foregroundStyle(Color.white)
+                        .clipShape(Capsule())
+                }
+                .disabled(viewModel.callButtonDisabled)
+                .opacity(viewModel.callButtonDisabled ? 0.5 : 1)
+
+                Spacer()
+
+                if viewModel.canShowMuteControls {
+                    Button(action: viewModel.toggleLocalAudioMuted) {
+                        Image(systemName: viewModel.isLocalAudioMuted ? "mic.slash.fill" : "mic.fill")
+                            .font(.title3)
+                            .padding(12)
+                            .foregroundStyle(viewModel.isLocalAudioMuted ? Color.red : Color.primary)
+                    }
+                    .background(Color(uiColor: .secondarySystemBackground), in: Circle())
+
+                    Button(action: viewModel.toggleLocalVideoMuted) {
+                        Image(systemName: viewModel.isLocalVideoMuted ? "video.slash.fill" : "video.fill")
+                            .font(.title3)
+                            .padding(12)
+                            .foregroundStyle(viewModel.isLocalVideoMuted ? Color.red : Color.primary)
+                    }
+                    .background(Color(uiColor: .secondarySystemBackground), in: Circle())
+                }
             }
         }
+        .padding([.horizontal, .bottom])
     }
 
     private var messageLog: some View {
@@ -252,6 +299,45 @@ struct SessionView: View {
 
     private func bubbleColor(for message: SessionMessage) -> Color {
         message.participantId == viewModel.context.participantId ? Color.accentColor : Color(uiColor: .secondarySystemBackground)
+    }
+
+    private func callDialogMessage() -> String {
+        if let participant = viewModel.incomingCallParticipant, participant.isEmpty == false {
+            let trimmed = participant.count > 8 ? "\(participant.prefix(6))…" : participant
+            return "Participant \(trimmed) requested a video chat."
+        }
+        return "Your partner would like to start a video chat."
+    }
+
+    private func callPlaceholderText() -> String {
+        switch viewModel.callState {
+        case .idle:
+            return "Request a video chat to connect."
+        case .requesting:
+            return "Waiting for your partner to accept…"
+        case .incoming:
+            return "Respond to your partner's video chat request."
+        case .connecting:
+            return "Connecting video chat…"
+        case .active:
+            return "Waiting for partner…"
+        }
+    }
+
+    private func callButtonBackground() -> Color {
+        if viewModel.callButtonDisabled {
+            return Color.gray
+        }
+        switch viewModel.callState {
+        case .active:
+            return .red
+        case .requesting, .connecting:
+            return .orange
+        case .incoming:
+            return .blue
+        case .idle:
+            return .accentColor
+        }
     }
 }
 

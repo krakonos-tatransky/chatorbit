@@ -3,6 +3,14 @@ import WebRTC
 
 @MainActor
 final class SessionViewModel: ObservableObject {
+    enum CallState {
+        case idle
+        case requesting
+        case incoming
+        case connecting
+        case active
+    }
+
     @Published var status: SessionStatus?
     @Published var messages: [SessionMessage] = []
     @Published var localVideoTrack: RTCVideoTrack?
@@ -14,6 +22,13 @@ final class SessionViewModel: ObservableObject {
     @Published var abuseReportSuccess: String?
     @Published var abuseReportError: String?
     @Published var isEndingSession = false
+    @Published var callState: CallState = .idle
+    @Published var callNotice: String?
+    @Published var isCallDialogPresented = false
+    @Published var incomingCallParticipant: String?
+    @Published var isLocalVideoMuted = false
+    @Published var isLocalAudioMuted = false
+    @Published var isDataChannelReady = false
 
     let context: SessionStartContext
 
@@ -23,6 +38,38 @@ final class SessionViewModel: ObservableObject {
     private var countdownTimer: Timer?
     private var decoder: JSONDecoder
     private var encoder: JSONEncoder
+    private var callNoticeTimer: Timer?
+
+    var callButtonTitle: String {
+        switch callState {
+        case .idle: return "Request video chat"
+        case .requesting: return "Cancel video chat request"
+        case .incoming: return "Respond to video chat request"
+        case .connecting: return "Cancel video chat connection"
+        case .active: return "Leave video chat"
+        }
+    }
+
+    var callButtonIconName: String {
+        switch callState {
+        case .idle: return "video.badge.plus"
+        case .requesting: return "xmark"
+        case .incoming: return "person.wave.2"
+        case .connecting: return "hourglass"
+        case .active: return "phone.down.fill"
+        }
+    }
+
+    var callButtonDisabled: Bool {
+        if callState == .idle {
+            return !isDataChannelReady || status?.status != .active
+        }
+        return false
+    }
+
+    var canShowMuteControls: Bool {
+        callState == .connecting || callState == .active
+    }
 
     init(context: SessionStartContext, service: SessionService = SessionService()) {
         self.context = context
@@ -34,6 +81,13 @@ final class SessionViewModel: ObservableObject {
     }
 
     func start() async {
+        callState = .idle
+        callNotice = nil
+        isCallDialogPresented = false
+        incomingCallParticipant = nil
+        isLocalAudioMuted = false
+        isLocalVideoMuted = false
+        isDataChannelReady = false
         restorePersistedState()
         setupPeerConnection()
         await refreshStatus()
@@ -45,6 +99,15 @@ final class SessionViewModel: ObservableObject {
         countdownTimer = nil
         webSocket?.disconnect()
         peerConnection?.teardown()
+        callNoticeTimer?.invalidate()
+        callNoticeTimer = nil
+        callNotice = nil
+        callState = .idle
+        isCallDialogPresented = false
+        incomingCallParticipant = nil
+        isDataChannelReady = false
+        isLocalAudioMuted = false
+        isLocalVideoMuted = false
     }
 
     func send(message text: String) {
@@ -57,6 +120,54 @@ final class SessionViewModel: ObservableObject {
 
     func deleteMessage(id: String) {
         peerConnection?.deleteMessage(id: id)
+    }
+
+    func toggleCall() {
+        guard isDataChannelReady else {
+            showCallNotice("Waiting for connection…")
+            return
+        }
+        switch callState {
+        case .idle:
+            prepareForCallConnection()
+            peerConnection?.sendCallAction(.request)
+            callState = .requesting
+            showCallNotice("Requesting video chat…")
+        case .requesting:
+            peerConnection?.sendCallAction(.cancel)
+            transitionToIdle(with: "Cancelled video chat request.")
+        case .incoming:
+            isCallDialogPresented = true
+        case .connecting, .active:
+            peerConnection?.sendCallAction(.end)
+            transitionToIdle(with: "Video chat ended.")
+        }
+    }
+
+    func acceptCall() {
+        guard callState == .incoming || callState == .requesting else { return }
+        peerConnection?.sendCallAction(.accept)
+        prepareForCallConnection()
+        callState = .connecting
+        isCallDialogPresented = false
+        showCallNotice("Starting video chat…")
+        performRenegotiation()
+    }
+
+    func declineCall() {
+        guard callState == .incoming else { return }
+        peerConnection?.sendCallAction(.reject)
+        transitionToIdle(with: "Declined video chat request.")
+    }
+
+    func toggleLocalVideoMuted() {
+        isLocalVideoMuted.toggle()
+        peerConnection?.toggleVideo(enabled: !isLocalVideoMuted)
+    }
+
+    func toggleLocalAudioMuted() {
+        isLocalAudioMuted.toggle()
+        peerConnection?.toggleAudio(enabled: !isLocalAudioMuted)
     }
 
     func endSession() async {
@@ -241,6 +352,15 @@ final class SessionViewModel: ObservableObject {
         countdownTimer = nil
         peerConnection?.teardown()
         webSocket?.disconnect()
+        callNoticeTimer?.invalidate()
+        callNoticeTimer = nil
+        callState = .idle
+        callNotice = nil
+        incomingCallParticipant = nil
+        isCallDialogPresented = false
+        isDataChannelReady = false
+        isLocalAudioMuted = false
+        isLocalVideoMuted = false
         SessionPersistence.save(record: SessionStorageRecord(
             token: context.token,
             participantId: context.participantId,
@@ -253,6 +373,97 @@ final class SessionViewModel: ObservableObject {
             status: status,
             sessionEnded: true
         ))
+    }
+
+    private func transitionToIdle(with notice: String?) {
+        callState = .idle
+        incomingCallParticipant = nil
+        isCallDialogPresented = false
+        showCallNotice(notice)
+        isLocalAudioMuted = false
+        isLocalVideoMuted = false
+        peerConnection?.toggleAudio(enabled: true)
+        peerConnection?.toggleVideo(enabled: true)
+    }
+
+    private func prepareForCallConnection() {
+        incomingCallParticipant = nil
+        isLocalAudioMuted = false
+        isLocalVideoMuted = false
+        peerConnection?.toggleAudio(enabled: true)
+        peerConnection?.toggleVideo(enabled: true)
+    }
+
+    private func performRenegotiation() {
+        if context.role.lowercased() == "host" {
+            peerConnection?.makeOfferIfNeeded(force: true)
+        } else {
+            peerConnection?.sendCallAction(.renegotiate)
+        }
+    }
+
+    private func handleCallAction(_ action: SessionPeerConnection.CallAction, sender: String?) {
+        switch action {
+        case .request:
+            if callState == .active || callState == .connecting {
+                peerConnection?.sendCallAction(.busy)
+                showCallNotice("Peer requested a video chat, but you're already in a call.")
+                return
+            }
+            if callState == .requesting {
+                peerConnection?.sendCallAction(.accept)
+                prepareForCallConnection()
+                callState = .connecting
+                showCallNotice("Video chat request accepted.")
+                performRenegotiation()
+                return
+            }
+            incomingCallParticipant = sender
+            callState = .incoming
+            isCallDialogPresented = true
+            showCallNotice("Video chat request received.")
+        case .cancel:
+            if callState != .idle {
+                transitionToIdle(with: "Video chat request cancelled.")
+            }
+        case .accept:
+            if callState == .requesting || callState == .incoming {
+                prepareForCallConnection()
+                callState = .connecting
+                showCallNotice("Starting video chat…")
+                performRenegotiation()
+            }
+        case .reject:
+            if callState == .requesting || callState == .connecting {
+                transitionToIdle(with: "Peer declined video chat.")
+            }
+        case .end:
+            if callState != .idle {
+                transitionToIdle(with: "Video chat ended.")
+            }
+        case .renegotiate:
+            if context.role.lowercased() == "host" {
+                peerConnection?.makeOfferIfNeeded(force: true)
+            }
+        case .busy:
+            if callState == .requesting {
+                transitionToIdle(with: "Peer is already in a video chat.")
+            }
+        }
+    }
+
+    private func showCallNotice(_ message: String?) {
+        callNoticeTimer?.invalidate()
+        guard let message else {
+            callNotice = nil
+            return
+        }
+        callNotice = message
+        callNoticeTimer = Timer.scheduledTimer(withTimeInterval: 4, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.callNotice = nil
+            }
+        }
     }
 
     private func restorePersistedState() {
@@ -277,10 +488,20 @@ final class SessionViewModel: ObservableObject {
 extension SessionViewModel: SessionPeerConnectionDelegate {
     func sessionPeerConnection(_ connection: SessionPeerConnection, didUpdateLocalVideo track: RTCVideoTrack?) {
         localVideoTrack = track
+        peerConnection?.toggleVideo(enabled: !isLocalVideoMuted)
     }
 
     func sessionPeerConnection(_ connection: SessionPeerConnection, didUpdateRemoteVideo track: RTCVideoTrack?) {
         remoteVideoTrack = track
+        if track != nil {
+            if callState == .connecting || callState == .requesting {
+                callState = .active
+                showCallNotice("Video chat connected.")
+            }
+        } else if callState == .active {
+            callState = .connecting
+            showCallNotice("Waiting for partner…")
+        }
     }
 
     func sessionPeerConnection(_ connection: SessionPeerConnection, didReceive message: SessionMessage) {
@@ -310,9 +531,41 @@ extension SessionViewModel: SessionPeerConnectionDelegate {
 
     func sessionPeerConnection(_ connection: SessionPeerConnection, didChangeState state: RTCPeerConnectionState) {
         connectionState = state
+        switch state {
+        case .failed:
+            if callState != .idle {
+                callState = .connecting
+                showCallNotice("Connection interrupted. Trying to reconnect…")
+            }
+        case .disconnected:
+            if callState == .active {
+                callState = .connecting
+                showCallNotice("Connection interrupted. Trying to reconnect…")
+            }
+        case .closed:
+            if callState != .idle {
+                transitionToIdle(with: "Connection closed.")
+            }
+        default:
+            break
+        }
+    }
+
+    func sessionPeerConnection(_ connection: SessionPeerConnection, dataChannelIsReady ready: Bool) {
+        isDataChannelReady = ready
+        if ready == false && callState != .idle {
+            transitionToIdle(with: "Connection lost.")
+        }
+    }
+
+    func sessionPeerConnection(_ connection: SessionPeerConnection, didReceiveCallAction action: SessionPeerConnection.CallAction, from participant: String?) {
+        handleCallAction(action, sender: participant)
     }
 
     func sessionPeerConnection(_ connection: SessionPeerConnection, didEncounter error: Error) {
         errorMessage = error.localizedDescription
+        if callState != .idle {
+            showCallNotice("Error: \(error.localizedDescription)")
+        }
     }
 }
