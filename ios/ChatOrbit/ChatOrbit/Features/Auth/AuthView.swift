@@ -1,7 +1,10 @@
+import AuthenticationServices
 import SwiftUI
 
 struct AuthView: View {
     @StateObject private var viewModel: AuthViewModel
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
 
     init(viewModel: AuthViewModel) {
         _viewModel = StateObject(wrappedValue: viewModel)
@@ -67,6 +70,26 @@ struct AuthView: View {
                     Text(viewModel.isRegistering ? "Already have an account? Sign in" : "Need an account? Register")
                         .font(.footnote)
                         .fontWeight(.semibold)
+                }
+
+                SignInWithAppleButton(.signIn, onRequest: viewModel.prepareAppleRequest(_:), onCompletion: viewModel.handleAppleCompletion(_:))
+                    .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+                    .frame(height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                Text("Sign in with Apple will be enabled soon. For now it personalizes your guest profile so you're ready when the backend integration lands.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+
+                Button(action: {
+                    viewModel.continueAsGuest()
+                    dismiss()
+                }) {
+                    Text("Continue as guest")
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
 
                 Spacer()

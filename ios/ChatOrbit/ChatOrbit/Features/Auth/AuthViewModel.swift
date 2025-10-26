@@ -1,3 +1,4 @@
+import AuthenticationServices
 import Foundation
 
 @MainActor
@@ -11,6 +12,7 @@ final class AuthViewModel: ObservableObject {
 
     private let sessionController: SessionController
     private let service: AuthServiceProtocol
+    private let nameFormatter = PersonNameComponentsFormatter()
 
     init(sessionController: SessionController, service: AuthServiceProtocol = AuthService()) {
         self.sessionController = sessionController
@@ -45,6 +47,29 @@ final class AuthViewModel: ObservableObject {
 
             sessionController.update(authResponse: response)
         } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func continueAsGuest() {
+        sessionController.startGuestSession()
+        errorMessage = nil
+    }
+
+    func prepareAppleRequest(_ request: ASAuthorizationAppleIDRequest) {
+        request.requestedScopes = [.fullName, .email]
+    }
+
+    func handleAppleCompletion(_ result: Result<ASAuthorization, Error>) {
+        switch result {
+        case let .success(authorization):
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else { return }
+
+            let providedName = credential.fullName.flatMap { nameFormatter.string(from: $0) }?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let fallbackName = providedName?.isEmpty == false ? providedName! : "Guest"
+            sessionController.startGuestSession(displayName: fallbackName)
+            errorMessage = nil
+        case let .failure(error):
             errorMessage = error.localizedDescription
         }
     }

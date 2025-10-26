@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var sessionController: SessionController
+    @State private var isPresentingAuth = false
 
     var body: some View {
         Group {
@@ -24,7 +25,12 @@ struct RootView: View {
                     }
 
                     NavigationStack {
-                        ProfileView(user: user, sessionController: sessionController)
+                        ProfileView(
+                            user: user,
+                            sessionController: sessionController,
+                            isGuest: sessionController.isGuestSession,
+                            onSignInTapped: { isPresentingAuth = true }
+                        )
                             .navigationTitle("Profile")
                     }
                     .tabItem {
@@ -32,11 +38,19 @@ struct RootView: View {
                     }
                 }
             } else {
-                AuthView(viewModel: AuthViewModel(sessionController: sessionController))
+                ProgressView()
             }
         }
         .task {
             await sessionController.restoreSession()
+        }
+        .sheet(isPresented: $isPresentingAuth) {
+            AuthView(viewModel: AuthViewModel(sessionController: sessionController))
+        }
+        .onChange(of: sessionController.isGuestSession) { isGuest in
+            if isGuest == false {
+                isPresentingAuth = false
+            }
         }
     }
 }

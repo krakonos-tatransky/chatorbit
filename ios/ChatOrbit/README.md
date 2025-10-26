@@ -36,6 +36,12 @@ ios/ChatOrbit
 - Select the `ChatOrbit` scheme (within the workspace) and run on an iOS 16 simulator or device.
 - The app automatically handles authentication, chat messaging, presence updates, and video calling by leveraging the backend REST and WebSocket APIs already used by the web application.
 
+## Authentication
+
+- The native client launches in **guest mode** so new users can explore chats, video calls, and profile settings without creating an account. Guest details live only on-device and reset when the app is reinstalled.
+- The Profile tab surfaces a **Sign in / Register** sheet that mirrors the email-password flow from the web app.
+- A **Sign in with Apple** button is included for future use. It currently personalizes the guest session with the user's Apple name while you finalize the server-side integration. You can enable the "Sign in with Apple" capability in Xcode when you're ready to wire the backend endpoint.
+
 ## Configuration
 
 Key runtime values live in `Environment.swift`. Update these if your backend deployment differs from the default values or if you need to point to a staging environment.
