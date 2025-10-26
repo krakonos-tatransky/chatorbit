@@ -200,7 +200,7 @@ body {
   outline: none;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 900px) {
   .site-nav__toggle {
     display: inline-flex;
   }
@@ -992,15 +992,7 @@ main {
   .session-header {
     flex-direction: row;
     justify-content: space-between;
-    align-items: center;
   }
-
-  .session-header__top {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
-
 }
 
 @keyframes session-header-reveal {
@@ -1016,7 +1008,6 @@ main {
 }
 
 .session-end-button {
-  align-self: flex-start;
   border-radius: 999px;
   border: 1px solid rgba(248, 113, 113, 0.7);
   background: rgba(15, 23, 42, 0.75);
@@ -1029,8 +1020,6 @@ main {
 }
 
 .session-header__collapse-button {
-  margin-top: 1rem;
-  align-self: flex-end;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.35);
   background: rgba(15, 23, 42, 0.45);
@@ -2074,6 +2063,17 @@ main {
   flex-wrap: wrap;
 }
 
+.session-token-header .session-header__collapse-button {
+  margin-left: auto;
+}
+
+.session-token-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
 .session-token-copy {
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.4);
@@ -2137,7 +2137,7 @@ main {
 }
 
 .session-token-value {
-  margin-top: 0.35rem;
+  margin: 0;
   font-family: "JetBrains Mono", "SF Mono", "Consolas", monospace;
   font-size: 0.9rem;
   letter-spacing: 0.25em;
@@ -2146,8 +2146,17 @@ main {
   max-width: 100%;
 }
 
+.session-role-row {
+  margin-top: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
 .session-role {
-  margin-top: 1rem;
+  margin: 0;
   font-size: 0.95rem;
   color: rgba(203, 213, 225, 0.9);
 }
@@ -2298,9 +2307,7 @@ main {
 
 @media (max-width: 640px) {
   .session-token-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.35rem;
+    row-gap: 0.35rem;
   }
 
   .session-token-copy {
@@ -2345,7 +2352,15 @@ main {
 }
 
 .countdown {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   text-align: right;
+  gap: 0.75rem;
+}
+
+.countdown .session-end-button {
+  margin-top: 0.25rem;
 }
 
 .countdown-label {

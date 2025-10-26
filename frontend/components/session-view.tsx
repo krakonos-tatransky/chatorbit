@@ -3217,6 +3217,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const showCompactHeader = headerCollapsed && !shouldForceExpandedHeader;
 
   const headerExpanded = !headerCollapsed || shouldForceExpandedHeader;
+
   const headerTimerPortal =
     headerTimerContainer && headerTimerLabel
       ? createPortal(
@@ -3260,6 +3261,18 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
               <div className="session-header__top">
                 <div className="session-token-header">
                   <p className="session-token">Token</p>
+                  {sessionIsActive ? (
+                    <button
+                      type="button"
+                      className="session-header__collapse-button"
+                      onClick={handleHeaderCollapse}
+                    >
+                      Hide details
+                    </button>
+                  ) : null}
+                </div>
+                <div className="session-token-body">
+                  <p className="session-token-value">{token}</p>
                   <button
                     type="button"
                     className={`session-token-copy${
@@ -3278,26 +3291,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                         : ""}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  className="session-end-button"
-                  onClick={handleEndSessionRequest}
-                  disabled={endSessionLoading || hasSessionEnded}
-                  aria-haspopup="dialog"
-                  aria-expanded={confirmEndSessionOpen}
-                >
-                  {endSessionButtonLabel}
-                </button>
               </div>
-              <p className="session-token-value">{token}</p>
-              <p className="session-role">
-                You are signed in as
-                <span>
-                  {" "}
-                  {sessionStatus?.participants.find((p) => p.participantId === participantId)?.role ?? "guest"}
-                </span>
-                .
-              </p>
               {showDebugPanel ? (
                 <div className="session-debug" data-test="session-debug-panel">
                   <div className="session-debug__header">
@@ -3386,13 +3380,26 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
               </div>
               <p className="countdown-label">Session timer</p>
               <p className="countdown-time">{countdownLabel}</p>
-              <button
-                type="button"
-                className="session-header__collapse-button"
-                onClick={handleHeaderCollapse}
-              >
-                Hide details
-              </button>
+              <div className="session-role-row">
+                <p className="session-role">
+                  You are signed in as
+                  <span>
+                    {" "}
+                    {sessionStatus?.participants.find((p) => p.participantId === participantId)?.role ?? "guest"}
+                  </span>
+                  .
+                </p>
+                <button
+                  type="button"
+                  className="session-end-button"
+                  onClick={handleEndSessionRequest}
+                  disabled={endSessionLoading || hasSessionEnded}
+                  aria-haspopup="dialog"
+                  aria-expanded={confirmEndSessionOpen}
+                >
+                  {endSessionButtonLabel}
+                </button>
+              </div>
             </div>
           </div>
         </div>
