@@ -28,7 +28,7 @@ ios/ChatOrbit
 
 1. Open `ChatOrbit.xcodeproj` in Xcode.
 2. Resolve the Swift Package dependencies (Xcode will prompt automatically). The project currently references:
-   - [`WebRTC`](https://github.com/stasel/WebRTC) for real-time audio and video.
+   - [`WebRTC`](https://github.com/stasel/WebRTC) for real-time audio and video (tracking the `latest` branch).
 3. Update the bundle identifier (`com.chatorbit.app`) and signing team under *Signing & Capabilities*.
 4. Set the backend URL environment values if you are not using the default `https://api.chatorbit.com` domain. You can do this via the `CHAT_ORBIT_API_URL` user-defined build setting or by editing `Environment.swift`.
 

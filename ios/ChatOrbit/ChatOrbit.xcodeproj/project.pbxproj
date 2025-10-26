@@ -444,8 +444,8 @@ defaultConfigurationName = Release;
 isa = XCRemoteSwiftPackageReference;
 repositoryURL = "https://github.com/stasel/WebRTC";
 requirement = {
-branch = main;
-kind = branch;
+            branch = latest;
+            kind = branch;
 };
 };
 /* End XCRemoteSwiftPackageReference section */
