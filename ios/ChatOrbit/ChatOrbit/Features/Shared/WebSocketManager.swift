@@ -26,13 +26,13 @@ final class WebSocketManager: NSObject {
         if let string = String(data: data, encoding: .utf8) {
             webSocketTask?.send(.string(string)) { [weak self] error in
                 if let error {
-                    self?.eventHandler(.disconnected(error))
+                    self?.deliver(.disconnected(error))
                 }
             }
         } else {
             webSocketTask?.send(.data(data)) { [weak self] error in
                 if let error {
-                    self?.eventHandler(.disconnected(error))
+                    self?.deliver(.disconnected(error))
                 }
             }
         }
@@ -46,7 +46,7 @@ final class WebSocketManager: NSObject {
         webSocketTask = session.webSocketTask(with: url)
         listen()
         webSocketTask?.resume()
-        eventHandler(.connected)
+        deliver(.connected)
     }
 
     private func listen() {
@@ -56,15 +56,25 @@ final class WebSocketManager: NSObject {
             case let .success(message):
                 switch message {
                 case let .data(data):
-                    self.eventHandler(.message(data))
+                    self.deliver(.message(data))
                 case let .string(string):
-                    self.eventHandler(.message(Data(string.utf8)))
+                    self.deliver(.message(Data(string.utf8)))
                 @unknown default:
                     break
                 }
                 self.listen()
             case let .failure(error):
-                self.eventHandler(.disconnected(error))
+                self.deliver(.disconnected(error))
+            }
+        }
+    }
+
+    private func deliver(_ event: Event) {
+        if Thread.isMainThread {
+            eventHandler(event)
+        } else {
+            DispatchQueue.main.async { [eventHandler] in
+                eventHandler(event)
             }
         }
     }
