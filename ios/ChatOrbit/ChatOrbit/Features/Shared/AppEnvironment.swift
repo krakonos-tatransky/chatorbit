@@ -6,7 +6,7 @@ enum AppEnvironment {
            let url = URL(string: override) {
             return url
         }
-        return URL(string: "https://api.chatorbit.com")!
+        return URL(string: "https://endpoints.chatorbit.com")!
     }
 
     static var websocketURL: URL {
@@ -14,6 +14,6 @@ enum AppEnvironment {
            let url = URL(string: override) {
             return url
         }
-        return URL(string: "wss://api.chatorbit.com/ws")!
+        return URL(string: "wss://endpoints.chatorbit.com/ws")!
     }
 }
