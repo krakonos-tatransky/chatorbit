@@ -122,14 +122,12 @@ final class SessionPeerConnection: NSObject {
 
     func handleCandidate(_ payload: IceCandidatePayload?) {
         guard let payload else {
-            if let connection = peerConnection, connection.remoteDescription != nil {
-                connection.add(nil)
-            }
+            // A nil payload indicates end-of-candidates; nothing to add explicitly.
             return
         }
         let candidate = RTCIceCandidate(sdp: payload.candidate, sdpMLineIndex: Int32(payload.sdpMlineIndex ?? 0), sdpMid: payload.sdpMid)
         if peerConnection?.remoteDescription != nil {
-            peerConnection?.add(candidate)
+            _ = peerConnection?.add(candidate)
         } else {
             candidateQueue.append(candidate)
         }
@@ -282,7 +280,7 @@ final class SessionPeerConnection: NSObject {
         guard let connection = peerConnection else { return }
         while candidateQueue.isEmpty == false {
             let candidate = candidateQueue.removeFirst()
-            connection.add(candidate)
+            _ = connection.add(candidate)
         }
     }
 
