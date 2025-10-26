@@ -19,6 +19,31 @@ struct SessionHomeView: View {
         return formatter
     }()
 
+    private var selectedValidityLabel: String {
+        validityOptions.first(where: { $0.value == viewModel.validitySelection })?.label ?? viewModel.validitySelection
+    }
+
+    private var sessionLengthOptions: [Int] {
+        var options = ttlOptions
+        if options.contains(viewModel.sessionMinutes) == false {
+            options.append(viewModel.sessionMinutes)
+        }
+        return options.sorted()
+    }
+
+    private func durationLabel(for minutes: Int) -> String {
+        if minutes >= 60 {
+            let hours = Double(minutes) / 60.0
+            if hours.truncatingRemainder(dividingBy: 1) == 0 {
+                let wholeHours = Int(hours)
+                return "\(wholeHours) \(wholeHours == 1 ? "hour" : "hours")"
+            } else {
+                return String(format: "%.1f hours", hours)
+            }
+        }
+        return "\(minutes) \(minutes == 1 ? "minute" : "minutes")"
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
@@ -68,28 +93,39 @@ struct SessionHomeView: View {
                         Text(option.label).tag(option.value)
                     }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.wheel)
+                .labelsHidden()
+                .frame(height: 140)
+                .clipped()
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color(uiColor: .secondarySystemBackground))
+                )
+                Text("Selected: \(selectedValidityLabel)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             VStack(alignment: .leading, spacing: 12) {
                 Text("Session time-to-live (minutes)")
                     .font(.footnote.bold())
                     .foregroundStyle(.secondary)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack {
-                        ForEach(ttlOptions, id: \.self) { value in
-                            Button {
-                                viewModel.sessionMinutes = value
-                            } label: {
-                                Text("\(value)m")
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .background(viewModel.sessionMinutes == value ? Color.accentColor : Color(uiColor: .tertiarySystemFill), in: Capsule())
-                                    .foregroundStyle(viewModel.sessionMinutes == value ? Color.white : Color.primary)
-                            }
-                        }
+                Picker("Session length", selection: $viewModel.sessionMinutes) {
+                    ForEach(sessionLengthOptions, id: \.self) { value in
+                        Text(durationLabel(for: value)).tag(value)
                     }
                 }
+                .pickerStyle(.wheel)
+                .labelsHidden()
+                .frame(height: 140)
+                .clipped()
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color(uiColor: .secondarySystemBackground))
+                )
+                Text("Selected: \(durationLabel(for: viewModel.sessionMinutes))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Stepper(value: $viewModel.sessionMinutes, in: 1...1440, step: 1) {
                     Text("Custom: \(viewModel.sessionMinutes) minutes (~\(viewModel.sessionHoursDescription))")
                 }
