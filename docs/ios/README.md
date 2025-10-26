@@ -29,17 +29,16 @@ October 2025.
 
 ## 2. Align the Next.js build with Capacitor
 
-ChatOrbit currently relies on the dynamic route `/session/[token]`, which cannot be pre-rendered for a static export. The
-repository therefore keeps Next.js in its default `standalone` output mode so server-rendered routes continue to work in
-production. You have two practical options for powering the iOS shell:
+ChatOrbit now hands off session tokens through the query string (`/session?token=...`), which means every page can be rendered
+ahead of time. The Next.js configuration ships in `output: 'export'` mode with trailing slashes and unoptimized images so the
+build emits a static bundle inside `frontend/out` that Capacitor can serve directly. You still have two viable iOS delivery
+options:
 
-1. **Reuse the hosted web build.** Deploy the site as usual (Vercel, Fly.io, etc.) and configure Capacitor to point its
-   embedded browser at that URL via [`server.url`](https://capacitorjs.com/docs/config#server). This is the fastest path, and
-   it keeps feature parity with the existing deployment.
-2. **Refactor for static export.** If you want the web assets bundled on-device, restructure the dynamic routes so they can be
-   generated ahead of time (for example by moving the session hand-off into an API endpoint or a catch-all client component).
-   Once every page can be statically rendered you can switch `frontend/next.config.mjs` back to `output: 'export'` with
-   trailing slashes and unoptimized images, then run `pnpm build` to emit `frontend/out` for Capacitor.
+1. **Bundle the static assets.** Run `pnpm build` to produce `frontend/out`, then point Capacitor’s `webDir` at that folder
+   (the default in this repo). This keeps the entire experience on-device and works offline once the bundle is installed.
+2. **Reuse the hosted web build.** If you prefer to avoid frequent native updates, deploy the site as usual (Vercel, Fly.io,
+   etc.) and configure Capacitor to load that URL via [`server.url`](https://capacitorjs.com/docs/config#server). This keeps
+   the native shell thin while still letting you ship native plugins when needed.
 
 For either workflow install dependencies and build the web app the same way:
 
@@ -49,7 +48,7 @@ pnpm install
 pnpm build
 ```
 
-Keep the resulting `.next` build artefacts (or the hosted deployment) in sync with the native shell using the Capacitor steps
+Keep the resulting `frontend/out` directory (or the hosted deployment) in sync with the native shell using the Capacitor steps
 below.
 
 ---
