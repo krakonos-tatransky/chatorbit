@@ -27,37 +27,30 @@ October 2025.
 
 ---
 
-## 2. Prepare the Next.js project for static export
+## 2. Align the Next.js build with Capacitor
 
-Capacitor ships your web app as static assets. Configure Next.js so a single `pnpm build` produces the `/out` directory
-Capacitor expects.
+ChatOrbit currently relies on the dynamic route `/session/[token]`, which cannot be pre-rendered for a static export. The
+repository therefore keeps Next.js in its default `standalone` output mode so server-rendered routes continue to work in
+production. You have two practical options for powering the iOS shell:
 
-1. Update `frontend/next.config.mjs` to enable static export:
+1. **Reuse the hosted web build.** Deploy the site as usual (Vercel, Fly.io, etc.) and configure Capacitor to point its
+   embedded browser at that URL via [`server.url`](https://capacitorjs.com/docs/config#server). This is the fastest path, and
+   it keeps feature parity with the existing deployment.
+2. **Refactor for static export.** If you want the web assets bundled on-device, restructure the dynamic routes so they can be
+   generated ahead of time (for example by moving the session hand-off into an API endpoint or a catch-all client component).
+   Once every page can be statically rendered you can switch `frontend/next.config.mjs` back to `output: 'export'` with
+   trailing slashes and unoptimized images, then run `pnpm build` to emit `frontend/out` for Capacitor.
 
-   ```js
-   /** @type {import('next').NextConfig} */
-   const nextConfig = {
-     output: 'export',
-     trailingSlash: true,
-     images: {
-       unoptimized: true,
-     },
-   };
+For either workflow install dependencies and build the web app the same way:
 
-   export default nextConfig;
-   ```
+```bash
+cd frontend
+pnpm install
+pnpm build
+```
 
-   The repository already includes this configuration along with optional `basePath`/`assetPrefix` overrides for hosted builds.
-2. Install dependencies and create a static build:
-
-   ```bash
-   cd frontend
-   pnpm install
-   pnpm build
-   ```
-
-   Next.js writes the generated site to `frontend/out`. Inspect it with `pnpm dlx serve out` if you want to test locally in
-   Safari Responsive Design Mode before wrapping it natively.
+Keep the resulting `.next` build artefacts (or the hosted deployment) in sync with the native shell using the Capacitor steps
+below.
 
 ---
 
