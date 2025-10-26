@@ -23,9 +23,17 @@ final class WebSocketManager: NSObject {
     }
 
     func send(data: Data) {
-        webSocketTask?.send(.data(data)) { [weak self] error in
-            if let error {
-                self?.eventHandler(.disconnected(error))
+        if let string = String(data: data, encoding: .utf8) {
+            webSocketTask?.send(.string(string)) { [weak self] error in
+                if let error {
+                    self?.eventHandler(.disconnected(error))
+                }
+            }
+        } else {
+            webSocketTask?.send(.data(data)) { [weak self] error in
+                if let error {
+                    self?.eventHandler(.disconnected(error))
+                }
             }
         }
     }
