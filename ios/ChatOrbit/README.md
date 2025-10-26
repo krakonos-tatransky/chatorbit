@@ -53,6 +53,8 @@ You can also override them at build time with custom *User-Defined* build settin
 
 The `VideoCallView` and `VideoCallViewModel` leverage Apple's `AVFoundation` for local capture and Google's WebRTC native SDK for bidirectional media streams. The app negotiates sessions through the same signaling endpoints used by the web client (see `VideoSession.swift` for details). The view includes native picture-in-picture controls, mute toggles, and call management.
 
+> **Note:** The GoogleWebRTC CocoaPod currently exposes the `RTCEAGLVideoView` renderer for simulator compatibility. The SwiftUI wrapper in `VideoCallView` uses this OpenGL-backed view instead of the Metal-based `RTCMTLVideoView` to avoid linker errors when targeting the iOS Simulator. No other code changes are required.
+
 ## Testing
 
 Unit tests are not included yet, but the architecture isolates networking behind protocol-oriented services to make it straightforward to add XCTest targets later. View models expose async operations and `@Published` state that can be validated with dependency injection and mocked services.

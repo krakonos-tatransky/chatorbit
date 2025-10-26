@@ -124,27 +124,27 @@ private struct ControlButton: View {
 private struct RTCVideoView: UIViewRepresentable {
     let track: RTCVideoTrack
 
-    func makeUIView(context: Context) -> RTCMTLVideoView {
-        let view = RTCMTLVideoView()
+    func makeUIView(context: Context) -> RTCEAGLVideoView {
+        let view = RTCEAGLVideoView()
         view.videoContentMode = .scaleAspectFill
         track.add(view)
         context.coordinator.view = view
         return view
     }
 
-    func updateUIView(_ uiView: RTCMTLVideoView, context: Context) {}
+    func updateUIView(_ uiView: RTCEAGLVideoView, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
         Coordinator(track: track)
     }
 
-    static func dismantleUIView(_ uiView: RTCMTLVideoView, coordinator: Coordinator) {
+    static func dismantleUIView(_ uiView: RTCEAGLVideoView, coordinator: Coordinator) {
         coordinator.detach()
     }
 
     final class Coordinator {
         private let track: RTCVideoTrack
-        weak var view: RTCMTLVideoView?
+        weak var view: RTCEAGLVideoView?
 
         init(track: RTCVideoTrack) {
             self.track = track
