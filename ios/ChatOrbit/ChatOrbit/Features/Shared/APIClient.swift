@@ -25,6 +25,15 @@ struct APIClient {
         return formatter
     }()
 
+    private static let fallbackDatePatterns: [String] = [
+        "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXXXX",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSSSS",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+        "yyyy-MM-dd'T'HH:mm:ss.SSS",
+        "yyyy-MM-dd'T'HH:mm:ssXXXXX",
+        "yyyy-MM-dd'T'HH:mm:ss"
+    ]
+
     init(session: URLSession? = nil, baseURL: URL = AppEnvironment.apiBaseURL) {
         if let session {
             self.session = session
@@ -57,6 +66,10 @@ struct APIClient {
                 }
 
                 if let date = APIClient.iso8601NoFractionalFormatter.date(from: timestampString) {
+                    return date
+                }
+
+                if let date = APIClient.parseWithFallbackFormatters(timestampString) {
                     return date
                 }
             }
@@ -190,6 +203,22 @@ private extension APIClient {
         @unknown default:
             return decodingError.localizedDescription
         }
+    }
+
+    static func parseWithFallbackFormatters(_ value: String) -> Date? {
+        for pattern in fallbackDatePatterns {
+            let formatter = DateFormatter()
+            formatter.calendar = Calendar(identifier: .iso8601)
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = pattern
+
+            if let date = formatter.date(from: value) {
+                return date
+            }
+        }
+
+        return nil
     }
 }
 
