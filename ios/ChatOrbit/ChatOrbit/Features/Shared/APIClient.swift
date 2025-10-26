@@ -18,8 +18,10 @@ struct APIClient {
         self.baseURL = baseURL
         self.decoder = JSONDecoder()
         self.decoder.dateDecodingStrategy = .iso8601
+        self.decoder.keyDecodingStrategy = .convertFromSnakeCase
         self.encoder = JSONEncoder()
         self.encoder.dateEncodingStrategy = .iso8601
+        self.encoder.keyEncodingStrategy = .convertToSnakeCase
     }
 
     func request<T: Decodable>(_ path: String,

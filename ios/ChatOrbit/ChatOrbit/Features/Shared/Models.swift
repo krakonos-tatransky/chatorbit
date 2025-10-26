@@ -1,95 +1,205 @@
 import Foundation
 
-struct User: Codable, Identifiable, Equatable, Hashable {
-    let id: UUID
-    let email: String
-    let displayName: String
-    let avatarURL: URL?
-    let createdAt: Date
-}
-
-struct Conversation: Codable, Identifiable, Equatable, Hashable {
-    let id: UUID
-    let title: String
-    let participants: [User]
-    let lastMessage: Message?
-    let unreadCount: Int
-}
-
-struct Message: Codable, Identifiable, Equatable, Hashable {
-    let id: UUID
-    let body: String
-    let sender: User
-    let createdAt: Date
-    let attachments: [Attachment]
-}
-
-struct Attachment: Codable, Identifiable, Equatable, Hashable {
-    let id: UUID
-    let url: URL
-    let thumbnailURL: URL?
-    let type: AttachmentType
-
-    enum AttachmentType: String, Codable {
-        case image
-        case video
-        case file
-    }
-}
-
-struct AuthResponse: Codable {
+struct TokenIssueResult: Codable, Identifiable, Equatable {
+    var id: String { token }
     let token: String
-    let user: User
+    let validityExpiresAt: Date
+    let sessionTtlSeconds: Int
+    let messageCharLimit: Int
+    let createdAt: Date
 }
 
-struct ConversationPage: Codable {
-    let items: [Conversation]
-    let nextCursor: String?
+struct TokenRequestPayload: Encodable {
+    let validityPeriod: String
+    let sessionTtlMinutes: Int
+    let messageCharLimit: Int
+    let clientIdentity: String?
 }
 
-struct MessagePage: Codable {
-    let items: [Message]
-    let nextCursor: String?
+struct JoinSessionPayload: Encodable {
+    let token: String
+    let participantId: String?
+    let clientIdentity: String?
 }
 
-struct CreateMessageRequest: Encodable {
-    let body: String
-    let attachments: [UUID]
+struct JoinSessionResponse: Codable, Equatable {
+    let token: String
+    let participantId: String
+    let role: String
+    let sessionActive: Bool
+    let sessionStartedAt: Date?
+    let sessionExpiresAt: Date?
+    let messageCharLimit: Int
 }
 
-struct CreateMeetingRequest: Encodable {
-    let conversationID: UUID
+enum SessionLifecycleStatus: String, Codable {
+    case issued
+    case active
+    case closed
+    case expired
+    case deleted
 }
 
-struct Meeting: Codable, Identifiable {
-    let id: UUID
-    let conversationID: UUID
-    let startedAt: Date
-    let hostID: UUID
-    let iceServers: [ICEServer]
+struct SessionParticipant: Codable, Identifiable, Equatable {
+    let participantId: String
+    let role: String
+    let joinedAt: Date
+
+    var id: String { participantId }
 }
 
-struct ICEServer: Codable {
-    let urls: [String]
-    let username: String?
-    let credential: String?
+struct SessionStatus: Codable, Equatable {
+    let token: String
+    let status: SessionLifecycleStatus
+    let validityExpiresAt: Date
+    let sessionStartedAt: Date?
+    let sessionExpiresAt: Date?
+    let messageCharLimit: Int
+    let participants: [SessionParticipant]
+    let remainingSeconds: Int?
+    let connectedParticipants: [String]?
 }
 
-struct SignalingPayload: Codable {
-    enum PayloadType: String, Codable {
-        case offer
-        case answer
-        case candidate
-        case end
+struct ReportAbuseQuestionnaire: Encodable, Equatable {
+    var immediateThreat: Bool
+    var involvesCriminalActivity: Bool
+    var requiresFollowUp: Bool
+    var additionalDetails: String?
+}
+
+struct ReportAbuseRequest: Encodable {
+    let participantId: String?
+    let reporterEmail: String
+    let summary: String
+    let questionnaire: ReportAbuseQuestionnaire
+}
+
+struct ReportAbuseResponse: Decodable, Equatable {
+    let reportId: Int
+    let status: String
+    let sessionStatus: String
+}
+
+struct SessionStartContext: Hashable {
+    let token: String
+    let participantId: String
+    let role: String
+    let messageLimit: Int
+    let sessionExpiresAt: Date?
+}
+
+struct SessionMessage: Identifiable, Equatable {
+    let id: String
+    let participantId: String
+    let role: String
+    let content: String
+    let createdAt: Date
+
+    static func == (lhs: SessionMessage, rhs: SessionMessage) -> Bool {
+        lhs.id == rhs.id && lhs.participantId == rhs.participantId
+    }
+}
+
+struct EncryptedMessageRecord: Codable {
+    let sessionId: String
+    let messageId: String
+    let participantId: String
+    let role: String
+    let createdAt: Date
+    let encryptedContent: String?
+    let content: String?
+    let hash: String?
+    let encryption: String?
+    let deleted: Bool?
+}
+
+struct DeleteMessageInstruction: Codable {
+    let type: String
+    let sessionId: String
+    let messageId: String
+    let participantId: String?
+}
+
+struct StatusEnvelope: Codable {
+    let type: String
+    let token: String
+    let status: SessionLifecycleStatus
+    let validityExpiresAt: Date
+    let sessionStartedAt: Date?
+    let sessionExpiresAt: Date?
+    let messageCharLimit: Int
+    let participants: [SessionParticipant]
+    let remainingSeconds: Int?
+    let connectedParticipants: [String]?
+}
+
+struct ErrorEnvelope: Codable {
+    let type: String
+    let message: String
+}
+
+struct SignalEnvelope: Codable {
+    let type: String
+    let signalType: String
+    let payload: SignalPayload
+    let sender: String?
+}
+
+enum SignalPayload: Codable {
+    case description(SessionDescriptionPayload)
+    case candidate(IceCandidatePayload)
+    case empty
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let description = try? container.decode(SessionDescriptionPayload.self) {
+            self = .description(description)
+            return
+        }
+        if let candidate = try? container.decode(IceCandidatePayload.self) {
+            self = .candidate(candidate)
+            return
+        }
+        if container.decodeNil() {
+            self = .empty
+            return
+        }
+        self = .empty
     }
 
-    let type: PayloadType
-    let sdp: String?
-    let candidate: RTCIceCandidatePayload?
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case let .description(payload):
+            try container.encode(payload)
+        case let .candidate(payload):
+            try container.encode(payload)
+        case .empty:
+            try container.encodeNil()
+        }
+    }
 }
 
-struct RTCIceCandidatePayload: Codable {
+struct SessionDescriptionPayload: Codable {
+    let type: String
+    let sdp: String
+}
+
+struct IceCandidatePayload: Codable {
     let candidate: String
     let sdpMid: String?
-    let sdpMLineIndex: Int32?
+    let sdpMlineIndex: Int?
+}
+
+struct SessionStorageRecord: Codable {
+    let token: String
+    let participantId: String
+    let role: String
+    let sessionActive: Bool
+    let sessionStartedAt: Date?
+    let sessionExpiresAt: Date?
+    let messageCharLimit: Int
+    let remainingSeconds: Int?
+    let status: SessionLifecycleStatus?
+    let sessionEnded: Bool?
 }

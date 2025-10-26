@@ -1,6 +1,6 @@
 # ChatOrbit iOS
 
-This directory contains a native SwiftUI implementation of the ChatOrbit client application. The project mirrors the core experiences delivered by the existing web frontend while integrating with the current backend services. It also includes a native WebRTC powered video calling surface that uses the device camera and microphone.
+This directory contains the native SwiftUI client for ChatOrbit sessions. The iOS app mirrors the public web experience: request a session token, join with an existing token, chat over an encrypted data channel, and escalate to a live video call with the device camera and microphone.
 
 ## Project structure
 
@@ -8,14 +8,14 @@ This directory contains a native SwiftUI implementation of the ChatOrbit client 
 ios/ChatOrbit
 ├── ChatOrbit.xcodeproj          # Preconfigured Xcode project
 ├── ChatOrbit                    # Application sources and resources
-│   ├── App                      # App entry point and scene configuration
-│   ├── Features                 # Feature specific screens, view models, and services
-│   │   ├── Auth                 # Authentication flows
-│   │   ├── Chat                 # Conversations, messaging, and presence
-│   │   ├── Shared               # Shared models, networking, and utilities
-│   │   └── Video                # Native video calling stack powered by WebRTC
-│   └── Resources                # Assets, Info.plist, and preview fixtures
-└── Podfile                      # CocoaPods dependencies (WebRTC)
+│   ├── App                      # Application entry point
+│   ├── Features
+│   │   ├── Chat                 # Session landing screen, chat log, and token workflows
+│   │   ├── Auth                 # Report abuse form + shared support links
+│   │   ├── Shared               # Models, environment helpers, persistence utilities
+│   │   └── Video                # WebRTC peer connection, data channel, and rendering helpers
+│   └── Resources                # Assets, Info.plist, and localization placeholders
+└── Podfile                      # CocoaPods dependency declaration (GoogleWebRTC)
 ```
 
 ## Requirements
@@ -26,48 +26,45 @@ ios/ChatOrbit
 
 ## First-time setup
 
-1. Install dependencies by running `pod install` inside `ios/ChatOrbit`. The Podfile pins the [`GoogleWebRTC`](https://github.com/google/ios-webrtc) distribution that exposes the `WebRTC` module used by the video stack.
+1. From `ios/ChatOrbit`, run `pod install` to fetch the [`GoogleWebRTC`](https://github.com/google/ios-webrtc) binary distribution used for media capture and data channels.
 2. Open the generated `ChatOrbit.xcworkspace` in Xcode.
-3. Update the bundle identifier (`com.chatorbit.app`) and signing team under *Signing & Capabilities*.
-4. Set the backend URL environment values if you are not using the default `https://endpoints.chatorbit.com` domain. You can do this via the `CHAT_ORBIT_API_URL` user-defined build setting or by editing `AppEnvironment.swift`.
+3. Update the bundle identifier and signing team under **Signing & Capabilities**.
+4. Optionally override the default backend endpoints (`https://endpoints.chatorbit.com`) by editing `Info.plist` (`CHAT_ORBIT_API_URL`, `CHAT_ORBIT_WS_URL`, and ICE server keys) or the `AppEnvironment` helper.
 
-## Building & running
+## Feature overview
 
-- Select the `ChatOrbit` scheme (within the workspace) and run on an iOS 16 simulator or device.
-- The app automatically handles authentication, chat messaging, presence updates, and video calling by leveraging the backend REST and WebSocket APIs already used by the web application.
+- **Token issuance:** configure validity, session TTL, and per-message character limits directly from the landing screen. Copy the generated token or jump straight into a hosted session.
+- **Join with token:** paste an existing token to reclaim the host/guest slot, automatically restoring the participant ID if it was previously used on the device.
+- **Live session view:** combines the encrypted chat log, WebRTC data channel messaging, and native video calling surface. Session timers, connected state, and signaling all mirror the behaviour of the Next.js frontend.
+- **Report abuse:** submit the same questionnaire exposed on the web client; submitting immediately shuts down the active session via the REST API.
+- **Help/Terms shortcuts:** persistent footer links open the public support and policy pages.
 
-## Authentication
+## Runtime configuration
 
-- The native client launches in **guest mode** so new users can explore chats, video calls, and profile settings without creating an account. Guest details live only on-device and reset when the app is reinstalled.
-- The Profile tab surfaces a **Sign in / Register** sheet that mirrors the email-password flow from the web app.
-- A **Sign in with Apple** button is included for future use. It currently personalizes the guest session with the user's Apple name while you finalize the server-side integration. You can enable the "Sign in with Apple" capability in Xcode when you're ready to wire the backend endpoint.
+`AppEnvironment.swift` centralises URLs and ICE configuration. The app ships with the production endpoints but honours Info.plist overrides:
 
-## Configuration
-
-Key runtime values live in `AppEnvironment.swift`. Update these if your backend deployment differs from the default values or if you need to point to a staging environment.
-
-```
-struct AppEnvironment {
-    static var apiBaseURL: URL = URL(string: "https://endpoints.chatorbit.com")!
-    static var websocketURL: URL = URL(string: "wss://endpoints.chatorbit.com/ws")!
-}
+```swift
+AppEnvironment.apiBaseURL      // https://endpoints.chatorbit.com by default
+AppEnvironment.websocketURL    // wss://endpoints.chatorbit.com/ws by default
+AppEnvironment.iceServers      // Parsed from Info.plist (STUN/TURN) or sensible defaults
 ```
 
-You can also override them at build time with custom *User-Defined* build settings (`CHAT_ORBIT_API_URL` and `CHAT_ORBIT_WS_URL`).
+The app caches session metadata in `UserDefaults` (see `SessionPersistence`) to allow reconnecting with the same participant ID and countdown state, matching the behaviour of the browser sessionStorage logic.
 
-## Video calling
+## Video & messaging stack
 
-The `VideoCallView` and `VideoCallViewModel` leverage Apple's `AVFoundation` for local capture and Google's WebRTC native SDK for bidirectional media streams. The app negotiates sessions through the same signaling endpoints used by the web client (see `VideoSession.swift` for details). The view includes native picture-in-picture controls, mute toggles, and call management.
+`SessionPeerConnection` wraps the GoogleWebRTC APIs to:
 
-> **Note:** The GoogleWebRTC CocoaPod currently exposes the `RTCEAGLVideoView` renderer for simulator compatibility. The SwiftUI wrapper in `VideoCallView` uses this OpenGL-backed view instead of the Metal-based `RTCMTLVideoView` to avoid linker errors when targeting the iOS Simulator. No other code changes are required.
+- create the RTCPeerConnection with ICE servers that match the web client
+- capture local audio/video, expose remote/local tracks to SwiftUI, and send capabilities over the data channel
+- encrypt chat messages with AES-GCM using the token-derived key, verify hashes, and honour delete events
+- exchange offers, answers, and ICE candidates through the `/ws/sessions/{token}` WebSocket endpoint
 
-## Testing
-
-Unit tests are not included yet, but the architecture isolates networking behind protocol-oriented services to make it straightforward to add XCTest targets later. View models expose async operations and `@Published` state that can be validated with dependency injection and mocked services.
+The SwiftUI `SessionView` renders the remote feed (falling back to a placeholder until the guest joins), keeps the chat log in sync, and exposes mute-free call controls via the data channel.
 
 ## Notes
 
-- This project does not modify the existing web frontend; all web assets remain untouched.
-- The directory can be zipped or distributed independently for collaborators who prefer Xcode.
-- Ensure that your backend supports WebRTC signaling for native clients. The `VideoSession` implementation matches the JSON contracts used by the web application.
-
+- The iOS client lives alongside the existing Next.js frontend; no web assets are modified.
+- All guest interactions work without authentication, matching the current public website.
+- When pointing at another backend environment, ensure it is configured with the same WebRTC signalling contracts expected by the web app.
+- The legacy Chat/Video/Auth scaffolding was repurposed to host the new session-centric workflow; the Xcode project layout remains stable for future updates.

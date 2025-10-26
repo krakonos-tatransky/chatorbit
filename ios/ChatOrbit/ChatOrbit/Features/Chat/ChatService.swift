@@ -1,36 +1,36 @@
 import Foundation
 
-protocol ChatServiceProtocol {
-    func fetchConversations(cursor: String?, token: String) async throws -> ConversationPage
-    func fetchMessages(conversationID: UUID, cursor: String?, token: String) async throws -> MessagePage
-    func sendMessage(_ request: CreateMessageRequest, conversationID: UUID, token: String) async throws -> Message
-}
+struct SessionService {
+    private let api: APIClient
 
-struct ChatService: ChatServiceProtocol {
-    private let api = APIClient()
-
-    func fetchConversations(cursor: String?, token: String) async throws -> ConversationPage {
-        var path = "/api/conversations"
-        if let cursor {
-            path += "?cursor=\(cursor)"
-        }
-        return try await api.request(path, tokenProvider: { token })
+    init(api: APIClient = APIClient()) {
+        self.api = api
     }
 
-    func fetchMessages(conversationID: UUID, cursor: String?, token: String) async throws -> MessagePage {
-        var path = "/api/conversations/\(conversationID.uuidString)/messages"
-        if let cursor {
-            path += "?cursor=\(cursor)"
-        }
-        return try await api.request(path, tokenProvider: { token })
-    }
-
-    func sendMessage(_ request: CreateMessageRequest, conversationID: UUID, token: String) async throws -> Message {
-        try await api.request(
-            "/api/conversations/\(conversationID.uuidString)/messages",
-            method: .post,
-            body: request,
-            tokenProvider: { token }
+    func issueToken(validity: String, sessionMinutes: Int, messageLimit: Int, identity: String?) async throws -> TokenIssueResult {
+        let payload = TokenRequestPayload(
+            validityPeriod: validity,
+            sessionTtlMinutes: sessionMinutes,
+            messageCharLimit: messageLimit,
+            clientIdentity: identity
         )
+        return try await api.request("/api/tokens", method: .post, body: payload)
+    }
+
+    func joinSession(token: String, participantId: String?, identity: String?) async throws -> JoinSessionResponse {
+        let payload = JoinSessionPayload(token: token, participantId: participantId, clientIdentity: identity)
+        return try await api.request("/api/sessions/join", method: .post, body: payload)
+    }
+
+    func fetchStatus(token: String) async throws -> SessionStatus {
+        return try await api.request("/api/sessions/\(token)/status")
+    }
+
+    func endSession(token: String) async throws -> SessionStatus {
+        return try await api.request("/api/sessions/\(token)", method: .delete)
+    }
+
+    func reportAbuse(token: String, request: ReportAbuseRequest) async throws -> ReportAbuseResponse {
+        return try await api.request("/api/sessions/\(token)/report-abuse", method: .post, body: request)
     }
 }
