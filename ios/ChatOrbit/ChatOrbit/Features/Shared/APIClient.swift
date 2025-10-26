@@ -27,11 +27,17 @@ struct APIClient {
 
     private static let fallbackDatePatterns: [String] = [
         "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXXXX",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSSSSZZZZZ",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSSSSXXXX",
         "yyyy-MM-dd'T'HH:mm:ss.SSSSSS",
         "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
         "yyyy-MM-dd'T'HH:mm:ss.SSS",
         "yyyy-MM-dd'T'HH:mm:ssXXXXX",
-        "yyyy-MM-dd'T'HH:mm:ss"
+        "yyyy-MM-dd'T'HH:mm:ssZZZZZ",
+        "yyyy-MM-dd'T'HH:mm:ssXXXX",
+        "yyyy-MM-dd'T'HH:mm:ss",
+        "yyyy-MM-dd HH:mm:ss.SSSSSS",
+        "yyyy-MM-dd HH:mm:ss"
     ]
 
     init(session: URLSession? = nil, baseURL: URL = AppEnvironment.apiBaseURL) {
@@ -56,7 +62,9 @@ struct APIClient {
                 return Date(timeIntervalSince1970: timestamp)
             }
 
-            if let timestampString = try? container.decode(String.self) {
+            if let rawTimestamp = try? container.decode(String.self) {
+                let timestampString = rawTimestamp.trimmingCharacters(in: .whitespacesAndNewlines)
+
                 if let doubleValue = Double(timestampString) {
                     return Date(timeIntervalSince1970: doubleValue)
                 }
@@ -65,7 +73,17 @@ struct APIClient {
                     return date
                 }
 
+                if let augmented = APIClient.ensureTimezoneIfMissing(in: timestampString),
+                   let date = APIClient.iso8601Formatter.date(from: augmented) {
+                    return date
+                }
+
                 if let date = APIClient.iso8601NoFractionalFormatter.date(from: timestampString) {
+                    return date
+                }
+
+                if let augmented = APIClient.ensureTimezoneIfMissing(in: timestampString),
+                   let date = APIClient.iso8601NoFractionalFormatter.date(from: augmented) {
                     return date
                 }
 
@@ -219,6 +237,24 @@ private extension APIClient {
         }
 
         return nil
+    }
+
+    static func ensureTimezoneIfMissing(in value: String) -> String? {
+        guard let tIndex = value.firstIndex(of: "T") else {
+            return nil
+        }
+
+        let timeStart = value.index(after: tIndex)
+        guard timeStart < value.endIndex else {
+            return nil
+        }
+
+        let timePortion = value[timeStart...]
+        if timePortion.contains(where: { $0 == "Z" || $0 == "+" || $0 == "-" }) {
+            return nil
+        }
+
+        return value + "Z"
     }
 }
 
