@@ -994,13 +994,6 @@ main {
     justify-content: space-between;
     align-items: center;
   }
-
-  .session-header__top {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-  }
-
 }
 
 @keyframes session-header-reveal {
@@ -2074,6 +2067,13 @@ main {
   flex-wrap: wrap;
 }
 
+.session-token-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
 .session-token-copy {
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.4);
@@ -2137,7 +2137,7 @@ main {
 }
 
 .session-token-value {
-  margin-top: 0.35rem;
+  margin: 0;
   font-family: "JetBrains Mono", "SF Mono", "Consolas", monospace;
   font-size: 0.9rem;
   letter-spacing: 0.25em;

@@ -3278,18 +3278,20 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                         : ""}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  className="session-end-button"
-                  onClick={handleEndSessionRequest}
-                  disabled={endSessionLoading || hasSessionEnded}
-                  aria-haspopup="dialog"
-                  aria-expanded={confirmEndSessionOpen}
-                >
-                  {endSessionButtonLabel}
-                </button>
+                <div className="session-token-body">
+                  <p className="session-token-value">{token}</p>
+                  <button
+                    type="button"
+                    className="session-end-button"
+                    onClick={handleEndSessionRequest}
+                    disabled={endSessionLoading || hasSessionEnded}
+                    aria-haspopup="dialog"
+                    aria-expanded={confirmEndSessionOpen}
+                  >
+                    {endSessionButtonLabel}
+                  </button>
+                </div>
               </div>
-              <p className="session-token-value">{token}</p>
               <p className="session-role">
                 You are signed in as
                 <span>
