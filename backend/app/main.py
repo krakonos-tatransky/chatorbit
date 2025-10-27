@@ -112,9 +112,13 @@ def setup_runtime_logging(runtime_directory: str) -> Path:
 
 
 settings = get_settings()
-runtime_log_path = setup_runtime_logging(settings.runtime_directory)
 logger = logging.getLogger(__name__)
-logger.info("Writing backend logs to %s", runtime_log_path)
+runtime_log_path: Path | None = None
+if settings.runtime_log_to_file:
+    runtime_log_path = setup_runtime_logging(settings.runtime_directory)
+    logger.info("Writing backend logs to %s", runtime_log_path)
+else:
+    logger.info("Runtime file logging disabled; backend output will not be mirrored to disk.")
 app = FastAPI(
     title="ChatOrbit Minimal API",
     version="0.1.0",

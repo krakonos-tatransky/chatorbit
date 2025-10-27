@@ -12,19 +12,43 @@ if (!allowedCommands.has(command)) {
   process.exit(1);
 }
 
-const repoRoot = resolve(process.cwd(), '..');
-const runtimeDir = resolve(repoRoot, 'runtime');
-mkdirSync(runtimeDir, { recursive: true });
-const logFile = resolve(runtimeDir, `frontend-${command}.log`);
-
-const logStream = createWriteStream(logFile, { flags: 'a' });
-console.log(`Logging Next.js ${command} output to ${logFile}`);
-
 const env = { ...process.env };
+
+const parseBoolean = (value) => {
+  if (value === undefined) {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return !['0', 'false', 'no', 'off'].includes(normalized);
+};
+
+const shouldLogToFile = (() => {
+  const parsed = parseBoolean(process.env.CHAT_RUNTIME_LOG_TO_FILE);
+  if (parsed === undefined) {
+    return true;
+  }
+  return parsed;
+})();
+
+let logStream = null;
+let logFile = null;
+if (shouldLogToFile) {
+  const repoRoot = resolve(process.cwd(), '..');
+  const runtimeDir = resolve(repoRoot, 'runtime');
+  mkdirSync(runtimeDir, { recursive: true });
+  logFile = resolve(runtimeDir, `frontend-${command}.log`);
+  logStream = createWriteStream(logFile, { flags: 'a' });
+  console.log(`Logging Next.js ${command} output to ${logFile}`);
+} else {
+  console.log('Skipping Next.js file logging because CHAT_RUNTIME_LOG_TO_FILE is disabled.');
+}
 
 let spawnCommand = 'pnpm';
 let spawnArgs = ['exec', 'next', command];
-let passthroughArgs = forwardedArgs;
+let passthroughArgs = forwardedArgs.filter((arg) => arg !== '--');
 
 if (command === 'start') {
   spawnCommand = 'node';
@@ -87,7 +111,9 @@ const forward = (chunk, stream) => {
   if (chunk) {
     const text = chunk.toString();
     stream.write(text);
-    logStream.write(text);
+    if (logStream) {
+      logStream.write(text);
+    }
   }
 };
 
@@ -96,7 +122,7 @@ child.stderr.on('data', (chunk) => forward(chunk, process.stderr));
 
 let logClosing = false;
 const closeLog = () => {
-  if (logClosing) {
+  if (!logStream || logClosing) {
     return Promise.resolve();
   }
   logClosing = true;

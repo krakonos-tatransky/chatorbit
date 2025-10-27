@@ -68,6 +68,9 @@ an elegant control surface for the host and guest.
   while still streaming it to the console. Additional flags (e.g., `--hostname 0.0.0.0 --port 3000`)
   can be forwarded after `--`.
 
+Set `CHAT_RUNTIME_LOG_TO_FILE=false` in your environment to disable both log sinks and rely solely on
+console output.
+
 ### Dockerized workflow
 
 ```bash
@@ -139,6 +142,7 @@ infra/
 | `CHAT_CORS_ALLOWED_ORIGINS` | `*`                      | Comma-separated list, JSON array, or single string origin(s) allowed to call the API |
 | `CHAT_CORS_ALLOW_CREDENTIALS` | `true`                | Whether to send `Access-Control-Allow-Credentials`; automatically disabled when using a wildcard origin |
 | `CHAT_RUNTIME_DIRECTORY` | `../runtime`              | Where backend log files are written; relative paths resolve from `backend/` |
+| `CHAT_RUNTIME_LOG_TO_FILE` | `true`                  | Set to `false` to skip mirroring backend and frontend output into runtime log files |
 | `NEXT_PUBLIC_API_BASE_URL`| `http://yourserver:50001`  | Frontend → backend HTTP base (LAN-ready)   |
 | `NEXT_PUBLIC_WS_BASE_URL` | `ws://yourserver:50001`    | Frontend → backend WebSocket base (LAN-ready) |
 | `NEXT_PUBLIC_WEBRTC_STUN_URLS` | —                         | Optional comma-separated list of STUN URLs overriding the default list |
