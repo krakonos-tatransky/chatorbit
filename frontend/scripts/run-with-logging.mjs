@@ -1,0 +1,156 @@
+#!/usr/bin/env node
+import { spawn } from 'node:child_process';
+import { cpSync, createWriteStream, existsSync, mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
+import process from 'node:process';
+
+const [, , command = 'dev', ...forwardedArgs] = process.argv;
+const allowedCommands = new Set(['dev', 'start']);
+
+if (!allowedCommands.has(command)) {
+  console.error(`Unsupported Next.js command "${command}". Use \"dev\" or \"start\".`);
+  process.exit(1);
+}
+
+const env = { ...process.env };
+
+const parseBoolean = (value) => {
+  if (value === undefined) {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return !['0', 'false', 'no', 'off'].includes(normalized);
+};
+
+const shouldLogToFile = (() => {
+  const parsed = parseBoolean(process.env.CHAT_RUNTIME_LOG_TO_FILE);
+  if (parsed === undefined) {
+    return true;
+  }
+  return parsed;
+})();
+
+let logStream = null;
+let logFile = null;
+if (shouldLogToFile) {
+  const repoRoot = resolve(process.cwd(), '..');
+  const runtimeDir = resolve(repoRoot, 'runtime');
+  mkdirSync(runtimeDir, { recursive: true });
+  logFile = resolve(runtimeDir, `frontend-${command}.log`);
+  logStream = createWriteStream(logFile, { flags: 'a' });
+  console.log(`Logging Next.js ${command} output to ${logFile}`);
+} else {
+  console.log('Skipping Next.js file logging because CHAT_RUNTIME_LOG_TO_FILE is disabled.');
+}
+
+let spawnCommand = 'pnpm';
+let spawnArgs = ['exec', 'next', command];
+let passthroughArgs = forwardedArgs.filter((arg) => arg !== '--');
+
+if (command === 'start') {
+  spawnCommand = 'node';
+  spawnArgs = ['.next/standalone/server.js'];
+  passthroughArgs = [];
+  const projectRoot = process.cwd();
+  const standaloneDir = resolve(projectRoot, '.next/standalone');
+  if (existsSync(standaloneDir)) {
+    const assetMappings = [
+      {
+        source: resolve(projectRoot, '.next/static'),
+        destination: resolve(standaloneDir, '.next/static'),
+      },
+      {
+        source: resolve(projectRoot, 'public'),
+        destination: resolve(standaloneDir, 'public'),
+      },
+    ];
+    for (const { source, destination } of assetMappings) {
+      if (existsSync(source)) {
+        cpSync(source, destination, { recursive: true, force: true });
+      }
+    }
+  } else {
+    console.warn(
+      'Next.js standalone output was not found. Ensure `next build` has been executed before running the start command.',
+    );
+  }
+  for (let index = 0; index < forwardedArgs.length; index += 1) {
+    const arg = forwardedArgs[index];
+    if (arg === '--') {
+      continue;
+    }
+    if (arg === '--port') {
+      const value = forwardedArgs[index + 1];
+      if (value) {
+        env.PORT = value;
+        index += 1;
+        continue;
+      }
+    }
+    if (arg === '--hostname') {
+      const value = forwardedArgs[index + 1];
+      if (value) {
+        env.HOSTNAME = value;
+        index += 1;
+        continue;
+      }
+    }
+    passthroughArgs.push(arg);
+  }
+}
+
+const child = spawn(spawnCommand, [...spawnArgs, ...passthroughArgs], {
+  stdio: ['inherit', 'pipe', 'pipe'],
+  env,
+});
+
+const forward = (chunk, stream) => {
+  if (chunk) {
+    const text = chunk.toString();
+    stream.write(text);
+    if (logStream) {
+      logStream.write(text);
+    }
+  }
+};
+
+child.stdout.on('data', (chunk) => forward(chunk, process.stdout));
+child.stderr.on('data', (chunk) => forward(chunk, process.stderr));
+
+let logClosing = false;
+const closeLog = () => {
+  if (!logStream || logClosing) {
+    return Promise.resolve();
+  }
+  logClosing = true;
+  return new Promise((resolvePromise) => {
+    logStream.end(resolvePromise);
+  });
+};
+
+let requestedSignal = null;
+
+child.on('close', async (code, signal) => {
+  await closeLog();
+  if (signal) {
+    if (requestedSignal && requestedSignal === signal) {
+      process.exit(0);
+    } else {
+      process.kill(process.pid, signal);
+      return;
+    }
+  }
+  process.exit(code ?? 0);
+});
+
+const terminate = (signal) => {
+  requestedSignal = signal;
+  child.kill(signal);
+};
+
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => terminate(signal));
+}

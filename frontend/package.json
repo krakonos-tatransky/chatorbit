@@ -3,8 +3,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:log": "node ./scripts/run-with-logging.mjs dev",
     "build": "next build",
-    "start": "next start",
+    "start": "node .next/standalone/server.js",
+    "start:log": "node ./scripts/run-with-logging.mjs start",
     "lint": "next lint",
     "test": "echo 'No frontend tests configured.'"
   },

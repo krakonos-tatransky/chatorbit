@@ -4,6 +4,8 @@ import asyncio
 import ipaddress
 import json
 import logging
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Set
@@ -65,8 +67,58 @@ from .schemas import (
 )
 from .security import authenticate_admin, create_access_token, get_current_admin
 
+RUNTIME_HANDLER_NAME = "runtime-file-handler"
+
+
+def _resolve_runtime_directory(raw_path: str) -> Path:
+    runtime_path = Path(raw_path).expanduser()
+    if runtime_path.is_absolute():
+        return runtime_path
+
+    backend_root = Path(__file__).resolve().parents[2]
+    return (backend_root / runtime_path).resolve()
+
+
+def setup_runtime_logging(runtime_directory: str) -> Path:
+    runtime_dir = _resolve_runtime_directory(runtime_directory)
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+
+    root_logger = logging.getLogger()
+    existing_handler = next(
+        (handler for handler in root_logger.handlers if getattr(handler, "name", "") == RUNTIME_HANDLER_NAME),
+        None,
+    )
+
+    log_path = runtime_dir / "backend.log"
+    if existing_handler is None:
+        handler = RotatingFileHandler(
+            log_path, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
+        )
+        handler.setLevel(logging.INFO)
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+        )
+        handler.name = RUNTIME_HANDLER_NAME
+        root_logger.addHandler(handler)
+        if root_logger.level > logging.INFO:
+            root_logger.setLevel(logging.INFO)
+    else:
+        handler = existing_handler
+
+    for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        logging.getLogger(logger_name).propagate = True
+
+    return log_path
+
+
 settings = get_settings()
 logger = logging.getLogger(__name__)
+runtime_log_path: Path | None = None
+if settings.runtime_log_to_file:
+    runtime_log_path = setup_runtime_logging(settings.runtime_directory)
+    logger.info("Writing backend logs to %s", runtime_log_path)
+else:
+    logger.info("Runtime file logging disabled; backend output will not be mirrored to disk.")
 app = FastAPI(
     title="ChatOrbit Minimal API",
     version="0.1.0",
@@ -126,17 +178,44 @@ class ConnectionManager:
         skip: Set[str] = set(exclude or [])
         async with self._lock:
             websockets = list(self._connections.get(token, {}).items())
+        if not websockets:
+            return
+
         payload = json.dumps(message)
+        stale_participants: Set[str] = set()
+
         for participant, ws in websockets:
             if participant in skip:
                 continue
-            await ws.send_text(payload)
+            try:
+                await ws.send_text(payload)
+            except WebSocketDisconnect:
+                stale_participants.add(participant)
+            except Exception:  # pragma: no cover - defensive logging
+                logger.exception(
+                    "Failed to broadcast websocket message",
+                    extra={"participant": participant, "token": token},
+                )
+                stale_participants.add(participant)
+
+        for participant in stale_participants:
+            await self.disconnect(token, participant)
 
     async def send(self, token: str, participant_id: str, message: Dict[str, Any]) -> None:
         async with self._lock:
             ws = self._connections.get(token, {}).get(participant_id)
-        if ws:
+        if not ws:
+            return
+
+        try:
             await ws.send_text(json.dumps(message))
+        except WebSocketDisconnect:
+            await self.disconnect(token, participant_id)
+        except Exception:  # pragma: no cover - defensive logging
+            logger.exception(
+                "Failed to send websocket message", extra={"participant": participant_id, "token": token}
+            )
+            await self.disconnect(token, participant_id)
 
     async def connected_participants(self, token: str) -> List[str]:
         async with self._lock:
