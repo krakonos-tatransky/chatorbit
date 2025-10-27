@@ -32,6 +32,9 @@ if (command === 'start') {
   passthroughArgs = [];
   for (let index = 0; index < forwardedArgs.length; index += 1) {
     const arg = forwardedArgs[index];
+    if (arg === '--') {
+      continue;
+    }
     if (arg === '--port') {
       const value = forwardedArgs[index + 1];
       if (value) {
