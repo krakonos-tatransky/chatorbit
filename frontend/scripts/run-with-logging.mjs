@@ -20,11 +20,42 @@ const logFile = resolve(runtimeDir, `frontend-${command}.log`);
 const logStream = createWriteStream(logFile, { flags: 'a' });
 console.log(`Logging Next.js ${command} output to ${logFile}`);
 
-const child = spawn(
-  'pnpm',
-  ['exec', 'next', command, ...forwardedArgs],
-  { stdio: ['inherit', 'pipe', 'pipe'] }
-);
+const env = { ...process.env };
+
+let spawnCommand = 'pnpm';
+let spawnArgs = ['exec', 'next', command];
+let passthroughArgs = forwardedArgs;
+
+if (command === 'start') {
+  spawnCommand = 'node';
+  spawnArgs = ['.next/standalone/server.js'];
+  passthroughArgs = [];
+  for (let index = 0; index < forwardedArgs.length; index += 1) {
+    const arg = forwardedArgs[index];
+    if (arg === '--port') {
+      const value = forwardedArgs[index + 1];
+      if (value) {
+        env.PORT = value;
+        index += 1;
+        continue;
+      }
+    }
+    if (arg === '--hostname') {
+      const value = forwardedArgs[index + 1];
+      if (value) {
+        env.HOSTNAME = value;
+        index += 1;
+        continue;
+      }
+    }
+    passthroughArgs.push(arg);
+  }
+}
+
+const child = spawn(spawnCommand, [...spawnArgs, ...passthroughArgs], {
+  stdio: ['inherit', 'pipe', 'pipe'],
+  env,
+});
 
 const forward = (chunk, stream) => {
   if (chunk) {
