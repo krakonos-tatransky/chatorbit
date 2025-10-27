@@ -1745,9 +1745,11 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return;
     }
 
+    const iceServers = getIceServers();
+    logEvent("Resolved ICE server configuration", { iceServers });
     logEvent("Creating new RTCPeerConnection", { participantId, participantRole });
     const peerConnection = new RTCPeerConnection({
-      iceServers: getIceServers(),
+      iceServers,
     });
     peerConnectionRef.current = peerConnection;
     setConnectionState(peerConnection.connectionState);
@@ -1765,7 +1767,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     };
 
     peerConnection.onicegatheringstatechange = () => {
-      setIceGatheringState(peerConnection.iceGatheringState);
+      const state = peerConnection.iceGatheringState;
+      logEvent("ICE gathering state", state);
+      setIceGatheringState(state);
     };
 
     peerConnection.onconnectionstatechange = () => {
