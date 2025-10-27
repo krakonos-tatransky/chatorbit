@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process';
-import { createWriteStream, mkdirSync } from 'node:fs';
+import { cpSync, createWriteStream, existsSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import process from 'node:process';
 
@@ -30,6 +30,29 @@ if (command === 'start') {
   spawnCommand = 'node';
   spawnArgs = ['.next/standalone/server.js'];
   passthroughArgs = [];
+  const projectRoot = process.cwd();
+  const standaloneDir = resolve(projectRoot, '.next/standalone');
+  if (existsSync(standaloneDir)) {
+    const assetMappings = [
+      {
+        source: resolve(projectRoot, '.next/static'),
+        destination: resolve(standaloneDir, '.next/static'),
+      },
+      {
+        source: resolve(projectRoot, 'public'),
+        destination: resolve(standaloneDir, 'public'),
+      },
+    ];
+    for (const { source, destination } of assetMappings) {
+      if (existsSync(source)) {
+        cpSync(source, destination, { recursive: true, force: true });
+      }
+    }
+  } else {
+    console.warn(
+      'Next.js standalone output was not found. Ensure `next build` has been executed before running the start command.',
+    );
+  }
   for (let index = 0; index < forwardedArgs.length; index += 1) {
     const arg = forwardedArgs[index];
     if (arg === '--') {
