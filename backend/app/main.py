@@ -126,17 +126,44 @@ class ConnectionManager:
         skip: Set[str] = set(exclude or [])
         async with self._lock:
             websockets = list(self._connections.get(token, {}).items())
+        if not websockets:
+            return
+
         payload = json.dumps(message)
+        stale_participants: Set[str] = set()
+
         for participant, ws in websockets:
             if participant in skip:
                 continue
-            await ws.send_text(payload)
+            try:
+                await ws.send_text(payload)
+            except WebSocketDisconnect:
+                stale_participants.add(participant)
+            except Exception:  # pragma: no cover - defensive logging
+                logger.exception(
+                    "Failed to broadcast websocket message",
+                    extra={"participant": participant, "token": token},
+                )
+                stale_participants.add(participant)
+
+        for participant in stale_participants:
+            await self.disconnect(token, participant)
 
     async def send(self, token: str, participant_id: str, message: Dict[str, Any]) -> None:
         async with self._lock:
             ws = self._connections.get(token, {}).get(participant_id)
-        if ws:
+        if not ws:
+            return
+
+        try:
             await ws.send_text(json.dumps(message))
+        except WebSocketDisconnect:
+            await self.disconnect(token, participant_id)
+        except Exception:  # pragma: no cover - defensive logging
+            logger.exception(
+                "Failed to send websocket message", extra={"participant": participant_id, "token": token}
+            )
+            await self.disconnect(token, participant_id)
 
     async def connected_participants(self, token: str) -> List[str]:
         async with self._lock:
