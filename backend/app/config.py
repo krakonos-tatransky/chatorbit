@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     cors_allowed_origins: List[str] | str | None = ["*"]
     cors_allow_credentials: bool = True
     enable_docs: bool = False
+    runtime_directory: str = "../runtime"
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_username: str | None = None

@@ -11,13 +11,14 @@ services:
     restart: unless-stopped
     volumes:
       - backend_data:/app/data
+      - ../runtime:/runtime
 
   frontend:
     build:
       context: ../frontend
       dockerfile: ../infra/docker/frontend.Dockerfile
     command: >-
-      sh -c "pnpm build && pnpm start --port 3000 --hostname 0.0.0.0"
+      sh -c "pnpm build && pnpm run start:log -- --port 3000 --hostname 0.0.0.0"
     depends_on:
       - backend
     env_file:
@@ -25,6 +26,8 @@ services:
     ports:
       - "127.0.0.1:3000:3000"
     restart: unless-stopped
+    volumes:
+      - ../runtime:/runtime
 
 volumes:
   backend_data: {}

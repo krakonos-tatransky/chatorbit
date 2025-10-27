@@ -57,6 +57,17 @@ an elegant control surface for the host and guest.
    `CHAT_CORS_ALLOWED_ORIGINS` above so the browser sees matching origins.
 5. Open http://localhost from any device on the same network to mint tokens and join sessions.
 
+## Runtime logs
+
+- **Backend** – FastAPI automatically writes structured logs to `runtime/backend.log` (rotated at 10 MB with up to five backups).
+  Override the location by exporting `CHAT_RUNTIME_DIRECTORY` before launching Uvicorn. Relative
+  paths are resolved from the `backend/` directory, so the default `../runtime` keeps logs next to
+  the repo root when running on bare metal and `/runtime` inside Docker.
+- **Frontend** – Run `pnpm run dev:log` or `pnpm run start:log` instead of the default `dev`/`start`
+  scripts to mirror the Next.js output into `runtime/frontend-dev.log` or `runtime/frontend-start.log`
+  while still streaming it to the console. Additional flags (e.g., `--hostname 0.0.0.0 --port 3000`)
+  can be forwarded after `--`.
+
 ### Dockerized workflow
 
 ```bash
@@ -127,6 +138,7 @@ infra/
 | `CHAT_TOKEN_RATE_LIMIT_PER_HOUR` | `10`                | Maximum token requests per IP each hour    |
 | `CHAT_CORS_ALLOWED_ORIGINS` | `*`                      | Comma-separated list, JSON array, or single string origin(s) allowed to call the API |
 | `CHAT_CORS_ALLOW_CREDENTIALS` | `true`                | Whether to send `Access-Control-Allow-Credentials`; automatically disabled when using a wildcard origin |
+| `CHAT_RUNTIME_DIRECTORY` | `../runtime`              | Where backend log files are written; relative paths resolve from `backend/` |
 | `NEXT_PUBLIC_API_BASE_URL`| `http://yourserver:50001`  | Frontend → backend HTTP base (LAN-ready)   |
 | `NEXT_PUBLIC_WS_BASE_URL` | `ws://yourserver:50001`    | Frontend → backend WebSocket base (LAN-ready) |
 | `NEXT_PUBLIC_WEBRTC_STUN_URLS` | —                         | Optional comma-separated list of STUN URLs overriding the default list |
