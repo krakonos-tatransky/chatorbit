@@ -2266,6 +2266,9 @@ main {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+  max-height: min(320px, 45vh);
+  overflow-y: auto;
+  padding-right: 0.35rem;
 }
 
 .session-debug__event {
