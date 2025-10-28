@@ -195,7 +195,25 @@ const FAST_NETWORK_RECONNECT_DELAY_MS = 400;
 const MODERATE_NETWORK_RECONNECT_DELAY_MS = 700;
 const RECONNECT_MAX_DELAY_MS = 30000;
 const MAX_ICE_FAILURE_RETRIES = 3;
+const FORCE_TURN_AFTER_FAILURES = 2;
 const SECRET_DEBUG_KEYWORD = "orbitdebug";
+
+function coerceIceUrls(urls: RTCIceServer["urls"]): string[] {
+  if (!urls) {
+    return [];
+  }
+  if (Array.isArray(urls)) {
+    return urls.map((entry) => `${entry}`.trim()).filter((entry) => entry.length > 0);
+  }
+  const value = `${urls}`.trim();
+  return value.length > 0 ? [value] : [];
+}
+
+function iceServersIncludeTurn(servers: RTCIceServer[]): boolean {
+  return servers.some((server) =>
+    coerceIceUrls(server.urls).some((url) => /^turns?:/i.test(url)),
+  );
+}
 
 function logEvent(message: string, ...details: unknown[]) {
   console.log(`[SessionView] ${message}`, ...details);
@@ -446,6 +464,17 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [debugEvents, setDebugEvents] = useState<DebugLogEntry[]>([]);
+  const iceServers = useMemo(() => getIceServers(), []);
+  const hasTurnServerConfigured = useMemo(() => iceServersIncludeTurn(iceServers), [iceServers]);
+  const [iceTransportPolicy, setIceTransportPolicyState] = useState<RTCIceTransportPolicy>("all");
+  const iceTransportPolicyRef = useRef<RTCIceTransportPolicy>("all");
+  const updateIceTransportPolicy = useCallback(
+    (policy: RTCIceTransportPolicy) => {
+      iceTransportPolicyRef.current = policy;
+      setIceTransportPolicyState((current) => (current === policy ? current : policy));
+    },
+    [],
+  );
   const [reconnectBaseDelayMs, setReconnectBaseDelayMs] = useState(DEFAULT_RECONNECT_BASE_DELAY_MS);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -1937,10 +1966,17 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return;
     }
 
-    logEvent("Creating new RTCPeerConnection", { participantId, participantRole });
-    const peerConnection = new RTCPeerConnection({
-      iceServers: getIceServers(),
+    const configuration: RTCConfiguration =
+      iceTransportPolicyRef.current === "all"
+        ? { iceServers }
+        : { iceServers, iceTransportPolicy: iceTransportPolicyRef.current };
+    logEvent("Creating new RTCPeerConnection", {
+      participantId,
+      participantRole,
+      iceTransportPolicy: configuration.iceTransportPolicy ?? "all",
+      hasTurnServer: hasTurnServerConfigured,
     });
+    const peerConnection = new RTCPeerConnection(configuration);
     peerConnectionRef.current = peerConnection;
     setConnectionState(peerConnection.connectionState);
     setIceConnectionState(peerConnection.iceConnectionState);
@@ -2062,6 +2098,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           const attempt = iceFailureRetriesRef.current + 1;
           iceFailureRetriesRef.current = attempt;
           setIsReconnecting(true);
+          if (
+            hasTurnServerConfigured &&
+            iceTransportPolicyRef.current === "all" &&
+            attempt >= FORCE_TURN_AFTER_FAILURES
+          ) {
+            logEvent("ICE connection failed repeatedly; forcing relay policy", { attempt });
+            updateIceTransportPolicy("relay");
+          } else if (!hasTurnServerConfigured && attempt === FORCE_TURN_AFTER_FAILURES) {
+            logEvent("ICE failures persist but no TURN servers are configured; cannot force relay");
+          }
           resetPeerConnection({ delayMs: 1000 * attempt });
           logEvent("ICE connection failed; scheduling retry", { attempt });
         } else {
@@ -2190,6 +2236,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     };
   }, [
     attachDataChannel,
+    hasTurnServerConfigured,
+    iceServers,
     participantId,
     participantRole,
     peerResetNonce,
@@ -2204,6 +2252,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     showCallNotice,
     teardownCall,
     termsAccepted,
+    updateIceTransportPolicy,
   ]);
 
   useEffect(() => {
@@ -2747,6 +2796,12 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     shouldForceExpandedHeader,
     shouldShowMediaPanel,
   ]);
+
+  useEffect(() => {
+    if (hasSessionEnded) {
+      updateIceTransportPolicy("all");
+    }
+  }, [hasSessionEnded, updateIceTransportPolicy]);
 
   useEffect(() => {
     const wasConnected = wasConnectedRef.current;
@@ -3519,6 +3574,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                     <div className="session-debug__item">
                       <dt>ICE gathering</dt>
                       <dd>{iceGatheringState ?? "—"}</dd>
+                    </div>
+                    <div className="session-debug__item">
+                      <dt>ICE policy</dt>
+                      <dd>{iceTransportPolicy}</dd>
                     </div>
                     <div className="session-debug__item">
                       <dt>ICE route</dt>
