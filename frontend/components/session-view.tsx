@@ -369,6 +369,32 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     pipHeight: number;
   } | null>(null);
   const termsStorageKey = useMemo(() => `chatorbit:session:${token}:termsAccepted`, [token]);
+  const debugIceServers = useMemo(() => getIceServers(), []);
+  const debugIceServersSummary = useMemo(() => {
+    if (debugIceServers.length === 0) {
+      return ["None configured"];
+    }
+
+    return debugIceServers.map((server) => {
+      const urls = server.urls;
+      const urlList = (Array.isArray(urls) ? urls : typeof urls === "string" ? [urls] : [])
+        .map((url) => url.trim())
+        .filter((url) => url.length > 0);
+      const details: string[] = [];
+      if (server.username) {
+        details.push(`user: ${server.username}`);
+      }
+      if (typeof server.credential === "string" && server.credential.length > 0) {
+        details.push("credential: ••••••••");
+      }
+      const credentialType = (server as { credentialType?: string }).credentialType;
+      if (credentialType) {
+        details.push(`type: ${credentialType}`);
+      }
+      const urlsLabel = urlList.length > 0 ? urlList.join(", ") : "(no URLs)";
+      return details.length > 0 ? `${urlsLabel} (${details.join(", ")})` : urlsLabel;
+    });
+  }, [debugIceServers]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -3316,6 +3342,18 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                     )}
                   </div>
                   <dl className="session-debug__list">
+                    <div className="session-debug__item">
+                      <dt>ICE servers</dt>
+                      <dd>
+                        {debugIceServers.length === 0
+                          ? "None configured"
+                          : debugIceServersSummary.map((entry, index) => (
+                              <div key={`${entry}-${index}`}>
+                                <code>{entry}</code>
+                              </div>
+                            ))}
+                      </dd>
+                    </div>
                     <div className="session-debug__item">
                       <dt>Identity</dt>
                       <dd>{clientIdentity ?? "Gathering…"}</dd>
