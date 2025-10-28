@@ -17,7 +17,7 @@ services:
       context: ../frontend
       dockerfile: ../infra/docker/frontend.Dockerfile
     command: >-
-      sh -c "pnpm build && pnpm start --port 3000 --hostname 0.0.0.0"
+      sh -c "pnpm build && HOSTNAME=0.0.0.0 PORT=3000 pnpm start"
     depends_on:
       - backend
     env_file:
