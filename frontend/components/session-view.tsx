@@ -1816,10 +1816,14 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             clearTimeout(disconnectionRecoveryTimeoutRef.current);
             disconnectionRecoveryTimeoutRef.current = null;
           }
-          logEvent("Connection FAILED - immediate reset");
-          resetPeerConnection();
-          if (participantRole === "host") {
-            hasSentOfferRef.current = false;
+          if (peerConnection.iceConnectionState === "failed") {
+            logEvent("Connection FAILED - deferring to ICE handler");
+          } else {
+            logEvent("Connection FAILED - immediate reset");
+            resetPeerConnection();
+            if (participantRole === "host") {
+              hasSentOfferRef.current = false;
+            }
           }
         }
       } else if (state === "closed") {
