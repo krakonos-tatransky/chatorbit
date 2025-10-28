@@ -820,13 +820,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
     setDebugEvents([]);
     const observer: DebugObserver = (entry) => {
-      setDebugEvents((prev) => {
-        const next = [...prev, entry];
-        if (next.length > 25) {
-          return next.slice(next.length - 25);
-        }
-        return next;
-      });
+      setDebugEvents((prev) => [...prev, entry]);
     };
     setDebugObserver(observer);
 
@@ -3040,9 +3034,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     return null;
   }, [peerSupportsEncryption, supportsEncryption]);
 
-  const recentDebugEvents = useMemo(() => {
-    const limit = 5;
-    return debugEvents.slice(-limit).reverse();
+  const visibleDebugEvents = useMemo(() => {
+    return [...debugEvents].reverse();
   }, [debugEvents]);
 
   const orderedMessages = useMemo(
@@ -3377,11 +3370,11 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                   </dl>
                   <div className="session-debug__events">
                     <p className="session-debug__subtitle">Recent events</p>
-                    {recentDebugEvents.length === 0 ? (
+                    {visibleDebugEvents.length === 0 ? (
                       <p className="session-debug__empty">Watching for new logs…</p>
                     ) : (
                       <ul className="session-debug__event-list">
-                        {recentDebugEvents.map((entry, index) => {
+                        {visibleDebugEvents.map((entry, index) => {
                           const detail = entry.details[0];
                           let detailSnippet: string | null = null;
                           if (detail !== undefined) {
