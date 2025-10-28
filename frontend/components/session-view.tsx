@@ -204,6 +204,157 @@ function logEvent(message: string, ...details: unknown[]) {
   }
 }
 
+type IceCandidateStats = {
+  candidateType: string | null;
+  protocol: string | null;
+  relayProtocol: string | null;
+  address: string | null;
+  port: string | null;
+};
+
+type IceRouteInfo = {
+  display: string;
+  label: string;
+  localDetail: string | null;
+  remoteDetail: string | null;
+  localType: string | null;
+  remoteType: string | null;
+};
+
+function extractIceCandidateStats(candidate: any): IceCandidateStats {
+  if (!candidate || typeof candidate !== "object") {
+    return {
+      candidateType: null,
+      protocol: null,
+      relayProtocol: null,
+      address: null,
+      port: null,
+    };
+  }
+
+  const candidateType = typeof candidate.candidateType === "string" ? candidate.candidateType : null;
+  const protocol = typeof candidate.protocol === "string" ? candidate.protocol : null;
+  const relayProtocol = typeof candidate.relayProtocol === "string" ? candidate.relayProtocol : null;
+  const address =
+    typeof candidate.address === "string"
+      ? candidate.address
+      : typeof candidate.ip === "string"
+        ? candidate.ip
+        : null;
+  const portValue = candidate.port ?? candidate.portNumber;
+  const port =
+    typeof portValue === "number"
+      ? `${portValue}`
+      : typeof portValue === "string"
+        ? portValue
+        : null;
+
+  return { candidateType, protocol, relayProtocol, address, port };
+}
+
+function formatCandidateDetail(candidate: IceCandidateStats): string | null {
+  if (!candidate.candidateType && !candidate.protocol && !candidate.relayProtocol && !candidate.address) {
+    return null;
+  }
+  const protocol = candidate.relayProtocol ?? candidate.protocol;
+  const location = candidate.address ? (candidate.port ? `${candidate.address}:${candidate.port}` : candidate.address) : null;
+  return [candidate.candidateType, protocol ? protocol.toUpperCase() : null, location].filter(Boolean).join(" · ");
+}
+
+function describeRouteLabel(localType: string | null, remoteType: string | null): string {
+  if (localType === "relay" || remoteType === "relay") {
+    return "TURN relay";
+  }
+  if (
+    localType === "srflx" ||
+    remoteType === "srflx" ||
+    localType === "prflx" ||
+    remoteType === "prflx"
+  ) {
+    return "STUN (reflexive)";
+  }
+  if (localType === "host" && remoteType === "host") {
+    return "Direct (host)";
+  }
+  const parts = [localType ? `local ${localType}` : null, remoteType ? `remote ${remoteType}` : null].filter(Boolean);
+  return parts.length > 0 ? parts.join(" / ") : "Unknown";
+}
+
+function summarizeIceRoute(localCandidate: any, remoteCandidate: any): IceRouteInfo {
+  const local = extractIceCandidateStats(localCandidate);
+  const remote = extractIceCandidateStats(remoteCandidate);
+  const label = describeRouteLabel(local.candidateType, remote.candidateType);
+  const localDetail = formatCandidateDetail(local);
+  const remoteDetail = formatCandidateDetail(remote);
+  const detailParts = [localDetail ? `Local ${localDetail}` : null, remoteDetail ? `Remote ${remoteDetail}` : null].filter(Boolean);
+  const display = detailParts.length > 0 ? `${label} – ${detailParts.join(" | ")}` : label;
+
+  return {
+    display,
+    label,
+    localDetail,
+    remoteDetail,
+    localType: local.candidateType,
+    remoteType: remote.candidateType,
+  };
+}
+
+async function getSelectedIceRoute(peerConnection: RTCPeerConnection): Promise<IceRouteInfo | null> {
+  if (typeof peerConnection.getStats !== "function") {
+    return null;
+  }
+
+  try {
+    const stats = await peerConnection.getStats();
+    let selectedPair: any = null;
+
+    stats.forEach((report) => {
+      if (selectedPair) {
+        return;
+      }
+      if (report.type === "transport") {
+        const candidatePairId = (report as any).selectedCandidatePairId;
+        if (candidatePairId) {
+          const pair = stats.get(candidatePairId as string);
+          if (pair) {
+            selectedPair = pair;
+          }
+        }
+      }
+    });
+
+    if (!selectedPair) {
+      stats.forEach((report) => {
+        if (selectedPair) {
+          return;
+        }
+        if (report.type === "candidate-pair" && ((report as any).selected || (report as any).nominated)) {
+          selectedPair = report;
+        }
+      });
+    }
+
+    if (!selectedPair) {
+      return null;
+    }
+
+    const localCandidateId = (selectedPair as any).localCandidateId;
+    const remoteCandidateId = (selectedPair as any).remoteCandidateId;
+
+    if (!localCandidateId && !remoteCandidateId) {
+      return null;
+    }
+
+    const localCandidate = localCandidateId ? stats.get(localCandidateId as string) : undefined;
+    const remoteCandidate = remoteCandidateId ? stats.get(remoteCandidateId as string) : undefined;
+
+    return summarizeIceRoute(localCandidate, remoteCandidate);
+  } catch (error) {
+    logEvent("Failed to inspect ICE route", { error: error instanceof Error ? error.message : error });
+    return null;
+  }
+}
+
 type Participant = {
   participantId: string;
   role: string;
@@ -279,6 +430,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const [iceConnectionState, setIceConnectionState] = useState<RTCIceConnectionState | null>(null);
   const [iceGatheringState, setIceGatheringState] = useState<RTCIceGatheringState | null>(null);
   const [dataChannelState, setDataChannelState] = useState<RTCDataChannelState | null>(null);
+  const [selectedIceRoute, setSelectedIceRoute] = useState<string | null>(null);
   const [callState, setCallState] = useState<CallState>("idle");
   const callStateRef = useRef<CallState>("idle");
   const [callDialogOpen, setCallDialogOpen] = useState(false);
@@ -350,6 +502,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const reconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
   const iceFailureRetriesRef = useRef(0);
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const lastIceRouteLabelRef = useRef<string | null>(null);
   const disconnectionRecoveryTimeoutRef = useRef<TimeoutHandle | null>(null);
   const sessionActiveRef = useRef(false);
   const sessionEndedRef = useRef(false);
@@ -836,24 +989,63 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
   useEffect(() => {
     if (!showDebugPanel) {
+      setSelectedIceRoute(null);
+      lastIceRouteLabelRef.current = null;
       return;
     }
 
-    const interval = window.setInterval(() => {
+    let cancelled = false;
+
+    const updateSelectedRoute = async () => {
       const pc = peerConnectionRef.current;
       if (!pc) {
+        if (!cancelled) {
+          setSelectedIceRoute(null);
+          lastIceRouteLabelRef.current = null;
+        }
         return;
       }
 
-      logEvent("STATS", {
-        iceConnectionState: pc.iceConnectionState,
-        connectionState: pc.connectionState,
-        signalingState: pc.signalingState,
-        candidatePairs: pc.getSenders().length,
-      });
+      const route = await getSelectedIceRoute(pc);
+      if (cancelled) {
+        return;
+      }
+
+      if (route) {
+        setSelectedIceRoute(route.display);
+        if (lastIceRouteLabelRef.current !== route.label) {
+          lastIceRouteLabelRef.current = route.label;
+          logEvent("Selected ICE route", {
+            label: route.label,
+            localDetail: route.localDetail,
+            remoteDetail: route.remoteDetail,
+            localType: route.localType,
+            remoteType: route.remoteType,
+          });
+        }
+      } else {
+        setSelectedIceRoute(null);
+        lastIceRouteLabelRef.current = null;
+      }
+    };
+
+    void updateSelectedRoute();
+
+    const interval = window.setInterval(() => {
+      const pc = peerConnectionRef.current;
+      if (pc) {
+        logEvent("STATS", {
+          iceConnectionState: pc.iceConnectionState,
+          connectionState: pc.connectionState,
+          signalingState: pc.signalingState,
+          candidatePairs: pc.getSenders().length,
+        });
+      }
+      void updateSelectedRoute();
     }, 5000);
 
     return () => {
+      cancelled = true;
       window.clearInterval(interval);
     };
   }, [showDebugPanel]);
@@ -3327,6 +3519,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                     <div className="session-debug__item">
                       <dt>ICE gathering</dt>
                       <dd>{iceGatheringState ?? "—"}</dd>
+                    </div>
+                    <div className="session-debug__item">
+                      <dt>ICE route</dt>
+                      <dd>{selectedIceRoute ?? "—"}</dd>
                     </div>
                     <div className="session-debug__item">
                       <dt>Data channel</dt>
