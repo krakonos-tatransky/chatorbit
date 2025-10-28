@@ -368,6 +368,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     pipWidth: number;
     pipHeight: number;
   } | null>(null);
+  const forceRelayRef = useRef(false);
+  const [relayFallbackActive, setRelayFallbackActive] = useState(false);
   const termsStorageKey = useMemo(() => `chatorbit:session:${token}:termsAccepted`, [token]);
   const debugIceServers = useMemo(() => getIceServers(), []);
   const debugIceServersSummary = useMemo(() => {
@@ -983,6 +985,94 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     [setLocalStream],
   );
 
+  const enableRelayFallback = useCallback(
+    (reason?: string) => {
+      if (!forceRelayRef.current) {
+        forceRelayRef.current = true;
+        setRelayFallbackActive(true);
+        if (reason) {
+          logEvent("Enabling relay-only ICE transport fallback", { reason });
+        } else {
+          logEvent("Enabling relay-only ICE transport fallback");
+        }
+      } else if (!relayFallbackActive) {
+        setRelayFallbackActive(true);
+      }
+    },
+    [relayFallbackActive],
+  );
+
+  const disableRelayFallback = useCallback(
+    (reason?: string) => {
+      if (!forceRelayRef.current && !relayFallbackActive) {
+        return;
+      }
+      forceRelayRef.current = false;
+      setRelayFallbackActive(false);
+      if (reason) {
+        logEvent("Disabling relay-only ICE transport fallback", { reason });
+      } else {
+        logEvent("Disabling relay-only ICE transport fallback");
+      }
+    },
+    [relayFallbackActive],
+  );
+
+  const applyRelayOnlyTransport = useCallback(
+    (pc: RTCPeerConnection | null, options?: { reason?: string }) => {
+      if (!pc) {
+        return;
+      }
+
+      const reason = options?.reason;
+      let configurationApplied = false;
+
+      try {
+        const currentConfiguration = pc.getConfiguration();
+        if (currentConfiguration.iceTransportPolicy !== "relay") {
+          pc.setConfiguration({ ...currentConfiguration, iceTransportPolicy: "relay" });
+          configurationApplied = true;
+        }
+      } catch (error) {
+        try {
+          pc.setConfiguration({ iceTransportPolicy: "relay" });
+          configurationApplied = true;
+        } catch (innerError) {
+          logEvent("Failed to enforce relay-only ICE transport", {
+            error:
+              innerError instanceof Error
+                ? innerError.message
+                : innerError ?? (error instanceof Error ? error.message : error),
+            reason,
+          });
+          return;
+        }
+      }
+
+      if (configurationApplied) {
+        if (reason) {
+          logEvent("Switching ICE transport policy to relay-only", { reason });
+        } else {
+          logEvent("Switching ICE transport policy to relay-only");
+        }
+      } else if (reason) {
+        logEvent("ICE transport already restricted to relay", { reason });
+      }
+
+      if (typeof pc.restartIce === "function") {
+        try {
+          pc.restartIce();
+          logEvent("Requested ICE restart after forcing relay-only policy");
+        } catch (error) {
+          logEvent("Failed to restart ICE after forcing relay-only policy", {
+            error: error instanceof Error ? error.message : error,
+          });
+        }
+      }
+    },
+    [],
+  );
+
   const resetPeerConnection = useCallback(
     ({ recreate = true, delayMs }: { recreate?: boolean; delayMs?: number } = {}) => {
       if (iceRetryTimeoutRef.current) {
@@ -1027,6 +1117,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       peerSupportsEncryptionRef.current = null;
       setPeerSupportsEncryption(null);
       if (!recreate) {
+        disableRelayFallback("peer connection destroyed");
         setIsReconnecting(false);
         return;
       }
@@ -1042,6 +1133,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       }
     },
     [
+      disableRelayFallback,
       setConnected,
       setIsReconnecting,
       setPeerResetNonce,
@@ -1765,10 +1857,23 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return;
     }
 
-    logEvent("Creating new RTCPeerConnection", { participantId, participantRole });
-    const peerConnection = new RTCPeerConnection({
+    const configuration: RTCConfiguration = {
       iceServers: getIceServers(),
+    };
+
+    const iceTransportPolicy = forceRelayRef.current ? "relay" : "all";
+    if (forceRelayRef.current) {
+      configuration.iceTransportPolicy = "relay";
+    }
+
+    logEvent("Creating new RTCPeerConnection", {
+      participantId,
+      participantRole,
+      iceTransportPolicy,
     });
+
+    const peerConnection = new RTCPeerConnection(configuration);
+    setRelayFallbackActive(forceRelayRef.current);
     peerConnectionRef.current = peerConnection;
     setConnectionState(peerConnection.connectionState);
     setIceConnectionState(peerConnection.iceConnectionState);
@@ -1831,6 +1936,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       } else if (state === "failed") {
         setConnected(false);
         if (sessionActiveRef.current) {
+          enableRelayFallback("peer connection failure");
+          applyRelayOnlyTransport(peerConnection, { reason: "peer connection failure" });
           setIsReconnecting(true);
           if (disconnectionRecoveryTimeoutRef.current) {
             clearTimeout(disconnectionRecoveryTimeoutRef.current);
@@ -1890,6 +1997,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       }
 
       if (state === "failed" && participantRole === "host" && peerConnectionRef.current === peerConnection) {
+        enableRelayFallback("ice connection failure");
+        applyRelayOnlyTransport(peerConnection, { reason: "ice connection failure" });
         if (iceFailureRetriesRef.current < MAX_ICE_FAILURE_RETRIES) {
           const attempt = iceFailureRetriesRef.current + 1;
           iceFailureRetriesRef.current = attempt;
@@ -1907,6 +2016,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         peerConnectionRef.current === peerConnection &&
         sessionActiveRef.current
       ) {
+        if (state === "failed") {
+          enableRelayFallback("ice connection failure");
+          applyRelayOnlyTransport(peerConnection, { reason: "ice connection failure" });
+        }
         const delayMs = state === "failed" ? 0 : reconnectBaseDelayMs;
         schedulePeerConnectionRecovery(peerConnection, `ice connection ${state}`, { delayMs });
       } else if (state === "connected") {
@@ -1989,6 +2102,11 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           }
         }, delay);
       }
+
+      if ((errorCode === 701 || errorCode === 702) && peerConnectionRef.current === peerConnection) {
+        enableRelayFallback("ice candidate gathering error");
+        applyRelayOnlyTransport(peerConnection, { reason: "ice candidate error" });
+      }
     });
 
     if (participantRole === "host") {
@@ -2021,7 +2139,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       resetPeerConnection({ recreate: false });
     };
   }, [
+    applyRelayOnlyTransport,
     attachDataChannel,
+    enableRelayFallback,
     participantId,
     participantRole,
     peerResetNonce,
@@ -3346,6 +3466,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                               </div>
                             ))}
                       </dd>
+                    </div>
+                    <div className="session-debug__item">
+                      <dt>ICE transport</dt>
+                      <dd>{relayFallbackActive ? "Relay only" : "All candidates"}</dd>
                     </div>
                     <div className="session-debug__item">
                       <dt>Identity</dt>
