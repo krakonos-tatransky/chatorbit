@@ -130,13 +130,41 @@ class ConnectionManager:
         for participant, ws in websockets:
             if participant in skip:
                 continue
-            await ws.send_text(payload)
+            try:
+                await ws.send_text(payload)
+            except WebSocketDisconnect:
+                logger.info(
+                    "WebSocket disconnected while broadcasting; removing participant",
+                    extra={"token": token, "participant": participant},
+                )
+                await self.disconnect(token, participant)
+            except Exception:
+                logger.exception(
+                    "Failed to broadcast to participant; removing from connection pool",
+                    extra={"token": token, "participant": participant},
+                )
+                await self.disconnect(token, participant)
 
     async def send(self, token: str, participant_id: str, message: Dict[str, Any]) -> None:
         async with self._lock:
             ws = self._connections.get(token, {}).get(participant_id)
-        if ws:
+        if not ws:
+            return
+
+        try:
             await ws.send_text(json.dumps(message))
+        except WebSocketDisconnect:
+            logger.info(
+                "WebSocket disconnected while sending direct message; removing participant",
+                extra={"token": token, "participant": participant_id},
+            )
+            await self.disconnect(token, participant_id)
+        except Exception:
+            logger.exception(
+                "Failed to send direct message; removing participant",
+                extra={"token": token, "participant": participant_id},
+            )
+            await self.disconnect(token, participant_id)
 
     async def connected_participants(self, token: str) -> List[str]:
         async with self._lock:
