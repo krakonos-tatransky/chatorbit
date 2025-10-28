@@ -575,7 +575,11 @@ def join_session(
             (p for p in session_model.participants if p.client_identity == client_identity),
             None,
         )
-    if not client_identity and not existing_participant:
+    if (
+        not client_identity
+        and not existing_participant
+        and len(session_model.participants) >= 2
+    ):
         existing_participant = next(
             (p for p in session_model.participants if p.ip_address == ip_address),
             None,

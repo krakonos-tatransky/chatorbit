@@ -193,6 +193,30 @@ def test_join_session_flow(client: TestClient) -> None:
     assert len(status_data["participants"]) == 2
 
 
+def test_join_session_allows_shared_ip_guests(client: TestClient) -> None:
+    token = client.post("/api/tokens", json=_token_payload()).json()["token"]
+
+    host_response = client.post(
+        "/api/sessions/join",
+        json={"token": token},
+        headers={"X-Forwarded-For": "203.0.113.10"},
+    )
+    assert host_response.status_code == 200
+    host_payload = host_response.json()
+
+    guest_response = client.post(
+        "/api/sessions/join",
+        json={"token": token},
+        headers={"X-Forwarded-For": "203.0.113.10"},
+    )
+    assert guest_response.status_code == 200
+    guest_payload = guest_response.json()
+
+    assert guest_payload["participant_id"] != host_payload["participant_id"]
+    assert guest_payload["role"] == "guest"
+    assert guest_payload["session_active"] is True
+
+
 def test_delete_session_marks_status_and_blocks_rejoin(client: TestClient) -> None:
     token_response = client.post("/api/tokens", json=_token_payload()).json()
     token = token_response["token"]
