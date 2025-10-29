@@ -1422,6 +1422,17 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     [],
   );
 
+  const shouldPreferRelayRouting = useCallback(() => {
+    if (!hasRelayIceServers) {
+      return false;
+    }
+    const lastRoute = lastIceRouteTypesRef.current;
+    if (!lastRoute) {
+      return false;
+    }
+    return lastRoute.localType !== "relay" && lastRoute.remoteType !== "relay";
+  }, [hasRelayIceServers]);
+
   const requestIceRestart = useCallback(
     async (reason: string, { preferRelay = false }: { preferRelay?: boolean } = {}) => {
       if (!sessionActiveRef.current) {
@@ -1543,11 +1554,20 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         return;
       }
       setIsReconnecting(true);
-      if (participantRole === "host") {
-        resetPeerConnection();
-      } else {
-        schedulePeerConnectionRecovery(pc, "network change", { delayMs: 0 });
-      }
+
+      const preferRelay = shouldPreferRelayRouting();
+
+      void (async () => {
+        const restarted = await requestIceRestart("network change", { preferRelay });
+        if (restarted) {
+          return;
+        }
+        if (participantRole === "host") {
+          resetPeerConnection();
+        } else {
+          schedulePeerConnectionRecovery(pc, "network change", { delayMs: 0 });
+        }
+      })();
     };
 
     connection.addEventListener("change", handleChange);
@@ -1555,7 +1575,14 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     return () => {
       connection.removeEventListener("change", handleChange);
     };
-  }, [participantRole, resetPeerConnection, schedulePeerConnectionRecovery, setIsReconnecting]);
+  }, [
+    participantRole,
+    requestIceRestart,
+    resetPeerConnection,
+    schedulePeerConnectionRecovery,
+    setIsReconnecting,
+    shouldPreferRelayRouting,
+  ]);
 
   const sendCapabilities = useCallback(() => {
     const channel = dataChannelRef.current;
@@ -2213,11 +2240,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         return;
       }
 
-      const preferRelay =
-        hasRelayIceServers &&
-        lastIceRouteTypesRef.current !== null &&
-        lastIceRouteTypesRef.current.localType !== "relay" &&
-        lastIceRouteTypesRef.current.remoteType !== "relay";
+      const preferRelay = shouldPreferRelayRouting();
       const reason = `ice connection ${state}`;
 
       if (participantRole === "host") {
@@ -2378,6 +2401,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     teardownCall,
     termsAccepted,
     hasRelayIceServers,
+    shouldPreferRelayRouting,
   ]);
 
   useEffect(() => {
