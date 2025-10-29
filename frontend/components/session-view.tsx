@@ -1299,6 +1299,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     ],
   );
 
+  const hasRelayIceServers = useMemo(() => {
+    const servers = getIceServers();
+    return servers.some((server) => {
+      const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+      return urls.some((url) =>
+        typeof url === "string" ? url.trim().toLowerCase().startsWith("turn") : false,
+      );
+    });
+  }, []);
+
   const schedulePeerConnectionRecovery = useCallback(
     (
       pc: RTCPeerConnection,
@@ -1330,6 +1340,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
   const forceRelayRouting = useCallback(
     (reason: string) => {
+      if (!hasRelayIceServers) {
+        logEvent("Skipping relay-only enforcement because no TURN servers are configured", { reason });
+        return false;
+      }
       const pc = peerConnectionRef.current;
       if (!pc) {
         return false;
@@ -1364,6 +1378,46 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         });
         return false;
       }
+    },
+    [hasRelayIceServers],
+  );
+
+  const sendSignal = useCallback(
+    (signalType: string, payload: unknown) => {
+      if (!participantId) {
+        return;
+      }
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      logEvent("Sending signal", { signalType, payload });
+      socket.send(
+        JSON.stringify({
+          type: "signal",
+          signalType,
+          payload,
+        }),
+      );
+    },
+    [participantId],
+  );
+
+  const updateLastIceRouteTypes = useCallback(
+    async (pc?: RTCPeerConnection | null) => {
+      const connection = pc ?? peerConnectionRef.current;
+      if (!connection) {
+        return;
+      }
+      const route = await getSelectedIceRoute(connection);
+      if (!route) {
+        lastIceRouteTypesRef.current = null;
+        return;
+      }
+      lastIceRouteTypesRef.current = {
+        localType: route.localType ?? null,
+        remoteType: route.remoteType ?? null,
+      };
     },
     [],
   );
@@ -1534,27 +1588,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       sendCapabilities();
     }
   }, [sendCapabilities, supportsEncryption]);
-
-  const sendSignal = useCallback(
-    (signalType: string, payload: unknown) => {
-      if (!participantId) {
-        return;
-      }
-      const socket = socketRef.current;
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        return;
-      }
-      logEvent("Sending signal", { signalType, payload });
-      socket.send(
-        JSON.stringify({
-          type: "signal",
-          signalType,
-          payload,
-        }),
-      );
-    },
-    [participantId],
-  );
 
   const sendCallMessage = useCallback(
     (action: string, detail: Record<string, unknown> = {}) => {
@@ -2086,6 +2119,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setConnectionState(state);
 
       if (state === "connected") {
+        void updateLastIceRouteTypes(peerConnection);
         iceFailureRetriesRef.current = 0;
         reconnectAttemptsRef.current = 0;
         setIsReconnecting(false);
@@ -2161,6 +2195,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       logEvent("ICE connection state", state);
       setIceConnectionState(state);
 
+      if (state === "connected" || state === "completed") {
+        void updateLastIceRouteTypes(peerConnection);
+      }
+
       if (state === "connected") {
         iceFailureRetriesRef.current = 0;
         iceRestartAttemptsRef.current = 0;
@@ -2176,9 +2214,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       }
 
       const preferRelay =
-        !lastIceRouteTypesRef.current ||
-        (lastIceRouteTypesRef.current.localType !== "relay" &&
-          lastIceRouteTypesRef.current.remoteType !== "relay");
+        hasRelayIceServers &&
+        lastIceRouteTypesRef.current !== null &&
+        lastIceRouteTypesRef.current.localType !== "relay" &&
+        lastIceRouteTypesRef.current.remoteType !== "relay";
       const reason = `ice connection ${state}`;
 
       if (participantRole === "host") {
@@ -2331,12 +2370,14 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     reconnectBaseDelayMs,
     schedulePeerConnectionRecovery,
     requestIceRestart,
+    updateLastIceRouteTypes,
     sendSignal,
     setCallState,
     setRemoteStream,
     showCallNotice,
     teardownCall,
     termsAccepted,
+    hasRelayIceServers,
   ]);
 
   useEffect(() => {
