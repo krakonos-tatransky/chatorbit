@@ -196,6 +196,7 @@ const MODERATE_NETWORK_RECONNECT_DELAY_MS = 700;
 const RECONNECT_MAX_DELAY_MS = 30000;
 const MAX_ICE_FAILURE_RETRIES = 3;
 const SECRET_DEBUG_KEYWORD = "orbitdebug";
+const DEBUG_EVENT_HISTORY_LIMIT = 50;
 
 function logEvent(message: string, ...details: unknown[]) {
   console.log(`[SessionView] ${message}`, ...details);
@@ -457,6 +458,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const chatLogRef = useRef<HTMLDivElement | null>(null);
+  const debugEventScrollRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -953,8 +955,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     const observer: DebugObserver = (entry) => {
       setDebugEvents((prev) => {
         const next = [...prev, entry];
-        if (next.length > 25) {
-          return next.slice(next.length - 25);
+        if (next.length > DEBUG_EVENT_HISTORY_LIMIT) {
+          return next.slice(next.length - DEBUG_EVENT_HISTORY_LIMIT);
         }
         return next;
       });
@@ -3401,9 +3403,19 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [peerSupportsEncryption, supportsEncryption]);
 
   const recentDebugEvents = useMemo(() => {
-    const limit = 5;
-    return debugEvents.slice(-limit).reverse();
+    return debugEvents.slice(-DEBUG_EVENT_HISTORY_LIMIT);
   }, [debugEvents]);
+
+  useEffect(() => {
+    if (!showDebugPanel) {
+      return;
+    }
+    const container = debugEventScrollRef.current;
+    if (!container) {
+      return;
+    }
+    container.scrollTop = container.scrollHeight;
+  }, [recentDebugEvents, showDebugPanel]);
 
   const orderedMessages = useMemo(
     () => (reverseMessageOrder ? [...messages].reverse() : messages),
@@ -3682,90 +3694,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                   </span>
                 </div>
               </div>
-              {showDebugPanel ? (
-                <div className="session-debug" data-test="session-debug-panel">
-                  <div className="session-debug__header">
-                    <p className="session-debug__title">Client debug</p>
-                    {isTouchDevice ? (
-                      <button
-                        type="button"
-                        className="session-debug__hide-button"
-                        onClick={() => {
-                          setShowDebugPanel(false);
-                        }}
-                        aria-label="Hide debug panel"
-                      >
-                        Hide
-                      </button>
-                    ) : (
-                      <p className="session-debug__hint">Press Esc to hide</p>
-                    )}
-                  </div>
-                  <dl className="session-debug__list">
-                    <div className="session-debug__item">
-                      <dt>Identity</dt>
-                      <dd>{clientIdentity ?? "Gathering…"}</dd>
-                    </div>
-                    <div className="session-debug__item">
-                      <dt>Peer state</dt>
-                      <dd>{connectionState ?? "—"}</dd>
-                    </div>
-                    <div className="session-debug__item">
-                      <dt>ICE connection</dt>
-                      <dd>{iceConnectionState ?? "—"}</dd>
-                    </div>
-                    <div className="session-debug__item">
-                      <dt>ICE gathering</dt>
-                      <dd>{iceGatheringState ?? "—"}</dd>
-                    </div>
-                    <div className="session-debug__item">
-                      <dt>ICE route</dt>
-                      <dd>{selectedIceRoute ?? "—"}</dd>
-                    </div>
-                    <div className="session-debug__item">
-                      <dt>Data channel</dt>
-                      <dd>{dataChannelState ?? "—"}</dd>
-                    </div>
-                  </dl>
-                  <div className="session-debug__events">
-                    <p className="session-debug__subtitle">Recent events</p>
-                    {recentDebugEvents.length === 0 ? (
-                      <p className="session-debug__empty">Watching for new logs…</p>
-                    ) : (
-                      <ul className="session-debug__event-list">
-                        {recentDebugEvents.map((entry, index) => {
-                          const detail = entry.details[0];
-                          let detailSnippet: string | null = null;
-                          if (detail !== undefined) {
-                            try {
-                              detailSnippet = JSON.stringify(detail);
-                            } catch (error) {
-                              detailSnippet = String(detail);
-                            }
-                            if (detailSnippet && detailSnippet.length > 160) {
-                              detailSnippet = `${detailSnippet.slice(0, 157)}…`;
-                            }
-                          }
-                          const timestamp = new Date(entry.timestamp).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            second: "2-digit",
-                          });
-                          return (
-                            <li key={`${entry.timestamp}-${index}`} className="session-debug__event">
-                              <span className="session-debug__event-time">{timestamp}</span>
-                              <span className="session-debug__event-message">{entry.message}</span>
-                              {detailSnippet ? (
-                                <code className="session-debug__event-detail">{detailSnippet}</code>
-                              ) : null}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                  </div>
-                </div>
-              ) : null}
             </div>
             <div className="countdown">
               <div className="status-pill">
@@ -4133,6 +4061,94 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             )}
             {!reverseMessageOrder ? composer : null}
           </div>
+          {showDebugPanel ? (
+            <div className="session-debug-card">
+              <div className="session-debug" data-test="session-debug-panel">
+                <div className="session-debug__header">
+                  <p className="session-debug__title">Client debug</p>
+                  {isTouchDevice ? (
+                    <button
+                      type="button"
+                      className="session-debug__hide-button"
+                      onClick={() => {
+                        setShowDebugPanel(false);
+                      }}
+                      aria-label="Hide debug panel"
+                    >
+                      Hide
+                    </button>
+                  ) : (
+                    <p className="session-debug__hint">Press Esc to hide</p>
+                  )}
+                </div>
+                <dl className="session-debug__list">
+                  <div className="session-debug__item">
+                    <dt>Identity</dt>
+                    <dd>{clientIdentity ?? "Gathering…"}</dd>
+                  </div>
+                  <div className="session-debug__item">
+                    <dt>Peer state</dt>
+                    <dd>{connectionState ?? "—"}</dd>
+                  </div>
+                  <div className="session-debug__item">
+                    <dt>ICE connection</dt>
+                    <dd>{iceConnectionState ?? "—"}</dd>
+                  </div>
+                  <div className="session-debug__item">
+                    <dt>ICE gathering</dt>
+                    <dd>{iceGatheringState ?? "—"}</dd>
+                  </div>
+                  <div className="session-debug__item">
+                    <dt>ICE route</dt>
+                    <dd>{selectedIceRoute ?? "—"}</dd>
+                  </div>
+                  <div className="session-debug__item">
+                    <dt>Data channel</dt>
+                    <dd>{dataChannelState ?? "—"}</dd>
+                  </div>
+                </dl>
+                <div className="session-debug__events">
+                  <p className="session-debug__subtitle">Recent events</p>
+                  {recentDebugEvents.length === 0 ? (
+                    <p className="session-debug__empty">Watching for new logs…</p>
+                  ) : (
+                    <div className="session-debug__event-scroll" ref={debugEventScrollRef}>
+                      <ul className="session-debug__event-list">
+                        {recentDebugEvents.map((entry, index) => {
+                          const detail = entry.details[0];
+                          let detailSnippet: string | null = null;
+                          if (detail !== undefined) {
+                            try {
+                              detailSnippet = JSON.stringify(detail);
+                            } catch (error) {
+                              detailSnippet = String(detail);
+                            }
+                            if (detailSnippet && detailSnippet.length > 160) {
+                              detailSnippet = `${detailSnippet.slice(0, 157)}…`;
+                            }
+                          }
+                          const timestamp = new Date(entry.timestamp).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          });
+                          return (
+                            <li key={`${entry.timestamp}-${index}`} className="session-debug__event">
+                              <span className="session-debug__event-time">{timestamp}</span>
+                              <span className="session-debug__event-message">{entry.message}</span>
+                              {detailSnippet ? (
+                                <code className="session-debug__event-detail">{detailSnippet}</code>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 

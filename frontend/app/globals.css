@@ -2161,8 +2161,11 @@ main {
   color: rgba(203, 213, 225, 0.9);
 }
 
-.session-debug {
+.session-debug-card {
   margin-top: 1.5rem;
+}
+
+.session-debug {
   padding: 1rem 1.25rem;
   border-radius: 18px;
   border: 1px dashed rgba(148, 163, 184, 0.45);
@@ -2243,6 +2246,12 @@ main {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
+}
+
+.session-debug__event-scroll {
+  max-height: 18rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
 }
 
 .session-debug__subtitle {
