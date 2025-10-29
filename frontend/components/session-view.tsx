@@ -503,6 +503,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const iceFailureRetriesRef = useRef(0);
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
   const lastIceRouteLabelRef = useRef<string | null>(null);
+  const lastIceRouteTypesRef = useRef<{ localType: string | null; remoteType: string | null } | null>(null);
+  const forcedRelayRef = useRef(false);
+  const iceRestartAttemptsRef = useRef(0);
+  const iceRestartInProgressRef = useRef(false);
   const disconnectionRecoveryTimeoutRef = useRef<TimeoutHandle | null>(null);
   const sessionActiveRef = useRef(false);
   const sessionEndedRef = useRef(false);
@@ -991,6 +995,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     if (!showDebugPanel) {
       setSelectedIceRoute(null);
       lastIceRouteLabelRef.current = null;
+      lastIceRouteTypesRef.current = null;
       return;
     }
 
@@ -1013,6 +1018,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
       if (route) {
         setSelectedIceRoute(route.display);
+        lastIceRouteTypesRef.current = {
+          localType: route.localType ?? null,
+          remoteType: route.remoteType ?? null,
+        };
         if (lastIceRouteLabelRef.current !== route.label) {
           lastIceRouteLabelRef.current = route.label;
           logEvent("Selected ICE route", {
@@ -1026,6 +1035,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       } else {
         setSelectedIceRoute(null);
         lastIceRouteLabelRef.current = null;
+        lastIceRouteTypesRef.current = null;
       }
     };
 
@@ -1165,6 +1175,11 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         clearTimeout(disconnectionRecoveryTimeoutRef.current);
         disconnectionRecoveryTimeoutRef.current = null;
       }
+      lastIceRouteLabelRef.current = null;
+      lastIceRouteTypesRef.current = null;
+      forcedRelayRef.current = false;
+      iceRestartAttemptsRef.current = 0;
+      iceRestartInProgressRef.current = false;
       const existing = peerConnectionRef.current;
       if (existing) {
         stopLocalMediaTracks(existing);
@@ -1182,6 +1197,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setIceConnectionState(null);
       setIceGatheringState(null);
       setDataChannelState(null);
+      setSelectedIceRoute(null);
       setCallState("idle");
       setIncomingCallFrom(null);
       setCallDialogOpen(false);
@@ -1226,6 +1242,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setCallDialogOpen,
       setCallNotice,
       setRemoteStream,
+      setSelectedIceRoute,
       stopLocalMediaTracks,
     ],
   );
@@ -1309,6 +1326,108 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       }, effectiveDelay);
     },
     [participantRole, reconnectBaseDelayMs, resetPeerConnection, setIsReconnecting],
+  );
+
+  const forceRelayRouting = useCallback(
+    (reason: string) => {
+      const pc = peerConnectionRef.current;
+      if (!pc) {
+        return false;
+      }
+      if (forcedRelayRef.current) {
+        return true;
+      }
+      if (typeof pc.getConfiguration !== "function" || typeof pc.setConfiguration !== "function") {
+        return false;
+      }
+
+      try {
+        const currentConfig = pc.getConfiguration();
+        if (currentConfig.iceTransportPolicy === "relay") {
+          forcedRelayRef.current = true;
+          return true;
+        }
+
+        const nextConfig: RTCConfiguration = {
+          ...currentConfig,
+          iceServers: currentConfig.iceServers ? [...currentConfig.iceServers] : currentConfig.iceServers,
+          iceTransportPolicy: "relay",
+        };
+        pc.setConfiguration(nextConfig);
+        forcedRelayRef.current = true;
+        logEvent("Forced ICE transport policy to relay", { reason });
+        return true;
+      } catch (error) {
+        logEvent("Failed to enforce relay transport policy", {
+          reason,
+          error: error instanceof Error ? error.message : error,
+        });
+        return false;
+      }
+    },
+    [],
+  );
+
+  const requestIceRestart = useCallback(
+    async (reason: string, { preferRelay = false }: { preferRelay?: boolean } = {}) => {
+      if (!sessionActiveRef.current) {
+        return false;
+      }
+      const pc = peerConnectionRef.current;
+      if (!pc) {
+        return false;
+      }
+      if (iceRestartInProgressRef.current) {
+        logEvent("ICE restart already in progress", { reason });
+        return true;
+      }
+      if (pc.signalingState !== "stable") {
+        logEvent("Skipping ICE restart while signaling is unstable", {
+          reason,
+          signalingState: pc.signalingState,
+        });
+        return false;
+      }
+      if (iceRestartAttemptsRef.current >= MAX_ICE_FAILURE_RETRIES) {
+        logEvent("Skipping ICE restart because maximum attempts were reached", {
+          reason,
+          attempts: iceRestartAttemptsRef.current,
+        });
+        return false;
+      }
+
+      if (preferRelay) {
+        forceRelayRouting(reason);
+      }
+
+      iceRestartInProgressRef.current = true;
+      setIsReconnecting(true);
+
+      try {
+        logEvent("Attempting ICE restart", { reason });
+        if (typeof pc.restartIce === "function") {
+          try {
+            pc.restartIce();
+          } catch (error) {
+            logEvent("restartIce() threw", { reason, error: error instanceof Error ? error.message : error });
+          }
+        }
+        const offer = await pc.createOffer({ iceRestart: true });
+        await pc.setLocalDescription(offer);
+        if (participantRole === "host") {
+          hasSentOfferRef.current = true;
+        }
+        sendSignal("offer", offer);
+        iceRestartAttemptsRef.current += 1;
+        return true;
+      } catch (error) {
+        logEvent("Failed to restart ICE", { reason, error: error instanceof Error ? error.message : error });
+        return false;
+      } finally {
+        iceRestartInProgressRef.current = false;
+      }
+    },
+    [forceRelayRouting, participantRole, sendSignal, setIsReconnecting],
   );
 
   useEffect(() => {
@@ -1952,6 +2071,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         sendSignal("iceCandidate", candidate);
         logEvent("Discovered ICE candidate", candidate);
       } else {
+        sendSignal("iceCandidate", null);
         logEvent("ICE candidate gathering complete");
       }
     };
@@ -2008,11 +2128,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             clearTimeout(disconnectionRecoveryTimeoutRef.current);
             disconnectionRecoveryTimeoutRef.current = null;
           }
-          logEvent("Connection FAILED - immediate reset");
-          resetPeerConnection();
-          if (participantRole === "host") {
-            hasSentOfferRef.current = false;
-          }
+          logEvent("Connection FAILED - awaiting ICE restart");
         }
       } else if (state === "closed") {
         setConnected(false);
@@ -2025,14 +2141,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         state === "disconnected" &&
         participantRole !== "host" &&
         peerConnectionRef.current === peerConnection &&
-        sessionActiveRef.current
+        sessionActiveRef.current &&
+        !iceRestartInProgressRef.current
       ) {
         schedulePeerConnectionRecovery(peerConnection, "peer connection disconnected");
       } else if (
         state === "failed" &&
         participantRole !== "host" &&
         peerConnectionRef.current === peerConnection &&
-        sessionActiveRef.current
+        sessionActiveRef.current &&
+        !iceRestartInProgressRef.current
       ) {
         schedulePeerConnectionRecovery(peerConnection, "peer connection failed", { delayMs: 0 });
       }
@@ -2043,43 +2161,57 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       logEvent("ICE connection state", state);
       setIceConnectionState(state);
 
-      if (
-        state === "disconnected" &&
-        participantRole === "host" &&
-        peerConnectionRef.current === peerConnection
-      ) {
-        logEvent("ICE disconnected as host - initiating restart");
-        try {
-          peerConnection.restartIce();
-        } catch (error) {
-          logEvent("Failed to restart ICE", { error: error instanceof Error ? error.message : error });
-        }
+      if (state === "connected") {
+        iceFailureRetriesRef.current = 0;
+        iceRestartAttemptsRef.current = 0;
         return;
       }
 
-      if (state === "failed" && participantRole === "host" && peerConnectionRef.current === peerConnection) {
-        if (iceFailureRetriesRef.current < MAX_ICE_FAILURE_RETRIES) {
-          const attempt = iceFailureRetriesRef.current + 1;
-          iceFailureRetriesRef.current = attempt;
-          setIsReconnecting(true);
-          resetPeerConnection({ delayMs: 1000 * attempt });
-          logEvent("ICE connection failed; scheduling retry", { attempt });
-        } else {
-          setError("Connection failed. Please refresh to retry.");
-          logEvent("ICE connection failed and maximum retries reached");
-          setIsReconnecting(false);
-        }
-      } else if (
-        (state === "failed" || state === "disconnected") &&
-        participantRole !== "host" &&
-        peerConnectionRef.current === peerConnection &&
-        sessionActiveRef.current
-      ) {
-        const delayMs = state === "failed" ? 0 : reconnectBaseDelayMs;
-        schedulePeerConnectionRecovery(peerConnection, `ice connection ${state}`, { delayMs });
-      } else if (state === "connected") {
-        iceFailureRetriesRef.current = 0;
+      if (peerConnectionRef.current !== peerConnection) {
+        return;
       }
+
+      if (state !== "failed" && state !== "disconnected") {
+        return;
+      }
+
+      const preferRelay =
+        !lastIceRouteTypesRef.current ||
+        (lastIceRouteTypesRef.current.localType !== "relay" &&
+          lastIceRouteTypesRef.current.remoteType !== "relay");
+      const reason = `ice connection ${state}`;
+
+      if (participantRole === "host") {
+        void (async () => {
+          const restarted = await requestIceRestart(reason, { preferRelay });
+          if (!restarted && state === "failed") {
+            if (iceFailureRetriesRef.current < MAX_ICE_FAILURE_RETRIES) {
+              const attempt = iceFailureRetriesRef.current + 1;
+              iceFailureRetriesRef.current = attempt;
+              setIsReconnecting(true);
+              resetPeerConnection({ delayMs: 1000 * attempt });
+              logEvent("ICE connection failed; scheduling retry", { attempt });
+            } else {
+              setError("Connection failed. Please refresh to retry.");
+              logEvent("ICE connection failed and maximum retries reached");
+              setIsReconnecting(false);
+            }
+          }
+        })();
+        return;
+      }
+
+      if (!sessionActiveRef.current) {
+        return;
+      }
+
+      void (async () => {
+        const restarted = await requestIceRestart(reason, { preferRelay });
+        if (!restarted) {
+          const delayMs = state === "failed" ? 0 : reconnectBaseDelayMs;
+          schedulePeerConnectionRecovery(peerConnection, reason, { delayMs });
+        }
+      })();
     };
 
     peerConnection.ontrack = (event) => {
@@ -2198,6 +2330,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     resetPeerConnection,
     reconnectBaseDelayMs,
     schedulePeerConnectionRecovery,
+    requestIceRestart,
     sendSignal,
     setCallState,
     setRemoteStream,
