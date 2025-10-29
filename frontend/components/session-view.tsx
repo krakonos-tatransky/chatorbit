@@ -196,6 +196,7 @@ const MODERATE_NETWORK_RECONNECT_DELAY_MS = 700;
 const RECONNECT_MAX_DELAY_MS = 30000;
 const MAX_ICE_FAILURE_RETRIES = 3;
 const SECRET_DEBUG_KEYWORD = "orbitdebug";
+const DEBUG_EVENT_HISTORY_LIMIT = 50;
 
 function logEvent(message: string, ...details: unknown[]) {
   console.log(`[SessionView] ${message}`, ...details);
@@ -457,6 +458,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const chatLogRef = useRef<HTMLDivElement | null>(null);
+  const debugEventScrollRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -503,6 +505,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const iceFailureRetriesRef = useRef(0);
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
   const lastIceRouteLabelRef = useRef<string | null>(null);
+  const lastIceRouteTypesRef = useRef<{ localType: string | null; remoteType: string | null } | null>(null);
+  const forcedRelayRef = useRef(false);
+  const iceRestartAttemptsRef = useRef(0);
+  const iceRestartInProgressRef = useRef(false);
   const disconnectionRecoveryTimeoutRef = useRef<TimeoutHandle | null>(null);
   const sessionActiveRef = useRef(false);
   const sessionEndedRef = useRef(false);
@@ -949,8 +955,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     const observer: DebugObserver = (entry) => {
       setDebugEvents((prev) => {
         const next = [...prev, entry];
-        if (next.length > 25) {
-          return next.slice(next.length - 25);
+        if (next.length > DEBUG_EVENT_HISTORY_LIMIT) {
+          return next.slice(next.length - DEBUG_EVENT_HISTORY_LIMIT);
         }
         return next;
       });
@@ -991,6 +997,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     if (!showDebugPanel) {
       setSelectedIceRoute(null);
       lastIceRouteLabelRef.current = null;
+      lastIceRouteTypesRef.current = null;
       return;
     }
 
@@ -1013,6 +1020,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
       if (route) {
         setSelectedIceRoute(route.display);
+        lastIceRouteTypesRef.current = {
+          localType: route.localType ?? null,
+          remoteType: route.remoteType ?? null,
+        };
         if (lastIceRouteLabelRef.current !== route.label) {
           lastIceRouteLabelRef.current = route.label;
           logEvent("Selected ICE route", {
@@ -1026,6 +1037,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       } else {
         setSelectedIceRoute(null);
         lastIceRouteLabelRef.current = null;
+        lastIceRouteTypesRef.current = null;
       }
     };
 
@@ -1165,6 +1177,11 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         clearTimeout(disconnectionRecoveryTimeoutRef.current);
         disconnectionRecoveryTimeoutRef.current = null;
       }
+      lastIceRouteLabelRef.current = null;
+      lastIceRouteTypesRef.current = null;
+      forcedRelayRef.current = false;
+      iceRestartAttemptsRef.current = 0;
+      iceRestartInProgressRef.current = false;
       const existing = peerConnectionRef.current;
       if (existing) {
         stopLocalMediaTracks(existing);
@@ -1182,6 +1199,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setIceConnectionState(null);
       setIceGatheringState(null);
       setDataChannelState(null);
+      setSelectedIceRoute(null);
       setCallState("idle");
       setIncomingCallFrom(null);
       setCallDialogOpen(false);
@@ -1226,6 +1244,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setCallDialogOpen,
       setCallNotice,
       setRemoteStream,
+      setSelectedIceRoute,
       stopLocalMediaTracks,
     ],
   );
@@ -1282,6 +1301,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     ],
   );
 
+  const hasRelayIceServers = useMemo(() => {
+    const servers = getIceServers();
+    return servers.some((server) => {
+      const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+      return urls.some((url) =>
+        typeof url === "string" ? url.trim().toLowerCase().startsWith("turn") : false,
+      );
+    });
+  }, []);
+
   const schedulePeerConnectionRecovery = useCallback(
     (
       pc: RTCPeerConnection,
@@ -1309,6 +1338,163 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       }, effectiveDelay);
     },
     [participantRole, reconnectBaseDelayMs, resetPeerConnection, setIsReconnecting],
+  );
+
+  const forceRelayRouting = useCallback(
+    (reason: string) => {
+      if (!hasRelayIceServers) {
+        logEvent("Skipping relay-only enforcement because no TURN servers are configured", { reason });
+        return false;
+      }
+      const pc = peerConnectionRef.current;
+      if (!pc) {
+        return false;
+      }
+      if (forcedRelayRef.current) {
+        return true;
+      }
+      if (typeof pc.getConfiguration !== "function" || typeof pc.setConfiguration !== "function") {
+        return false;
+      }
+
+      try {
+        const currentConfig = pc.getConfiguration();
+        if (currentConfig.iceTransportPolicy === "relay") {
+          forcedRelayRef.current = true;
+          return true;
+        }
+
+        const nextConfig: RTCConfiguration = {
+          ...currentConfig,
+          iceServers: currentConfig.iceServers ? [...currentConfig.iceServers] : currentConfig.iceServers,
+          iceTransportPolicy: "relay",
+        };
+        pc.setConfiguration(nextConfig);
+        forcedRelayRef.current = true;
+        logEvent("Forced ICE transport policy to relay", { reason });
+        return true;
+      } catch (error) {
+        logEvent("Failed to enforce relay transport policy", {
+          reason,
+          error: error instanceof Error ? error.message : error,
+        });
+        return false;
+      }
+    },
+    [hasRelayIceServers],
+  );
+
+  const sendSignal = useCallback(
+    (signalType: string, payload: unknown) => {
+      if (!participantId) {
+        return;
+      }
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      logEvent("Sending signal", { signalType, payload });
+      socket.send(
+        JSON.stringify({
+          type: "signal",
+          signalType,
+          payload,
+        }),
+      );
+    },
+    [participantId],
+  );
+
+  const updateLastIceRouteTypes = useCallback(
+    async (pc?: RTCPeerConnection | null) => {
+      const connection = pc ?? peerConnectionRef.current;
+      if (!connection) {
+        return;
+      }
+      const route = await getSelectedIceRoute(connection);
+      if (!route) {
+        lastIceRouteTypesRef.current = null;
+        return;
+      }
+      lastIceRouteTypesRef.current = {
+        localType: route.localType ?? null,
+        remoteType: route.remoteType ?? null,
+      };
+    },
+    [],
+  );
+
+  const shouldPreferRelayRouting = useCallback(() => {
+    if (!hasRelayIceServers) {
+      return false;
+    }
+    const lastRoute = lastIceRouteTypesRef.current;
+    if (!lastRoute) {
+      return false;
+    }
+    return lastRoute.localType !== "relay" && lastRoute.remoteType !== "relay";
+  }, [hasRelayIceServers]);
+
+  const requestIceRestart = useCallback(
+    async (reason: string, { preferRelay = false }: { preferRelay?: boolean } = {}) => {
+      if (!sessionActiveRef.current) {
+        return false;
+      }
+      const pc = peerConnectionRef.current;
+      if (!pc) {
+        return false;
+      }
+      if (iceRestartInProgressRef.current) {
+        logEvent("ICE restart already in progress", { reason });
+        return true;
+      }
+      if (pc.signalingState !== "stable") {
+        logEvent("Skipping ICE restart while signaling is unstable", {
+          reason,
+          signalingState: pc.signalingState,
+        });
+        return false;
+      }
+      if (iceRestartAttemptsRef.current >= MAX_ICE_FAILURE_RETRIES) {
+        logEvent("Skipping ICE restart because maximum attempts were reached", {
+          reason,
+          attempts: iceRestartAttemptsRef.current,
+        });
+        return false;
+      }
+
+      if (preferRelay) {
+        forceRelayRouting(reason);
+      }
+
+      iceRestartInProgressRef.current = true;
+      setIsReconnecting(true);
+
+      try {
+        logEvent("Attempting ICE restart", { reason });
+        if (typeof pc.restartIce === "function") {
+          try {
+            pc.restartIce();
+          } catch (error) {
+            logEvent("restartIce() threw", { reason, error: error instanceof Error ? error.message : error });
+          }
+        }
+        const offer = await pc.createOffer({ iceRestart: true });
+        await pc.setLocalDescription(offer);
+        if (participantRole === "host") {
+          hasSentOfferRef.current = true;
+        }
+        sendSignal("offer", offer);
+        iceRestartAttemptsRef.current += 1;
+        return true;
+      } catch (error) {
+        logEvent("Failed to restart ICE", { reason, error: error instanceof Error ? error.message : error });
+        return false;
+      } finally {
+        iceRestartInProgressRef.current = false;
+      }
+    },
+    [forceRelayRouting, participantRole, sendSignal, setIsReconnecting],
   );
 
   useEffect(() => {
@@ -1370,11 +1556,20 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         return;
       }
       setIsReconnecting(true);
-      if (participantRole === "host") {
-        resetPeerConnection();
-      } else {
-        schedulePeerConnectionRecovery(pc, "network change", { delayMs: 0 });
-      }
+
+      const preferRelay = shouldPreferRelayRouting();
+
+      void (async () => {
+        const restarted = await requestIceRestart("network change", { preferRelay });
+        if (restarted) {
+          return;
+        }
+        if (participantRole === "host") {
+          resetPeerConnection();
+        } else {
+          schedulePeerConnectionRecovery(pc, "network change", { delayMs: 0 });
+        }
+      })();
     };
 
     connection.addEventListener("change", handleChange);
@@ -1382,7 +1577,14 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     return () => {
       connection.removeEventListener("change", handleChange);
     };
-  }, [participantRole, resetPeerConnection, schedulePeerConnectionRecovery, setIsReconnecting]);
+  }, [
+    participantRole,
+    requestIceRestart,
+    resetPeerConnection,
+    schedulePeerConnectionRecovery,
+    setIsReconnecting,
+    shouldPreferRelayRouting,
+  ]);
 
   const sendCapabilities = useCallback(() => {
     const channel = dataChannelRef.current;
@@ -1415,27 +1617,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       sendCapabilities();
     }
   }, [sendCapabilities, supportsEncryption]);
-
-  const sendSignal = useCallback(
-    (signalType: string, payload: unknown) => {
-      if (!participantId) {
-        return;
-      }
-      const socket = socketRef.current;
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        return;
-      }
-      logEvent("Sending signal", { signalType, payload });
-      socket.send(
-        JSON.stringify({
-          type: "signal",
-          signalType,
-          payload,
-        }),
-      );
-    },
-    [participantId],
-  );
 
   const sendCallMessage = useCallback(
     (action: string, detail: Record<string, unknown> = {}) => {
@@ -1952,6 +2133,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         sendSignal("iceCandidate", candidate);
         logEvent("Discovered ICE candidate", candidate);
       } else {
+        sendSignal("iceCandidate", null);
         logEvent("ICE candidate gathering complete");
       }
     };
@@ -1966,6 +2148,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setConnectionState(state);
 
       if (state === "connected") {
+        void updateLastIceRouteTypes(peerConnection);
         iceFailureRetriesRef.current = 0;
         reconnectAttemptsRef.current = 0;
         setIsReconnecting(false);
@@ -2008,11 +2191,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             clearTimeout(disconnectionRecoveryTimeoutRef.current);
             disconnectionRecoveryTimeoutRef.current = null;
           }
-          logEvent("Connection FAILED - immediate reset");
-          resetPeerConnection();
-          if (participantRole === "host") {
-            hasSentOfferRef.current = false;
-          }
+          logEvent("Connection FAILED - awaiting ICE restart");
         }
       } else if (state === "closed") {
         setConnected(false);
@@ -2025,14 +2204,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         state === "disconnected" &&
         participantRole !== "host" &&
         peerConnectionRef.current === peerConnection &&
-        sessionActiveRef.current
+        sessionActiveRef.current &&
+        !iceRestartInProgressRef.current
       ) {
         schedulePeerConnectionRecovery(peerConnection, "peer connection disconnected");
       } else if (
         state === "failed" &&
         participantRole !== "host" &&
         peerConnectionRef.current === peerConnection &&
-        sessionActiveRef.current
+        sessionActiveRef.current &&
+        !iceRestartInProgressRef.current
       ) {
         schedulePeerConnectionRecovery(peerConnection, "peer connection failed", { delayMs: 0 });
       }
@@ -2043,43 +2224,58 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       logEvent("ICE connection state", state);
       setIceConnectionState(state);
 
-      if (
-        state === "disconnected" &&
-        participantRole === "host" &&
-        peerConnectionRef.current === peerConnection
-      ) {
-        logEvent("ICE disconnected as host - initiating restart");
-        try {
-          peerConnection.restartIce();
-        } catch (error) {
-          logEvent("Failed to restart ICE", { error: error instanceof Error ? error.message : error });
-        }
+      if (state === "connected" || state === "completed") {
+        void updateLastIceRouteTypes(peerConnection);
+      }
+
+      if (state === "connected") {
+        iceFailureRetriesRef.current = 0;
+        iceRestartAttemptsRef.current = 0;
         return;
       }
 
-      if (state === "failed" && participantRole === "host" && peerConnectionRef.current === peerConnection) {
-        if (iceFailureRetriesRef.current < MAX_ICE_FAILURE_RETRIES) {
-          const attempt = iceFailureRetriesRef.current + 1;
-          iceFailureRetriesRef.current = attempt;
-          setIsReconnecting(true);
-          resetPeerConnection({ delayMs: 1000 * attempt });
-          logEvent("ICE connection failed; scheduling retry", { attempt });
-        } else {
-          setError("Connection failed. Please refresh to retry.");
-          logEvent("ICE connection failed and maximum retries reached");
-          setIsReconnecting(false);
-        }
-      } else if (
-        (state === "failed" || state === "disconnected") &&
-        participantRole !== "host" &&
-        peerConnectionRef.current === peerConnection &&
-        sessionActiveRef.current
-      ) {
-        const delayMs = state === "failed" ? 0 : reconnectBaseDelayMs;
-        schedulePeerConnectionRecovery(peerConnection, `ice connection ${state}`, { delayMs });
-      } else if (state === "connected") {
-        iceFailureRetriesRef.current = 0;
+      if (peerConnectionRef.current !== peerConnection) {
+        return;
       }
+
+      if (state !== "failed" && state !== "disconnected") {
+        return;
+      }
+
+      const preferRelay = shouldPreferRelayRouting();
+      const reason = `ice connection ${state}`;
+
+      if (participantRole === "host") {
+        void (async () => {
+          const restarted = await requestIceRestart(reason, { preferRelay });
+          if (!restarted && state === "failed") {
+            if (iceFailureRetriesRef.current < MAX_ICE_FAILURE_RETRIES) {
+              const attempt = iceFailureRetriesRef.current + 1;
+              iceFailureRetriesRef.current = attempt;
+              setIsReconnecting(true);
+              resetPeerConnection({ delayMs: 1000 * attempt });
+              logEvent("ICE connection failed; scheduling retry", { attempt });
+            } else {
+              setError("Connection failed. Please refresh to retry.");
+              logEvent("ICE connection failed and maximum retries reached");
+              setIsReconnecting(false);
+            }
+          }
+        })();
+        return;
+      }
+
+      if (!sessionActiveRef.current) {
+        return;
+      }
+
+      void (async () => {
+        const restarted = await requestIceRestart(reason, { preferRelay });
+        if (!restarted) {
+          const delayMs = state === "failed" ? 0 : reconnectBaseDelayMs;
+          schedulePeerConnectionRecovery(peerConnection, reason, { delayMs });
+        }
+      })();
     };
 
     peerConnection.ontrack = (event) => {
@@ -2198,12 +2394,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     resetPeerConnection,
     reconnectBaseDelayMs,
     schedulePeerConnectionRecovery,
+    requestIceRestart,
+    updateLastIceRouteTypes,
     sendSignal,
     setCallState,
     setRemoteStream,
     showCallNotice,
     teardownCall,
     termsAccepted,
+    hasRelayIceServers,
+    shouldPreferRelayRouting,
   ]);
 
   useEffect(() => {
@@ -3203,9 +3403,19 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [peerSupportsEncryption, supportsEncryption]);
 
   const recentDebugEvents = useMemo(() => {
-    const limit = 5;
-    return debugEvents.slice(-limit).reverse();
+    return debugEvents.slice(-DEBUG_EVENT_HISTORY_LIMIT);
   }, [debugEvents]);
+
+  useEffect(() => {
+    if (!showDebugPanel) {
+      return;
+    }
+    const container = debugEventScrollRef.current;
+    if (!container) {
+      return;
+    }
+    container.scrollTop = container.scrollHeight;
+  }, [recentDebugEvents, showDebugPanel]);
 
   const orderedMessages = useMemo(
     () => (reverseMessageOrder ? [...messages].reverse() : messages),
@@ -3484,90 +3694,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                   </span>
                 </div>
               </div>
-              {showDebugPanel ? (
-                <div className="session-debug" data-test="session-debug-panel">
-                  <div className="session-debug__header">
-                    <p className="session-debug__title">Client debug</p>
-                    {isTouchDevice ? (
-                      <button
-                        type="button"
-                        className="session-debug__hide-button"
-                        onClick={() => {
-                          setShowDebugPanel(false);
-                        }}
-                        aria-label="Hide debug panel"
-                      >
-                        Hide
-                      </button>
-                    ) : (
-                      <p className="session-debug__hint">Press Esc to hide</p>
-                    )}
-                  </div>
-                  <dl className="session-debug__list">
-                    <div className="session-debug__item">
-                      <dt>Identity</dt>
-                      <dd>{clientIdentity ?? "Gathering…"}</dd>
-                    </div>
-                    <div className="session-debug__item">
-                      <dt>Peer state</dt>
-                      <dd>{connectionState ?? "—"}</dd>
-                    </div>
-                    <div className="session-debug__item">
-                      <dt>ICE connection</dt>
-                      <dd>{iceConnectionState ?? "—"}</dd>
-                    </div>
-                    <div className="session-debug__item">
-                      <dt>ICE gathering</dt>
-                      <dd>{iceGatheringState ?? "—"}</dd>
-                    </div>
-                    <div className="session-debug__item">
-                      <dt>ICE route</dt>
-                      <dd>{selectedIceRoute ?? "—"}</dd>
-                    </div>
-                    <div className="session-debug__item">
-                      <dt>Data channel</dt>
-                      <dd>{dataChannelState ?? "—"}</dd>
-                    </div>
-                  </dl>
-                  <div className="session-debug__events">
-                    <p className="session-debug__subtitle">Recent events</p>
-                    {recentDebugEvents.length === 0 ? (
-                      <p className="session-debug__empty">Watching for new logs…</p>
-                    ) : (
-                      <ul className="session-debug__event-list">
-                        {recentDebugEvents.map((entry, index) => {
-                          const detail = entry.details[0];
-                          let detailSnippet: string | null = null;
-                          if (detail !== undefined) {
-                            try {
-                              detailSnippet = JSON.stringify(detail);
-                            } catch (error) {
-                              detailSnippet = String(detail);
-                            }
-                            if (detailSnippet && detailSnippet.length > 160) {
-                              detailSnippet = `${detailSnippet.slice(0, 157)}…`;
-                            }
-                          }
-                          const timestamp = new Date(entry.timestamp).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            second: "2-digit",
-                          });
-                          return (
-                            <li key={`${entry.timestamp}-${index}`} className="session-debug__event">
-                              <span className="session-debug__event-time">{timestamp}</span>
-                              <span className="session-debug__event-message">{entry.message}</span>
-                              {detailSnippet ? (
-                                <code className="session-debug__event-detail">{detailSnippet}</code>
-                              ) : null}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                  </div>
-                </div>
-              ) : null}
             </div>
             <div className="countdown">
               <div className="status-pill">
@@ -3935,6 +4061,94 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             )}
             {!reverseMessageOrder ? composer : null}
           </div>
+          {showDebugPanel ? (
+            <div className="session-debug-card">
+              <div className="session-debug" data-test="session-debug-panel">
+                <div className="session-debug__header">
+                  <p className="session-debug__title">Client debug</p>
+                  {isTouchDevice ? (
+                    <button
+                      type="button"
+                      className="session-debug__hide-button"
+                      onClick={() => {
+                        setShowDebugPanel(false);
+                      }}
+                      aria-label="Hide debug panel"
+                    >
+                      Hide
+                    </button>
+                  ) : (
+                    <p className="session-debug__hint">Press Esc to hide</p>
+                  )}
+                </div>
+                <dl className="session-debug__list">
+                  <div className="session-debug__item">
+                    <dt>Identity</dt>
+                    <dd>{clientIdentity ?? "Gathering…"}</dd>
+                  </div>
+                  <div className="session-debug__item">
+                    <dt>Peer state</dt>
+                    <dd>{connectionState ?? "—"}</dd>
+                  </div>
+                  <div className="session-debug__item">
+                    <dt>ICE connection</dt>
+                    <dd>{iceConnectionState ?? "—"}</dd>
+                  </div>
+                  <div className="session-debug__item">
+                    <dt>ICE gathering</dt>
+                    <dd>{iceGatheringState ?? "—"}</dd>
+                  </div>
+                  <div className="session-debug__item">
+                    <dt>ICE route</dt>
+                    <dd>{selectedIceRoute ?? "—"}</dd>
+                  </div>
+                  <div className="session-debug__item">
+                    <dt>Data channel</dt>
+                    <dd>{dataChannelState ?? "—"}</dd>
+                  </div>
+                </dl>
+                <div className="session-debug__events">
+                  <p className="session-debug__subtitle">Recent events</p>
+                  {recentDebugEvents.length === 0 ? (
+                    <p className="session-debug__empty">Watching for new logs…</p>
+                  ) : (
+                    <div className="session-debug__event-scroll" ref={debugEventScrollRef}>
+                      <ul className="session-debug__event-list">
+                        {recentDebugEvents.map((entry, index) => {
+                          const detail = entry.details[0];
+                          let detailSnippet: string | null = null;
+                          if (detail !== undefined) {
+                            try {
+                              detailSnippet = JSON.stringify(detail);
+                            } catch (error) {
+                              detailSnippet = String(detail);
+                            }
+                            if (detailSnippet && detailSnippet.length > 160) {
+                              detailSnippet = `${detailSnippet.slice(0, 157)}…`;
+                            }
+                          }
+                          const timestamp = new Date(entry.timestamp).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          });
+                          return (
+                            <li key={`${entry.timestamp}-${index}`} className="session-debug__event">
+                              <span className="session-debug__event-time">{timestamp}</span>
+                              <span className="session-debug__event-message">{entry.message}</span>
+                              {detailSnippet ? (
+                                <code className="session-debug__event-detail">{detailSnippet}</code>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
