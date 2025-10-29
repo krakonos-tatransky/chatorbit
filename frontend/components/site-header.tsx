@@ -1,9 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import { LegalAwareLink } from "@/components/legal/legal-aware-link";
 
@@ -18,24 +18,20 @@ const BASE_NAV_ITEMS = [
 export function SiteHeader() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const pathname = usePathname();
-  const [search, setSearch] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    setSearch(window.location.search);
-  }, [pathname]);
+  const searchParams = useSearchParams();
 
   const reportAbuseLink = useMemo(() => {
-    if (!pathname?.startsWith("/session/")) {
+    if (pathname !== "/session") {
       return null;
     }
-    const params = new URLSearchParams(search ?? undefined);
+    const params = new URLSearchParams(searchParams?.toString());
+    if (!params.get("token")) {
+      return null;
+    }
     params.set("reportAbuse", "1");
     const query = params.toString();
-    return `${pathname}${query ? `?${query}` : ""}`;
-  }, [pathname, search]);
+    return `/session${query ? `?${query}` : ""}`;
+  }, [pathname, searchParams]);
 
   const navItems = useMemo(() => {
     if (!reportAbuseLink) {

@@ -11,18 +11,13 @@ const normalizedAssetPrefix = rawAssetPrefix
   : normalizedBasePath || '';
 
 const nextConfig = {
-  output: 'standalone',
+  output: 'export',
+  trailingSlash: true,
   ...(normalizedBasePath ? { basePath: normalizedBasePath } : {}),
   ...(normalizedAssetPrefix ? { assetPrefix: normalizedAssetPrefix } : {}),
   experimental: { serverActions: { allowedOrigins: ['*'] } },
   images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'useruploads.socraticoverflow.com',
-        pathname: '/uploads/*',
-      },
-    ],
+    unoptimized: true,
   },
 };
 

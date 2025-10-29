@@ -92,7 +92,12 @@ export function JoinSessionCard({ tokenInputRef }: JoinSessionCardProps) {
           }),
         );
       }
-      router.push(`/session/${payload.token}?participant=${payload.participant_id}`);
+      const nextParams = new URLSearchParams({
+        token: payload.token,
+        participant: payload.participant_id,
+      });
+
+      router.push(`/session?${nextParams.toString()}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unknown error");
     } finally {

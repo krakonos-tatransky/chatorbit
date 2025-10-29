@@ -1,12 +1,23 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { Suspense } from "react";
 
 import { LegalAwareLink } from "@/components/legal/legal-aware-link";
 import { LegalOverlayProvider } from "@/components/legal/legal-overlay-provider";
 import { SiteHeader } from "@/components/site-header";
 
 const CHAT_ORBIT_LOGO_URL = "/brand/chat-orbit-logo.svg";
+
+function SiteHeaderFallback() {
+  return (
+    <header className="site-header" aria-hidden>
+      <div className="site-header__inner">
+        <span className="site-logo__text">ChatOrbit</span>
+      </div>
+    </header>
+  );
+}
 
 export const metadata: Metadata = {
   title: "ChatOrbit",
@@ -26,7 +37,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body>
         <LegalOverlayProvider>
           <div className="site-shell">
-            <SiteHeader />
+            <Suspense fallback={<SiteHeaderFallback />}>
+              <SiteHeader />
+            </Suspense>
             <div className="site-content">{children}</div>
             <footer className="site-footer">
               <div className="site-footer__inner">
