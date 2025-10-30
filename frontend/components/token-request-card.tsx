@@ -85,6 +85,24 @@ export function TokenRequestCard() {
     setStartSessionAvailable(false);
   }, [result?.token]);
 
+  useEffect(() => {
+    if (!result?.token || typeof window === "undefined" || !generateButtonRef.current) {
+      return;
+    }
+
+    const isMobileViewport = window.matchMedia?.("(max-width: 768px)").matches ?? false;
+    if (!isMobileViewport) {
+      return;
+    }
+
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    generateButtonRef.current.scrollIntoView({
+      block: "start",
+      inline: "nearest",
+      behavior: prefersReducedMotion ? "auto" : "smooth",
+    });
+  }, [result?.token]);
+
   const handleCopyToken = useCallback(async () => {
     if (!result?.token) {
       return;
@@ -116,18 +134,6 @@ export function TokenRequestCard() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (typeof window !== "undefined" && generateButtonRef.current) {
-      const isMobileViewport = window.matchMedia?.("(max-width: 768px)").matches ?? false;
-      if (isMobileViewport) {
-        const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-        generateButtonRef.current.scrollIntoView({
-          block: "start",
-          inline: "nearest",
-          behavior: prefersReducedMotion ? "auto" : "smooth",
-        });
-      }
-    }
 
     setLoading(true);
     setError(null);
