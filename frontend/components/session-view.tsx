@@ -2806,11 +2806,13 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     ? sessionTranslations.statusCard.messageLimit.replace("{limit}", formattedMessageLimit)
     : sessionTranslations.statusCard.messageLimitUnknown;
 
+  const endSessionTranslations = sessionTranslations.controls.endSession;
+
   const endSessionButtonLabel = hasSessionEnded
-    ? "Session ended"
+    ? endSessionTranslations.ended
     : endSessionLoading
-      ? "Ending…"
-      : "End session";
+      ? endSessionTranslations.loading
+      : endSessionTranslations.idle;
 
   const performEndSession = useCallback(async () => {
     if (endSessionLoading || hasSessionEnded) {
@@ -3172,7 +3174,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         className="textarea"
-        placeholder="Type your message…"
+        placeholder={sessionTranslations.chat.composerPlaceholder}
         disabled={!termsAccepted || sessionStatus?.status !== "active"}
       />
       <div className="composer__footer">
@@ -3189,7 +3191,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           }
           className="button button--cyan"
         >
-          Send
+          {sessionTranslations.chat.sendButton}
         </button>
       </div>
     </form>
@@ -3598,7 +3600,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                           : "Remote video unavailable"}
                 </div>
               )}
-              <span className="call-panel__media-label">Partner</span>
+              <span className="call-panel__media-label">{sessionTranslations.call.labels.partner}</span>
             </div>
             <div
               className={`call-panel__media-item${
@@ -3639,7 +3641,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                         : "Camera preview unavailable"}
                 </div>
               )}
-              <span className="call-panel__media-label">You</span>
+              <span className="call-panel__media-label">{sessionTranslations.call.labels.you}</span>
             </div>
           </div>
           {isCallFullscreen ? (
@@ -3717,7 +3719,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           >
             {reverseMessageOrder ? composer : null}
             {orderedMessages.length === 0 ? (
-              <p className="chat-log__empty">No messages yet. Start the conversation!</p>
+              <p className="chat-log__empty">{sessionTranslations.chat.emptyState}</p>
             ) : (
               orderedMessages.map((message) => {
                 const mine = message.participantId === participantId;
@@ -3760,14 +3762,14 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
       <ConfirmDialog
         open={callDialogOpen}
-        title="Incoming video chat"
+        title={sessionTranslations.call.incomingDialog.title}
         description={
           incomingCallFrom
-            ? `${incomingCallFrom} wants to start a video chat.`
-            : "Your peer wants to start a video chat."
+            ? sessionTranslations.call.incomingDialog.descriptionWithName.replace("{name}", incomingCallFrom)
+            : sessionTranslations.call.incomingDialog.descriptionWithoutName
         }
-        confirmLabel="Accept"
-        cancelLabel="Decline"
+        confirmLabel={sessionTranslations.call.incomingDialog.accept}
+        cancelLabel={sessionTranslations.call.incomingDialog.decline}
         onConfirm={() => {
           void handleCallAccept();
         }}
@@ -3777,10 +3779,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
       <ConfirmDialog
         open={confirmEndSessionOpen}
-        title="End session"
-        description="Ending the session will immediately disconnect all participants."
-        confirmLabel="End session"
-        cancelLabel="Cancel"
+        title={endSessionTranslations.confirmTitle}
+        description={endSessionTranslations.confirmDescription}
+        confirmLabel={endSessionTranslations.confirmLabel}
+        cancelLabel={endSessionTranslations.cancelLabel}
         onConfirm={handleConfirmEndSession}
         onCancel={handleCancelEndSession}
         confirmDisabled={endSessionLoading}

@@ -146,6 +146,33 @@ const baseTranslation = {
         connecting: "Connecting video chat",
         active: "Video chat active",
       },
+      labels: {
+        partner: "Partner",
+        you: "You",
+      },
+      incomingDialog: {
+        title: "Incoming video chat",
+        descriptionWithName: "{name} wants to start a video chat.",
+        descriptionWithoutName: "Your peer wants to start a video chat.",
+        accept: "Accept",
+        decline: "Decline",
+      },
+    },
+    chat: {
+      emptyState: "No messages yet. Start the conversation!",
+      composerPlaceholder: "Type your message…",
+      sendButton: "Send",
+    },
+    controls: {
+      endSession: {
+        idle: "End session",
+        loading: "Ending…",
+        ended: "Session ended",
+        confirmTitle: "End session",
+        confirmDescription: "Ending the session will immediately disconnect all participants.",
+        confirmLabel: "End session",
+        cancelLabel: "Cancel",
+      },
     },
   },
 };
@@ -281,12 +308,44 @@ export const TRANSLATIONS: Record<LanguageCode, AppTranslation> = {
         },
       },
       call: {
+        ...baseTranslation.session.call,
         statusLabel: {
           idle: "Videochat pripravený",
           requesting: "Čaká sa na reakciu partnera",
           incoming: "Prichádzajúci videochat",
           connecting: "Pripájanie videochatu",
           active: "Videochat aktívny",
+        },
+        labels: {
+          partner: "Partner",
+          you: "Vy",
+        },
+        incomingDialog: {
+          ...baseTranslation.session.call.incomingDialog,
+          title: "Prichádzajúci videochat",
+          descriptionWithName: "{name} chce spustiť videochat.",
+          descriptionWithoutName: "Váš partner chce spustiť videochat.",
+          accept: "Prijať",
+          decline: "Odmietnuť",
+        },
+      },
+      chat: {
+        ...baseTranslation.session.chat,
+        emptyState: "Zatiaľ žiadne správy. Začnite konverzáciu!",
+        composerPlaceholder: "Napíšte svoju správu…",
+        sendButton: "Odoslať",
+      },
+      controls: {
+        ...baseTranslation.session.controls,
+        endSession: {
+          ...baseTranslation.session.controls.endSession,
+          idle: "Ukončiť reláciu",
+          loading: "Ukončuje sa…",
+          ended: "Relácia ukončená",
+          confirmTitle: "Ukončiť reláciu",
+          confirmDescription: "Ukončením relácie okamžite odpojíte všetkých účastníkov.",
+          confirmLabel: "Ukončiť reláciu",
+          cancelLabel: "Zrušiť",
         },
       },
     },
