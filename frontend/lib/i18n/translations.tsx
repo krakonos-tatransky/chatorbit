@@ -128,7 +128,25 @@ const baseTranslation = {
     helper: "End the session and notify ChatOrbit about unlawful behavior.",
   },
   session: {
-    // Strings for session view and related UI will default to English for now.
+    statusCard: {
+      connectedParticipants: "Connected participants: {current}/{max}",
+      messageLimit: "Limit: {limit} chars/message",
+      messageLimitUnknown: "Limit: — chars/message",
+      statusLabel: {
+        waiting: "Waiting",
+        connected: "Connected",
+        ended: "Ended",
+      },
+    },
+    call: {
+      statusLabel: {
+        idle: "Video chat ready",
+        requesting: "Awaiting peer response",
+        incoming: "Incoming video chat",
+        connecting: "Connecting video chat",
+        active: "Video chat active",
+      },
+    },
   },
 };
 
@@ -249,6 +267,28 @@ export const TRANSLATIONS: Record<LanguageCode, AppTranslation> = {
     reportAbuse: {
       title: "Nahlásiť zneužitie",
       helper: "Ukončite reláciu a informujte ChatOrbit o protiprávnom správaní.",
+    },
+    session: {
+      ...baseTranslation.session,
+      statusCard: {
+        connectedParticipants: "Pripojení účastníci: {current}/{max}",
+        messageLimit: "Limit: {limit} znakov/správa",
+        messageLimitUnknown: "Limit: — znakov/správa",
+        statusLabel: {
+          waiting: "Čaká sa",
+          connected: "Pripojené",
+          ended: "Ukončené",
+        },
+      },
+      call: {
+        statusLabel: {
+          idle: "Videochat pripravený",
+          requesting: "Čaká sa na reakciu partnera",
+          incoming: "Prichádzajúci videochat",
+          connecting: "Pripájanie videochatu",
+          active: "Videochat aktívny",
+        },
+      },
     },
   },
 };

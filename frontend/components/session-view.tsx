@@ -196,6 +196,7 @@ const FAST_NETWORK_RECONNECT_DELAY_MS = 400;
 const MODERATE_NETWORK_RECONNECT_DELAY_MS = 700;
 const RECONNECT_MAX_DELAY_MS = 30000;
 const MAX_ICE_FAILURE_RETRIES = 3;
+const MAX_PARTICIPANTS = 2;
 const SECRET_DEBUG_KEYWORD = "orbitdebug";
 
 function logEvent(message: string, ...details: unknown[]) {
@@ -255,7 +256,8 @@ type Props = {
 export function SessionView({ token, participantIdFromQuery, initialReportAbuseOpen = false }: Props) {
   const router = useRouter();
   const {
-    translations: { reportAbuse: reportAbuseTranslations },
+    language,
+    translations: { reportAbuse: reportAbuseTranslations, session: sessionTranslations },
   } = useLanguage();
   const [participantId, setParticipantId] = useState<string | null>(participantIdFromQuery ?? null);
   const [participantRole, setParticipantRole] = useState<string | null>(null);
@@ -2480,20 +2482,24 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             : "idle";
   const callPanelStatusLabel =
     callState === "active"
-      ? "Video chat active"
+      ? sessionTranslations.call.statusLabel.active
       : callState === "connecting"
-        ? "Connecting video chat"
+        ? sessionTranslations.call.statusLabel.connecting
         : callState === "incoming"
-          ? "Incoming video chat"
+          ? sessionTranslations.call.statusLabel.incoming
           : callState === "requesting"
-            ? "Awaiting peer response"
-            : "Video chat ready";
+            ? sessionTranslations.call.statusLabel.requesting
+            : sessionTranslations.call.statusLabel.idle;
   const hasSessionEnded =
     sessionEnded ||
     sessionStatus?.status === "closed" ||
     sessionStatus?.status === "expired" ||
     sessionStatus?.status === "deleted";
-  const sessionStatusLabel = hasSessionEnded ? "Ended" : connected ? "Connected" : "Waiting";
+  const sessionStatusLabel = hasSessionEnded
+    ? sessionTranslations.statusCard.statusLabel.ended
+    : connected
+      ? sessionTranslations.statusCard.statusLabel.connected
+      : sessionTranslations.statusCard.statusLabel.waiting;
   const sessionStatusIndicatorClass = hasSessionEnded
     ? " status-indicator--ended"
     : connected
@@ -2784,8 +2790,21 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         connectedIds.add(participant.participantId);
       }
     }
-    return Math.min(connectedIds.size, 2);
+    return Math.min(connectedIds.size, MAX_PARTICIPANTS);
   }, [connected, participantId, sessionStatus?.connectedParticipants, sessionStatus?.participants]);
+
+  const connectedParticipantsText = sessionTranslations.statusCard.connectedParticipants
+    .replace("{current}", connectedParticipantCount.toString())
+    .replace("{max}", MAX_PARTICIPANTS.toString());
+
+  const formattedMessageLimit =
+    typeof sessionStatus?.messageCharLimit === "number"
+      ? sessionStatus.messageCharLimit.toLocaleString(language)
+      : null;
+
+  const messageLimitText = formattedMessageLimit
+    ? sessionTranslations.statusCard.messageLimit.replace("{limit}", formattedMessageLimit)
+    : sessionTranslations.statusCard.messageLimitUnknown;
 
   const endSessionButtonLabel = hasSessionEnded
     ? "Session ended"
@@ -3648,10 +3667,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         <div className="chat-panel">
           <div className="chat-panel__header">
             <div className="chat-panel__stats" role="status" aria-live="polite">
-              <span>Connected participants: {connectedParticipantCount}/2</span>
-              <span>
-                Limit: {sessionStatus ? sessionStatus.messageCharLimit.toLocaleString() : "—"} chars/message
-              </span>
+              <span>{connectedParticipantsText}</span>
+              <span>{messageLimitText}</span>
             </div>
             <div className="chat-panel__controls">
               {shouldShowCallButton && !shouldShowMediaPanel ? (
