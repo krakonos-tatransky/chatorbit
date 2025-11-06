@@ -260,7 +260,7 @@ export function SessionView({
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const [sessionEnded, setSessionEnded] = useState(false);
   const [endSessionLoading, setEndSessionLoading] = useState(false);
-  const [confirmEndSession Open, setConfirmEndSessionOpen] = useState(false);
+  const [confirmEndSessionOpen, setConfirmEndSessionOpen] = useState(false);
   const [tokenCopyState, setTokenCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
@@ -418,6 +418,45 @@ export function SessionView({
     setLocalStream(null);
   }, []);
 
+  /* -------------------------- PiP Drag -------------------------- */
+  const handlePipPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!pipContainerRef.current) return;
+    const rect = pipContainerRef.current.getBoundingClientRect();
+    pipDragStateRef.current = {
+      pointerId: e.pointerId,
+      offsetX: e.clientX - rect.left,
+      offsetY: e.clientY - rect.top,
+      pipWidth: rect.width,
+      pipHeight: rect.height,
+    };
+    pipContainerRef.current.setPointerCapture(e.pointerId);
+  }, []);
+
+  const handlePipPointerMove = useEventCallback((e: PointerEvent) => {
+    const s = pipDragStateRef.current;
+    if (!s || e.pointerId !== s.pointerId) return;
+    setPipPosition({ left: e.clientX - s.offsetX, top: e.clientY - s.offsetY });
+  });
+
+  const handlePipPointerUp = useEventCallback((e: PointerEvent) => {
+    const s = pipDragStateRef.current;
+    if (!s || e.pointerId !== s.pointerId) return;
+    pipDragStateRef.current = null;
+    pipContainerRef.current?.releasePointerCapture(e.pointerId);
+  });
+
+  useEffect(() => {
+    if (!isCallFullscreen) return;
+    window.addEventListener("pointermove", handlePipPointerMove);
+    window.addEventListener("pointerup", handlePipPointerUp);
+    window.addEventListener("pointercancel", handlePipPointerUp);
+    return () => {
+      window.removeEventListener("pointermove", handlePipPointerMove);
+      window.removeEventListener("pointerup", handlePipPointerUp);
+      window.removeEventListener("pointercancel", handlePipPointerUp);
+    };
+  }, [isCallFullscreen, handlePipPointerMove, handlePipPointerUp]);
+
   const cleanupAll = useCallback(() => {
     // AudioContext
     audioContextRef.current?.close().catch(() => {});
@@ -475,6 +514,24 @@ export function SessionView({
     [cleanupAll],
   );
 
+  const createAndSendOffer = useCallback(async () => {
+    const pc = peerConnectionRef.current;
+    if (!pc || hasSentOfferRef.current) return;
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      const payload: SignalPayload = { type: "offer", payload: offer };
+      if (dataChannelRef.current?.readyState === "open") {
+        dataChannelRef.current.send(JSON.stringify(payload));
+      } else {
+        pendingSignalsRef.current.push(payload);
+      }
+      hasSentOfferRef.current = true;
+    } catch (e) {
+      logEvent("Offer failed", e);
+    }
+  }, []);
+
   /* -------------------------- Peer Connection Recovery -------------------------- */
   const schedulePeerConnectionRecovery = useCallback((
     pc: RTCPeerConnection,
@@ -512,10 +569,10 @@ export function SessionView({
       iceCandidatePoolSize: 10,
     };
 
-    const config: RTCConfiguration =
-      "sdpSemantics" in RTCPeerConnection.prototype
-        ? { ...baseConfig, sdpSemantics: "unified-plan" }
-        : baseConfig;
+    const config: RTCConfiguration = { ...baseConfig };
+    if ("sdpSemantics" in RTCPeerConnection.prototype) {
+      (config as RTCConfiguration & { sdpSemantics?: string }).sdpSemantics = "unified-plan";
+    }
 
     const pc = new RTCPeerConnection(config);
     peerConnectionRef.current = pc;
@@ -610,24 +667,6 @@ export function SessionView({
     };
   }, []);
 
-  const createAndSendOffer = useCallback(async () => {
-    const pc = peerConnectionRef.current;
-    if (!pc || hasSentOfferRef.current) return;
-    try {
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      const payload: SignalPayload = { type: "offer", payload: offer };
-      if (dataChannelRef.current?.readyState === "open") {
-        dataChannelRef.current.send(JSON.stringify(payload));
-      } else {
-        pendingSignalsRef.current.push(payload);
-      }
-      hasSentOfferRef.current = true;
-    } catch (e) {
-      logEvent("Offer failed", e);
-    }
-  }, []);
-
   const handleSignal = useCallback(async (signal: SignalPayload) => {
     const pc = peerConnectionRef.current;
     if (!pc) return;
@@ -681,15 +720,14 @@ export function SessionView({
       stream.getTracks().forEach(track => {
         const sender = pc.addTrack(track, stream);
         if (track.kind === "video") {
-          void sender.getParameters().then(params => {
-            const pref = params.codecs.find(c =>
-              c.mimeType.includes("vp9")
-            ) ?? params.codecs.find(c => c.mimeType.includes("vp8"));
-            if (pref) {
-              const newParams = { ...params, codecs: [pref] };
-              return sender.setParameters(newParams);
-            }
-          }).catch(() => {});
+          const params = sender.getParameters();
+          const pref = params.codecs.find(c =>
+            c.mimeType.includes("vp9")
+          ) ?? params.codecs.find(c => c.mimeType.includes("vp8"));
+          if (pref) {
+            const newParams = { ...params, codecs: [pref] };
+            void sender.setParameters(newParams).catch(() => {});
+          }
         }
       });
 
@@ -748,44 +786,30 @@ export function SessionView({
     [isLocalAudioMuted, isLocalVideoMuted],
   );
 
-  /* -------------------------- PiP Drag -------------------------- */
-  const handlePipPointerDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!pipContainerRef.current) return;
-    const rect = pipContainerRef.current.getBoundingClientRect();
-    pipDragStateRef.current = {
-      pointerId: e.pointerId,
-      offsetX: e.clientX - rect.left,
-      offsetY: e.clientY - rect.top,
-      pipWidth: rect.width,
-      pipHeight: rect.height,
-    };
-    pipContainerRef.current.setPointerCapture(e.pointerId);
-  }, []);
+  /* -------------------------- Encryption Key -------------------------- */
+  const ensureEncryptionKey = useCallback(async () => {
+    if (supportsEncryption !== true) throw new Error("Encryption not supported");
+    if (encryptionKeyRef.current) return encryptionKeyRef.current;
+    if (!encryptionPromiseRef.current) {
+      encryptionPromiseRef.current = deriveKey(token)
+        .then(k => {
+          encryptionKeyRef.current = k;
+          return k;
+        })
+        .finally(() => {
+          encryptionPromiseRef.current = null;
+        });
+    }
+    return encryptionPromiseRef.current;
+  }, [supportsEncryption, token]);
 
-  const handlePipPointerMove = useEventCallback((e: PointerEvent) => {
-    const s = pipDragStateRef.current;
-    if (!s || e.pointerId !== s.pointerId) return;
-    setPipPosition({ left: e.clientX - s.offsetX, top: e.clientY - s.offsetY });
-  });
-
-  const handlePipPointerUp = useEventCallback((e: PointerEvent) => {
-    const s = pipDragStateRef.current;
-    if (!s || e.pointerId !== s.pointerId) return;
-    pipDragStateRef.current = null;
-    pipContainerRef.current?.releasePointerCapture(e.pointerId);
-  });
-
-  useEffect(() => {
-    if (!isCallFullscreen) return;
-    window.addEventListener("pointermove", handlePipPointerMove);
-    window.addEventListener("pointerup", handlePipPointerUp);
-    window.addEventListener("pointercancel", handlePipPointerUp);
-    return () => {
-      window.removeEventListener("pointermove", handlePipPointerMove);
-      window.removeEventListener("pointerup", handlePipPointerUp);
-      window.removeEventListener("pointercancel", handlePipPointerUp);
-    };
-  }, [isCallFullscreen, handlePipPointerMove, handlePipPointerUp]);
+  const deriveKey = async (t: string): Promise<CryptoKey> => {
+    const c = resolveCrypto();
+    if (!c) throw new Error("Crypto unavailable");
+    const material = textEncoder.encode(t);
+    const hash = await c.subtle.digest("SHA-256", material);
+    return c.subtle.importKey("raw", hash, "AES-GCM", false, ["encrypt", "decrypt"]);
+  };
 
   /* -------------------------- WebSocket -------------------------- */
   useEffect(() => {
@@ -819,7 +843,9 @@ export function SessionView({
           const s: SessionStatus = data.payload;
           setSessionStatus(s);
           setRemainingSeconds(s.remainingSeconds ?? null);
-          if (["closed", "expired", "deleted"].includes(s.status)) finalizeSession(s.status);
+          if (s.status === "closed" || s.status === "expired" || s.status === "deleted") {
+            finalizeSession(s.status);
+          }
         } else if (data.type === "message") {
           const msg: EncryptedMessage = data.payload;
           if (hashedMessagesRef.current.has(msg.messageId)) return;
@@ -914,27 +940,6 @@ export function SessionView({
     socketRef.current?.send(JSON.stringify(payload));
   }, [socketReady, supportsEncryption]);
 
-  /* -------------------------- Encryption Key -------------------------- */
-  const ensureEncryptionKey = useCallback(async () => {
-    if (supportsEncryption !== true) throw new Error("Encryption not supported");
-    if (encryptionKeyRef.current) return encryptionKeyRef.current;
-    if (!encryptionPromiseRef.current) {
-      encryptionPromiseRef.current = deriveKey(token).then(k => {
-        encryptionKeyRef.current = k;
-        return k;
-      }).finally(() => { encryptionPromiseRef.current = null; });
-    }
-    return encryptionPromiseRef.current;
-  }, [supportsEncryption, token]);
-
-  const deriveKey = async (t: string): Promise<CryptoKey> => {
-    const c = resolveCrypto();
-    if (!c) throw new Error("Crypto unavailable");
-    const material = textEncoder.encode(t);
-    const hash = await c.subtle.digest("SHA-256", material);
-    return c.subtle.importKey("raw", hash, "AES-GCM", false, ["encrypt", "decrypt"]);
-  };
-
   /* -------------------------- Message Sending -------------------------- */
   const sendMessage = useCallback(
     async (content: string) => {
@@ -950,8 +955,8 @@ export function SessionView({
           const iv = crypto.getRandomValues(new Uint8Array(12));
           const enc = textEncoder.encode(content);
           const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc);
-          const ivB64 = btoa(String.fromCharCode(...iv));
-          const ctB64 = btoa(String.fromCharCode(...new Uint8Array(ct)));
+          const ivB64 = btoa(String.fromCharCode(...Array.from(iv)));
+          const ctB64 = btoa(String.fromCharCode(...Array.from(new Uint8Array(ct))));
           encryptedContent = `${ivB64}.${ctB64}`;
         } catch (e) {
           logEvent("Encrypt fail", e);

@@ -129,7 +129,7 @@ const baseTranslation = {
   session: {
     // Strings for session view and related UI will default to English for now.
   },
-} as const;
+};
 
 export type AppTranslation = typeof baseTranslation;
 
