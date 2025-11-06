@@ -819,7 +819,7 @@ export function SessionView({
 
     const connect = () => {
       if (cancelled) return;
-      const url = wsUrl(`/ws/session/${token}?participantId=${participantId}`);
+      const url = wsUrl(`/ws/sessions/${token}?participantId=${participantId}`);
       socket = new WebSocket(url);
       socketRef.current = socket;
 
