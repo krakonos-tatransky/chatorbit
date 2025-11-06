@@ -23,23 +23,65 @@ export default function HomePage() {
   }, []);
 
   return (
-    <main className="page-wrapper">
+    <main className="page-wrapper page-wrapper--ios">
       <div className="page-inner">
-        <header className="hero">
-          <span className="hero__badge">ChatOrbit Sessions</span>
-          <h1 className="hero__title">Spin up a private two-person chat in seconds</h1>
-          <div className="hero__actions" aria-label="Get started">
-            <button type="button" className="button button--cyan hero__action-button" onClick={scrollToRequestCard}>
-              Need token
-            </button>
-            <button type="button" className="button button--indigo hero__action-button" onClick={scrollToJoinCard}>
-              Have token
-            </button>
+        <header className="hero ios-hero">
+          <div className="ios-hero__status-bar" aria-hidden="true">
+            <span className="ios-hero__status-time">9:41</span>
+            <div className="ios-hero__status-icons">
+              <span className="ios-hero__status-icon ios-hero__status-icon--signal" />
+              <span className="ios-hero__status-icon ios-hero__status-icon--wifi" />
+              <span className="ios-hero__status-icon ios-hero__status-icon--battery" />
+            </div>
           </div>
-          <p className="hero__subtitle">
-            Generate a shareable access token, send it to your contact, and meet in an ephemeral chat room. Once the second device
-            connects a secure countdown begins—when it reaches zero the session closes itself.
-          </p>
+          <div className="ios-hero__dynamic-island" aria-hidden="true">
+            <span className="ios-hero__pill ios-hero__pill--primary">Session ready</span>
+            <span className="ios-hero__pill">Secure relay</span>
+          </div>
+          <div className="ios-hero__content">
+            <span className="hero__badge ios-hero__badge">ChatOrbit Sessions</span>
+            <h1 className="hero__title ios-hero__title">Spin up a private two-person chat in seconds</h1>
+            <p className="hero__subtitle ios-hero__subtitle">
+              Generate a shareable access token, send it to your contact, and meet in an ephemeral chat room. Once the second
+              device connects a secure countdown begins—when it reaches zero the session closes itself.
+            </p>
+            <div className="ios-hero__cta-stack" aria-label="Get started">
+              <button type="button" className="button button--cyan hero__action-button ios-button" onClick={scrollToRequestCard}>
+                Need token
+              </button>
+              <button
+                type="button"
+                className="button button--indigo hero__action-button ios-button ios-button--outline"
+                onClick={scrollToJoinCard}
+              >
+                Have token
+              </button>
+            </div>
+          </div>
+          <div className="ios-hero__device" aria-hidden="true">
+            <div className="ios-hero__device-frame">
+              <div className="ios-hero__device-screen">
+                <div className="ios-hero__device-header">
+                  <span className="ios-hero__device-title">Token Concierge</span>
+                  <span className="ios-hero__device-caption">Tap to mint and share securely</span>
+                </div>
+                <div className="ios-hero__device-cards">
+                  <div className="ios-hero__device-card ios-hero__device-card--primary">
+                    <span className="ios-hero__device-card-label">Mint token</span>
+                    <span className="ios-hero__device-card-value">~12s</span>
+                  </div>
+                  <div className="ios-hero__device-card">
+                    <span className="ios-hero__device-card-label">Pair devices</span>
+                    <span className="ios-hero__device-card-value">Secure relay</span>
+                  </div>
+                  <div className="ios-hero__device-card">
+                    <span className="ios-hero__device-card-label">Countdown</span>
+                    <span className="ios-hero__device-card-value">Auto-close</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </header>
 
         <section className="section-grid">
