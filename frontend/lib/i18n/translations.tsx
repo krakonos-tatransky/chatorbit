@@ -125,6 +125,7 @@ const baseTranslation = {
   },
   reportAbuse: {
     title: "Report abuse",
+    helper: "End the session and notify ChatOrbit about unlawful behavior.",
   },
   session: {
     // Strings for session view and related UI will default to English for now.
@@ -247,6 +248,7 @@ export const TRANSLATIONS: Record<LanguageCode, AppTranslation> = {
     },
     reportAbuse: {
       title: "Nahlásiť zneužitie",
+      helper: "Ukončite reláciu a informujte ChatOrbit o protiprávnom správaní.",
     },
   },
 };

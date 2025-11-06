@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { TermsConsentModal } from "@/components/terms-consent-modal";
 import { ReportAbuseModal, type ReportAbuseFormValues } from "@/components/report-abuse-modal";
+import { useLanguage } from "@/components/language/language-provider";
 import { apiUrl, wsUrl } from "@/lib/api";
 import { getClientIdentity } from "@/lib/client-identity";
 import { getIceServers } from "@/lib/webrtc";
@@ -253,6 +254,9 @@ type Props = {
 
 export function SessionView({ token, participantIdFromQuery, initialReportAbuseOpen = false }: Props) {
   const router = useRouter();
+  const {
+    translations: { reportAbuse: reportAbuseTranslations },
+  } = useLanguage();
   const [participantId, setParticipantId] = useState<string | null>(participantIdFromQuery ?? null);
   const [participantRole, setParticipantRole] = useState<string | null>(null);
   const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
@@ -3729,9 +3733,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       {!hasSessionEnded ? (
         <div className="session-report">
           <button type="button" className="session-report__button" onClick={() => setReportAbuseOpen(true)}>
-            Report abuse
+            {reportAbuseTranslations.title}
           </button>
-          <p className="session-report__helper">End the session and notify ChatOrbit about unlawful behavior.</p>
+          <p className="session-report__helper">{reportAbuseTranslations.helper}</p>
         </div>
       ) : null}
 
