@@ -14,6 +14,7 @@ import {
 import { HelpContent } from "@/components/help/help-content";
 import { PrivacyPolicyContent } from "@/components/legal/privacy-policy-content";
 import { TermsOfServiceContent } from "@/components/legal/terms-of-service-content";
+import { useLanguage } from "@/components/language/language-provider";
 
 type LegalDocument = "privacy" | "terms" | "help";
 
@@ -116,6 +117,9 @@ type LegalDocumentModalProps = {
 };
 
 function LegalDocumentModal({ openDocument, onClose }: LegalDocumentModalProps) {
+  const {
+    translations: { legalOverlay },
+  } = useLanguage();
   const titleId = useId();
   const descriptionId = useId();
 
@@ -133,10 +137,10 @@ function LegalDocumentModal({ openDocument, onClose }: LegalDocumentModalProps) 
 
   const title =
     openDocument === "privacy"
-      ? "Privacy Policy"
+      ? legalOverlay.privacyTitle
       : openDocument === "terms"
-        ? "Terms of Service"
-        : "Help & FAQ";
+        ? legalOverlay.termsTitle
+        : legalOverlay.helpTitle;
 
   return (
     <div className="legal-overlay" role="presentation">
@@ -151,9 +155,9 @@ function LegalDocumentModal({ openDocument, onClose }: LegalDocumentModalProps) 
             type="button"
             className="legal-overlay__close"
             onClick={onClose}
-            aria-label="Close legal document"
+            aria-label={legalOverlay.closeLabel}
           >
-            Close
+            {legalOverlay.closeButton}
           </button>
         </header>
         <div id={descriptionId} className="legal-overlay__body" role="document">

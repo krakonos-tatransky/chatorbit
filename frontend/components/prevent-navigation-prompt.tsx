@@ -2,24 +2,28 @@
 
 import { useEffect, useRef } from "react";
 
+import { useLanguage } from "@/components/language/language-provider";
+
 export interface PreventNavigationPromptProps {
   message?: string;
 }
 
-const DEFAULT_MESSAGE = "Are you sure you want to leave this page?";
-
 export function PreventNavigationPrompt({
-  message = DEFAULT_MESSAGE,
+  message,
 }: PreventNavigationPromptProps) {
+  const {
+    translations: { preventNavigation },
+  } = useLanguage();
   const ignorePopStateRef = useRef(false);
+  const resolvedMessage = message ?? preventNavigation.message;
 
   useEffect(() => {
-    const confirmNavigation = () => window.confirm(message);
+    const confirmNavigation = () => window.confirm(resolvedMessage);
 
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       event.preventDefault();
-      event.returnValue = message;
-      return message;
+      event.returnValue = resolvedMessage;
+      return resolvedMessage;
     };
 
     const handlePopState = () => {
@@ -42,7 +46,7 @@ export function PreventNavigationPrompt({
       window.removeEventListener("beforeunload", handleBeforeUnload);
       window.removeEventListener("popstate", handlePopState);
     };
-  }, [ignorePopStateRef, message]);
+  }, [ignorePopStateRef, resolvedMessage]);
 
   return null;
 }
