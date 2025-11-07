@@ -517,6 +517,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [viewportOrientation]);
   const isPhoneViewportType = viewportType === "phone";
   const shouldScrollCallPanel = viewportType !== "desktop";
+  const isCallFullscreenLayout =
+    isCallFullscreen && (!isPhoneViewportType || isPortraitOrientation);
   const sessionHeaderId = useId();
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -3205,9 +3207,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     callState === "requesting" ||
     Boolean(localStream) ||
     Boolean(remoteStream);
-
-  const isCallFullscreenLayout =
-    isCallFullscreen && (!isPhoneViewportType || isPortraitOrientation);
 
   const canShowFullscreenToggle = callState === "active";
   const canShowMediaMuteButtons = Boolean(localStream);
