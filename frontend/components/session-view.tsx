@@ -606,67 +606,65 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
       const behavior = prefersReducedMotion ? "auto" : "smooth";
 
-      if (isFullscreenLayout && scrollTarget === panel) {
-        const scrollTop = 0;
-
-        const attemptWindowScroll = () => {
+      const attemptWindowScroll = (top: number) => {
+        try {
+          window.scrollTo({ top, behavior });
+          return true;
+        } catch {
           try {
-            window.scrollTo({ top: scrollTop, behavior });
+            window.scrollTo({ top });
             return true;
           } catch {
-            try {
-              window.scrollTo({ top: scrollTop });
-              return true;
-            } catch {
-              return false;
-            }
+            return false;
           }
-        };
-
-        const attemptDocumentScroll = () => {
-          if (typeof document === "undefined") {
-            return;
-          }
-          const scrollingElement =
-            document.scrollingElement ?? document.documentElement ?? document.body ?? null;
-          if (!scrollingElement) {
-            return;
-          }
-          try {
-            scrollingElement.scrollTo({ top: scrollTop, behavior });
-          } catch {
-            scrollingElement.scrollTop = scrollTop;
-          }
-        };
-
-        const attemptElementScroll = () => {
-          try {
-            scrollTarget.scrollTo({ top: scrollTop, behavior });
-          } catch {
-            scrollTarget.scrollTop = scrollTop;
-          }
-        };
-
-        const scrolledWindow = attemptWindowScroll();
-        if (!scrolledWindow) {
-          attemptDocumentScroll();
         }
-        attemptElementScroll();
+      };
 
+      const attemptDocumentScroll = (top: number) => {
+        if (typeof document === "undefined") {
+          return false;
+        }
+        const scrollingElement =
+          document.scrollingElement ?? document.documentElement ?? document.body ?? null;
+        if (!scrollingElement) {
+          return false;
+        }
+        try {
+          scrollingElement.scrollTo({ top, behavior });
+        } catch {
+          scrollingElement.scrollTop = top;
+        }
+        return true;
+      };
+
+      const attemptElementScroll = (element: Element, top: number) => {
+        if (typeof (element as HTMLElement).scrollTo === "function") {
+          try {
+            (element as HTMLElement).scrollTo({ top, behavior });
+            return;
+          } catch {
+            // fall through to assigning scrollTop
+          }
+        }
+        (element as HTMLElement).scrollTop = top;
+      };
+
+      const rect =
+        typeof scrollTarget.getBoundingClientRect === "function"
+          ? scrollTarget.getBoundingClientRect()
+          : null;
+      const absoluteTop = rect ? window.scrollY + rect.top : 0;
+
+      const scrolledWindow = attemptWindowScroll(absoluteTop);
+      const scrolledDocument = scrolledWindow ? false : attemptDocumentScroll(absoluteTop);
+
+      if (isFullscreenLayout && scrollTarget === panel) {
+        attemptElementScroll(scrollTarget, 0);
         return;
       }
 
-      if (typeof window !== "undefined" && typeof scrollTarget.getBoundingClientRect === "function") {
-        const rect = scrollTarget.getBoundingClientRect();
-        const absoluteTop = window.scrollY + rect.top;
-
-        try {
-          window.scrollTo({ top: absoluteTop, behavior });
-          return;
-        } catch {
-          window.scrollTo({ top: absoluteTop });
-          return;
-        }
+      if (rect && (scrolledWindow || scrolledDocument)) {
+        return;
       }
 
       try {
