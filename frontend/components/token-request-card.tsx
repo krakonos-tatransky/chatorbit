@@ -115,17 +115,38 @@ export function TokenRequestCard() {
   }, [result?.token]);
 
   useEffect(() => {
-    if (!result?.token || typeof window === "undefined" || !isPhoneViewportType) {
+    if (!result?.token || typeof window === "undefined") {
       return;
     }
 
     const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     const scrollTarget = resultActionsRef.current ?? copyButtonRef.current;
-    scrollTarget?.scrollIntoView({
-      block: "start",
-      inline: "nearest",
+
+    if (!scrollTarget) {
+      return;
+    }
+
+    const header = document.querySelector<HTMLElement>(".site-header");
+    const headerHeight = header?.getBoundingClientRect().height ?? 0;
+    const additionalSpacing = 16;
+    const offset = headerHeight + additionalSpacing;
+    const targetScrollTop = Math.max(
+      window.scrollY + scrollTarget.getBoundingClientRect().top - offset,
+      0,
+    );
+
+    window.scrollTo({
+      top: targetScrollTop,
       behavior: prefersReducedMotion ? "auto" : "smooth",
     });
+  }, [result?.token]);
+
+  useEffect(() => {
+    if (!result?.token || typeof window === "undefined" || !isPhoneViewportType) {
+      return;
+    }
+
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
     if (mobileFocusTimeoutRef.current) {
       window.clearTimeout(mobileFocusTimeoutRef.current);
