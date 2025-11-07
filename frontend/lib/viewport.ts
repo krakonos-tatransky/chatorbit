@@ -1,6 +1,9 @@
-const PHONE_MAX_WIDTH = 768;
-const PHONE_LANDSCAPE_MAX_HEIGHT = 600;
-const TABLET_MAX_WIDTH = 1024;
+const PHONE_MAX_SHORT_DIMENSION = 480;
+const TABLET_MAX_SHORT_DIMENSION = 900;
+const MOBILE_TABLET_MAX_SHORT_DIMENSION = 1080;
+const TABLET_MAX_LONG_DIMENSION = 1440;
+const DESKTOP_MIN_WIDTH = 1025;
+const DESKTOP_MIN_HEIGHT = 700;
 
 export type ViewportType = "phone" | "tablet" | "desktop";
 
@@ -14,19 +17,17 @@ function resolveWindow(target?: Window): Window | undefined {
   return window;
 }
 
-function matchesMedia(win: Window, query: string): boolean {
-  if (typeof win.matchMedia !== "function") {
-    return false;
-  }
-
-  try {
-    return win.matchMedia(query).matches;
-  } catch {
-    return false;
-  }
-}
-
 function resolveDimension(win: Window, dimension: "width" | "height"): number {
+  const visualViewport = win.visualViewport;
+  if (visualViewport) {
+    if (dimension === "width" && typeof visualViewport.width === "number") {
+      return visualViewport.width;
+    }
+    if (dimension === "height" && typeof visualViewport.height === "number") {
+      return visualViewport.height;
+    }
+  }
+
   if (dimension === "width") {
     if (typeof win.innerWidth === "number") {
       return win.innerWidth;
@@ -64,28 +65,42 @@ export function getViewportType(target?: Window): ViewportType {
     return "desktop";
   }
 
-  const matchesPhoneWidth = matchesMedia(win, `(max-width: ${PHONE_MAX_WIDTH}px)`);
-  const matchesPhoneLandscapeHeight = matchesMedia(
-    win,
-    `(max-height: ${PHONE_LANDSCAPE_MAX_HEIGHT}px)`
-  );
-  const matchesTabletWidth = matchesMedia(win, `(max-width: ${TABLET_MAX_WIDTH}px)`);
-
   const viewportWidth = resolveDimension(win, "width");
   const viewportHeight = resolveDimension(win, "height");
+  const shortestSide = Math.min(viewportWidth, viewportHeight);
+  const longestSide = Math.max(viewportWidth, viewportHeight);
 
-  const isPhone =
-    matchesPhoneWidth ||
-    matchesPhoneLandscapeHeight ||
-    viewportWidth <= PHONE_MAX_WIDTH ||
-    viewportHeight <= PHONE_LANDSCAPE_MAX_HEIGHT;
+  const navigator = win.navigator as (Navigator & {
+    userAgentData?: { mobile?: boolean };
+  }) | null;
+  const userAgent = navigator?.userAgent ?? "";
+  const hasMobileHint = Boolean(navigator?.userAgentData?.mobile) || /Mobi|Android/i.test(userAgent);
 
-  if (isPhone) {
+  if (hasMobileHint) {
+    if (shortestSide <= PHONE_MAX_SHORT_DIMENSION) {
+      return "phone";
+    }
+
+    if (
+      shortestSide <= MOBILE_TABLET_MAX_SHORT_DIMENSION ||
+      longestSide <= TABLET_MAX_LONG_DIMENSION
+    ) {
+      return "tablet";
+    }
+  }
+
+  if (viewportWidth >= DESKTOP_MIN_WIDTH && viewportHeight >= DESKTOP_MIN_HEIGHT) {
+    return "desktop";
+  }
+
+  if (shortestSide <= PHONE_MAX_SHORT_DIMENSION) {
     return "phone";
   }
 
-  const isTablet = matchesTabletWidth || viewportWidth <= TABLET_MAX_WIDTH;
-  if (isTablet) {
+  if (
+    shortestSide <= TABLET_MAX_SHORT_DIMENSION ||
+    longestSide <= TABLET_MAX_LONG_DIMENSION
+  ) {
     return "tablet";
   }
 
@@ -105,7 +120,10 @@ export function isDesktopViewport(target?: Window): boolean {
 }
 
 export const viewportBreakpoints = {
-  phoneMaxWidth: PHONE_MAX_WIDTH,
-  phoneLandscapeMaxHeight: PHONE_LANDSCAPE_MAX_HEIGHT,
-  tabletMaxWidth: TABLET_MAX_WIDTH,
+  phoneMaxShortDimension: PHONE_MAX_SHORT_DIMENSION,
+  tabletMaxShortDimension: TABLET_MAX_SHORT_DIMENSION,
+  mobileTabletMaxShortDimension: MOBILE_TABLET_MAX_SHORT_DIMENSION,
+  tabletMaxLongDimension: TABLET_MAX_LONG_DIMENSION,
+  desktopMinWidth: DESKTOP_MIN_WIDTH,
+  desktopMinHeight: DESKTOP_MIN_HEIGHT,
 } as const;
