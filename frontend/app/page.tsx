@@ -4,8 +4,12 @@ import { useCallback, useRef } from "react";
 
 import { JoinSessionCard } from "@/components/join-session-card";
 import { TokenRequestCard } from "@/components/token-request-card";
+import { useLanguage } from "@/components/language/language-provider";
 
 export default function HomePage() {
+  const {
+    translations: { home },
+  } = useLanguage();
   const requestCardRef = useRef<HTMLDivElement | null>(null);
   const joinCardRef = useRef<HTMLDivElement | null>(null);
   const joinTokenInputRef = useRef<HTMLInputElement | null>(null);
@@ -26,20 +30,17 @@ export default function HomePage() {
     <main className="page-wrapper">
       <div className="page-inner">
         <header className="hero">
-          <span className="hero__badge">ChatOrbit Sessions</span>
-          <h1 className="hero__title">Spin up a private two-person chat in seconds</h1>
+          <span className="hero__badge">{home.heroBadge}</span>
+          <h1 className="hero__title">{home.heroTitle}</h1>
           <div className="hero__actions" aria-label="Get started">
             <button type="button" className="button button--cyan hero__action-button" onClick={scrollToRequestCard}>
-              Need token
+              {home.needToken}
             </button>
             <button type="button" className="button button--indigo hero__action-button" onClick={scrollToJoinCard}>
-              Have token
+              {home.haveToken}
             </button>
           </div>
-          <p className="hero__subtitle">
-            Generate a shareable access token, send it to your contact, and meet in an ephemeral chat room. Once the second device
-            connects a secure countdown begins—when it reaches zero the session closes itself.
-          </p>
+          <p className="hero__subtitle">{home.heroSubtitle}</p>
         </header>
 
         <section className="section-grid">
@@ -52,23 +53,19 @@ export default function HomePage() {
         </section>
 
         <section className="meta-card">
-          <h2>How it works</h2>
+          <h2>{home.howItWorks}</h2>
           <ol>
             <li>
               <span className="meta-number">1</span>
-              <span>
-                Request a token and choose the activation window plus the countdown for the live session.
-              </span>
+              <span>{home.steps[0]}</span>
             </li>
             <li>
               <span className="meta-number meta-number--indigo">2</span>
-              <span>Share the token however you like. The first partner to log in reserves the host seat.</span>
+              <span>{home.steps[1]}</span>
             </li>
             <li>
               <span className="meta-number meta-number--emerald">3</span>
-              <span>
-                Once both devices connect, message bundles flow directly with end-to-end encryption and a live timer.
-              </span>
+              <span>{home.steps[2]}</span>
             </li>
           </ol>
         </section>

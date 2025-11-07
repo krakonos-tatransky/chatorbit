@@ -3,7 +3,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { TERMS_LAST_UPDATED, TERMS_SECTIONS } from "@/lib/terms-content";
+import { useLanguage } from "@/components/language/language-provider";
+import { getTermsTranslation } from "@/lib/i18n/translations";
 
 const SCROLL_TOLERANCE_PX = 96;
 
@@ -14,6 +15,11 @@ type TermsConsentModalProps = {
 };
 
 export function TermsConsentModal({ open, onAgree, onCancel }: TermsConsentModalProps) {
+  const {
+    language,
+    translations: { termsModal },
+  } = useLanguage();
+  const { lastUpdated, sections } = getTermsTranslation(language);
   const [mounted, setMounted] = useState(false);
   const [hasScrolledToEnd, setHasScrolledToEnd] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -124,16 +130,15 @@ export function TermsConsentModal({ open, onAgree, onCancel }: TermsConsentModal
       <div className="terms-modal" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId}>
         <header className="terms-modal__header">
           <h2 id={titleId} className="terms-modal__title">
-            Review and accept the Terms of Service
+            {termsModal.title}
           </h2>
           <p id={descriptionId} className="terms-modal__description">
-            The chat session will only start after you confirm that you have read and agree to the Terms of Service. Last
-            updated {TERMS_LAST_UPDATED}.
+            {termsModal.description.replace("{date}", lastUpdated)}
           </p>
         </header>
-        <div ref={scrollContainerRef} tabIndex={0} className="terms-modal__body" aria-label="Terms of Service content">
+        <div ref={scrollContainerRef} tabIndex={0} className="terms-modal__body" aria-label={termsModal.contentLabel}>
           <div className="terms-modal__sections">
-            {TERMS_SECTIONS.map((section) => (
+            {sections.map((section) => (
               <article key={section.title} className="terms-modal__section">
                 <h3 className="terms-modal__section-title">{section.title}</h3>
                 <div className="terms-modal__section-body">{section.body}</div>
@@ -142,7 +147,7 @@ export function TermsConsentModal({ open, onAgree, onCancel }: TermsConsentModal
           </div>
         </div>
         <footer className="terms-modal__footer">
-          <p className="terms-modal__helper">Scroll through the entire document to enable the AGREE button.</p>
+          <p className="terms-modal__helper">{termsModal.helper}</p>
           <div className="terms-modal__actions">
             <button
               type="button"
@@ -150,10 +155,10 @@ export function TermsConsentModal({ open, onAgree, onCancel }: TermsConsentModal
               onClick={onAgree}
               disabled={!hasScrolledToEnd}
             >
-              AGREE
+              {termsModal.agree}
             </button>
             <button type="button" className="terms-modal__cancel" onClick={onCancel}>
-              Cancel
+              {termsModal.cancel}
             </button>
           </div>
         </footer>

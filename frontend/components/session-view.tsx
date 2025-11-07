@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { TermsConsentModal } from "@/components/terms-consent-modal";
 import { ReportAbuseModal, type ReportAbuseFormValues } from "@/components/report-abuse-modal";
+import { useLanguage } from "@/components/language/language-provider";
 import { apiUrl, wsUrl } from "@/lib/api";
 import { getClientIdentity } from "@/lib/client-identity";
 import { getIceServers } from "@/lib/webrtc";
@@ -195,6 +196,7 @@ const FAST_NETWORK_RECONNECT_DELAY_MS = 400;
 const MODERATE_NETWORK_RECONNECT_DELAY_MS = 700;
 const RECONNECT_MAX_DELAY_MS = 30000;
 const MAX_ICE_FAILURE_RETRIES = 3;
+const MAX_PARTICIPANTS = 2;
 const SECRET_DEBUG_KEYWORD = "orbitdebug";
 const DEBUG_EVENT_HISTORY_LIMIT = 50;
 
@@ -405,6 +407,10 @@ type Props = {
 
 export function SessionView({ token, participantIdFromQuery, initialReportAbuseOpen = false }: Props) {
   const router = useRouter();
+  const {
+    language,
+    translations: { reportAbuse: reportAbuseTranslations, session: sessionTranslations },
+  } = useLanguage();
   const [participantId, setParticipantId] = useState<string | null>(participantIdFromQuery ?? null);
   const [participantRole, setParticipantRole] = useState<string | null>(null);
   const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
@@ -518,6 +524,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const notificationSoundRef = useRef<NotificationSoundName>(DEFAULT_NOTIFICATION_SOUND);
   const secretBufferRef = useRef<string>("");
   const negotiationPendingRef = useRef(false);
+  const renegotiateRef = useRef<(() => void) | null>(null);
   const callNoticeTimeoutRef = useRef<TimeoutHandle | null>(null);
   const initialReportHandledRef = useRef(false);
   const pipDragStateRef = useRef<{
@@ -1317,15 +1324,24 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       reason: string,
       { delayMs }: { delayMs?: number } = {},
     ) => {
-      if (participantRole === "host") {
+      if (peerConnectionRef.current !== pc) {
         return;
       }
+      if (!sessionActiveRef.current) {
+        return;
+      }
+
+      const explicitDelay = delayMs ?? reconnectBaseDelayMs;
+      const effectiveDelay = Math.max(0, explicitDelay);
+
       if (disconnectionRecoveryTimeoutRef.current) {
-        return;
+        clearTimeout(disconnectionRecoveryTimeoutRef.current);
+        disconnectionRecoveryTimeoutRef.current = null;
       }
-      const effectiveDelay = delayMs ?? reconnectBaseDelayMs;
+
       setIsReconnecting(true);
-      disconnectionRecoveryTimeoutRef.current = setTimeout(() => {
+
+      const runReset = () => {
         disconnectionRecoveryTimeoutRef.current = null;
         if (peerConnectionRef.current !== pc) {
           return;
@@ -1335,7 +1351,53 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         }
         logEvent("Resetting peer connection after interruption", { reason, delayMs: effectiveDelay });
         resetPeerConnection();
-      }, effectiveDelay);
+      };
+
+      const shouldAttemptIceRestart =
+        participantRole === "host" && (delayMs === undefined || effectiveDelay > 0);
+
+      if (shouldAttemptIceRestart) {
+        let restarted = false;
+        if (typeof pc.restartIce === "function") {
+          try {
+            pc.restartIce();
+            restarted = true;
+            logEvent("Requested ICE restart while scheduling recovery", { reason });
+          } catch (cause) {
+            console.warn("Failed to request ICE restart", cause);
+          }
+        }
+
+        if (restarted) {
+          renegotiateRef.current?.();
+          if (effectiveDelay > 0) {
+            logEvent("Waiting for ICE restart to resolve interruption", { reason, delayMs: effectiveDelay });
+            disconnectionRecoveryTimeoutRef.current = setTimeout(() => {
+              disconnectionRecoveryTimeoutRef.current = null;
+              if (peerConnectionRef.current !== pc) {
+                return;
+              }
+              if (!sessionActiveRef.current) {
+                return;
+              }
+              logEvent("ICE restart did not recover connection; resetting", {
+                reason,
+                delayMs: effectiveDelay,
+              });
+              resetPeerConnection();
+            }, effectiveDelay);
+            return;
+          }
+        }
+      }
+
+      if (effectiveDelay === 0) {
+        runReset();
+        return;
+      }
+
+      logEvent("Scheduling peer connection reset", { reason, delayMs: effectiveDelay });
+      disconnectionRecoveryTimeoutRef.current = setTimeout(runReset, effectiveDelay);
     },
     [participantRole, reconnectBaseDelayMs, resetPeerConnection, setIsReconnecting],
   );
@@ -1586,6 +1648,63 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     shouldPreferRelayRouting,
   ]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleOffline = () => {
+      logEvent("Browser reported offline status");
+      setConnected(false);
+      setIsReconnecting(true);
+    };
+
+    const handleOnline = () => {
+      logEvent("Browser reported online status");
+      if (sessionEndedRef.current || !sessionActiveRef.current) {
+        return;
+      }
+
+      setIsReconnecting(true);
+
+      const socket = socketRef.current;
+      if (!socket || socket.readyState === WebSocket.CLOSING || socket.readyState === WebSocket.CLOSED) {
+        if (!reconnectTimeoutRef.current) {
+          logEvent("Re-opening WebSocket after reconnect event");
+          setSocketReconnectNonce((value) => value + 1);
+        }
+        return;
+      }
+
+      if (socket.readyState === WebSocket.CONNECTING) {
+        logEvent("WebSocket still connecting after online event");
+        return;
+      }
+
+      const peer = peerConnectionRef.current;
+      if (peer) {
+        schedulePeerConnectionRecovery(peer, "browser online", { delayMs: 0 });
+      } else {
+        logEvent("Recreating peer connection after connectivity restoration");
+        resetPeerConnection();
+      }
+    };
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [
+    resetPeerConnection,
+    schedulePeerConnectionRecovery,
+    setConnected,
+    setIsReconnecting,
+    setSocketReconnectNonce,
+  ]);
+
   const sendCapabilities = useCallback(() => {
     const channel = dataChannelRef.current;
     if (!channel || channel.readyState !== "open") {
@@ -1680,6 +1799,15 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       console.error("Failed to renegotiate media", cause);
     }
   }, [participantRole, sendSignal]);
+
+  useEffect(() => {
+    renegotiateRef.current = () => {
+      void renegotiate();
+    };
+    return () => {
+      renegotiateRef.current = null;
+    };
+  }, [renegotiate]);
 
   const requestRenegotiation = useCallback(() => {
     if (participantRole === "host") {
@@ -2873,20 +3001,24 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             : "idle";
   const callPanelStatusLabel =
     callState === "active"
-      ? "Video chat active"
+      ? sessionTranslations.call.statusLabel.active
       : callState === "connecting"
-        ? "Connecting video chat"
+        ? sessionTranslations.call.statusLabel.connecting
         : callState === "incoming"
-          ? "Incoming video chat"
+          ? sessionTranslations.call.statusLabel.incoming
           : callState === "requesting"
-            ? "Awaiting peer response"
-            : "Video chat ready";
+            ? sessionTranslations.call.statusLabel.requesting
+            : sessionTranslations.call.statusLabel.idle;
   const hasSessionEnded =
     sessionEnded ||
     sessionStatus?.status === "closed" ||
     sessionStatus?.status === "expired" ||
     sessionStatus?.status === "deleted";
-  const sessionStatusLabel = hasSessionEnded ? "Ended" : connected ? "Connected" : "Waiting";
+  const sessionStatusLabel = hasSessionEnded
+    ? sessionTranslations.statusCard.statusLabel.ended
+    : connected
+      ? sessionTranslations.statusCard.statusLabel.connected
+      : sessionTranslations.statusCard.statusLabel.waiting;
   const sessionStatusIndicatorClass = hasSessionEnded
     ? " status-indicator--ended"
     : connected
@@ -3180,14 +3312,53 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         connectedIds.add(participant.participantId);
       }
     }
-    return Math.min(connectedIds.size, 2);
+    return Math.min(connectedIds.size, MAX_PARTICIPANTS);
   }, [connected, participantId, sessionStatus?.connectedParticipants, sessionStatus?.participants]);
 
+  const connectedParticipantsText = sessionTranslations.statusCard.connectedParticipants
+    .replace("{current}", connectedParticipantCount.toString())
+    .replace("{max}", MAX_PARTICIPANTS.toString());
+
+  const formattedMessageLimit =
+    typeof sessionStatus?.messageCharLimit === "number"
+      ? sessionStatus.messageCharLimit.toLocaleString(language)
+      : null;
+
+  const messageLimitText = formattedMessageLimit
+    ? sessionTranslations.statusCard.messageLimit.replace("{limit}", formattedMessageLimit)
+    : sessionTranslations.statusCard.messageLimitUnknown;
+  const sessionRoleDisplayName = useMemo(() => {
+    const rawRole =
+      sessionStatus?.participants.find((p) => p.participantId === participantId)?.role ?? "guest";
+    const roleNames = sessionTranslations.statusCard.roleNames ?? {};
+    return (roleNames as Record<string, string>)[rawRole] ?? rawRole;
+  }, [participantId, sessionStatus, sessionTranslations.statusCard.roleNames]);
+  const sessionRoleLabelParts = useMemo((): [string, string] => {
+    const template = sessionTranslations.statusCard.roleLabel;
+    if (!template.includes("{role}")) {
+      return [template, ""];
+    }
+    const parts = template.split("{role}");
+    return [parts[0] ?? "", parts[1] ?? ""];
+  }, [sessionTranslations.statusCard.roleLabel]);
+  const tokenCopyButtonLabel =
+    tokenCopyState === "copied"
+      ? sessionTranslations.statusCard.copyButton.success
+      : sessionTranslations.statusCard.copyButton.idle;
+  const tokenCopyStatusMessage =
+    tokenCopyState === "copied"
+      ? sessionTranslations.statusCard.copyStatus.copied
+      : tokenCopyState === "failed"
+        ? sessionTranslations.statusCard.copyStatus.failed
+        : "";
+
+  const endSessionTranslations = sessionTranslations.controls.endSession;
+
   const endSessionButtonLabel = hasSessionEnded
-    ? "Session ended"
+    ? endSessionTranslations.ended
     : endSessionLoading
-      ? "Ending…"
-      : "End session";
+      ? endSessionTranslations.loading
+      : endSessionTranslations.idle;
 
   const performEndSession = useCallback(async () => {
     if (endSessionLoading || hasSessionEnded) {
@@ -3342,12 +3513,20 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return "00:00";
     }
     if (remainingSeconds === null) {
-      return sessionStatus?.status === "issued" ? "Waiting…" : "Starting…";
+      return sessionStatus?.status === "issued"
+        ? sessionTranslations.statusCard.countdown.waiting
+        : sessionTranslations.statusCard.countdown.starting;
     }
     const minutes = Math.floor(remainingSeconds / 60);
     const seconds = remainingSeconds % 60;
     return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-  }, [hasSessionEnded, remainingSeconds, sessionStatus?.status]);
+  }, [
+    hasSessionEnded,
+    remainingSeconds,
+    sessionStatus?.status,
+    sessionTranslations.statusCard.countdown.starting,
+    sessionTranslations.statusCard.countdown.waiting,
+  ]);
 
   const headerTimerLabel = useMemo(() => {
     if (!hasSessionEnded && remainingSeconds === null && sessionStatus?.status === "issued") {
@@ -3559,7 +3738,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         className="textarea"
-        placeholder="Type your message…"
+        placeholder={sessionTranslations.chat.composerPlaceholder}
         disabled={!termsAccepted || sessionStatus?.status !== "active"}
       />
       <div className="composer__footer">
@@ -3576,7 +3755,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           }
           className="button button--cyan"
         >
-          Send
+          {sessionTranslations.chat.sendButton}
         </button>
       </div>
     </form>
@@ -3619,6 +3798,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const showCompactHeader = headerCollapsed && !shouldForceExpandedHeader;
 
   const headerExpanded = !headerCollapsed || shouldForceExpandedHeader;
+  const headerDetailsToggleTranslations = sessionTranslations.statusCard.detailsToggle;
 
   const headerTimerPortal =
     headerTimerContainer && headerTimerLabel
@@ -3629,8 +3809,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             onClick={handleHeaderReveal}
             aria-expanded={headerExpanded}
             aria-controls={sessionHeaderId}
-            aria-label={headerExpanded ? "Session details visible" : "Show session details"}
-            title={headerExpanded ? "Session details visible" : "Show session details"}
+            aria-label={
+              headerExpanded
+                ? headerDetailsToggleTranslations.headerVisible
+                : headerDetailsToggleTranslations.headerHidden
+            }
+            title={
+              headerExpanded
+                ? headerDetailsToggleTranslations.headerVisible
+                : headerDetailsToggleTranslations.headerHidden
+            }
             aria-live="polite"
           >
             <span className="site-header-timer__status">
@@ -3657,40 +3845,24 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             id={sessionHeaderId}
             className={`session-header${headerExpanded ? " session-header--revealed" : ""}`}
             role="region"
-            aria-label="Session details"
+            aria-label={headerDetailsToggleTranslations.regionLabel}
           >
             <div className="session-header__content">
               <div className="session-header__top">
                 <div className="session-token-header">
-                  <p className="session-token">Token</p>
-                  {sessionIsActive ? (
-                    <button
-                      type="button"
-                      className="session-header__collapse-button"
-                      onClick={handleHeaderCollapse}
-                    >
-                      Hide details
-                    </button>
-                  ) : null}
-                </div>
-                <div className="session-token-body">
-                  <p className="session-token-value">{token}</p>
+                  <p className="session-token">{sessionTranslations.statusCard.tokenLabel}</p>
                   <button
                     type="button"
                     className={`session-token-copy${
                       tokenCopyState === "copied" ? " session-token-copy--success" : ""
                     }${tokenCopyState === "failed" ? " session-token-copy--error" : ""}`}
                     onClick={handleCopyToken}
-                    aria-label="Copy session token"
+                    aria-label={sessionTranslations.statusCard.copyButton.ariaLabel}
                   >
-                    {tokenCopyState === "copied" ? "Copied" : "Copy"}
+                    {tokenCopyButtonLabel}
                   </button>
                   <span className="session-token-copy-status" role="status" aria-live="polite">
-                    {tokenCopyState === "copied"
-                      ? "Token copied to clipboard"
-                      : tokenCopyState === "failed"
-                        ? "Unable to copy token"
-                        : ""}
+                    {tokenCopyStatusMessage}
                   </span>
                 </div>
               </div>
@@ -3722,9 +3894,110 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                   {endSessionButtonLabel}
                 </button>
               </div>
+              <p className="session-token-value">{token}</p>
+              <p className="session-role">
+                {sessionRoleLabelParts[0]}
+                <span>{sessionRoleDisplayName}</span>
+                {sessionRoleLabelParts[1]}
+              </p>
+              {showDebugPanel ? (
+                <div className="session-debug" data-test="session-debug-panel">
+                  <div className="session-debug__header">
+                    <p className="session-debug__title">Client debug</p>
+                    {isTouchDevice ? (
+                      <button
+                        type="button"
+                        className="session-debug__hide-button"
+                        onClick={() => {
+                          setShowDebugPanel(false);
+                        }}
+                        aria-label="Hide debug panel"
+                      >
+                        Hide
+                      </button>
+                    ) : (
+                      <p className="session-debug__hint">Press Esc to hide</p>
+                    )}
+                  </div>
+                  <dl className="session-debug__list">
+                    <div className="session-debug__item">
+                      <dt>Identity</dt>
+                      <dd>{clientIdentity ?? "Gathering…"}</dd>
+                    </div>
+                    <div className="session-debug__item">
+                      <dt>Peer state</dt>
+                      <dd>{connectionState ?? "—"}</dd>
+                    </div>
+                    <div className="session-debug__item">
+                      <dt>ICE connection</dt>
+                      <dd>{iceConnectionState ?? "—"}</dd>
+                    </div>
+                    <div className="session-debug__item">
+                      <dt>ICE gathering</dt>
+                      <dd>{iceGatheringState ?? "—"}</dd>
+                    </div>
+                    <div className="session-debug__item">
+                      <dt>Data channel</dt>
+                      <dd>{dataChannelState ?? "—"}</dd>
+                    </div>
+                  </dl>
+                  <div className="session-debug__events">
+                    <p className="session-debug__subtitle">Recent events</p>
+                    {recentDebugEvents.length === 0 ? (
+                      <p className="session-debug__empty">Watching for new logs…</p>
+                    ) : (
+                      <ul className="session-debug__event-list">
+                        {recentDebugEvents.map((entry, index) => {
+                          const detail = entry.details[0];
+                          let detailSnippet: string | null = null;
+                          if (detail !== undefined) {
+                            try {
+                              detailSnippet = JSON.stringify(detail);
+                            } catch (error) {
+                              detailSnippet = String(detail);
+                            }
+                            if (detailSnippet && detailSnippet.length > 160) {
+                              detailSnippet = `${detailSnippet.slice(0, 157)}…`;
+                            }
+                          }
+                          const timestamp = new Date(entry.timestamp).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          });
+                          return (
+                            <li key={`${entry.timestamp}-${index}`} className="session-debug__event">
+                              <span className="session-debug__event-time">{timestamp}</span>
+                              <span className="session-debug__event-message">{entry.message}</span>
+                              {detailSnippet ? (
+                                <code className="session-debug__event-detail">{detailSnippet}</code>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+              <div className="countdown">
+                <div className="status-pill">
+                  <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
+                  <span>{sessionStatusLabel}</span>
+                </div>
+                <p className="countdown-label">{sessionTranslations.statusCard.timerLabel}</p>
+                <p className="countdown-time">{countdownLabel}</p>
+                <button
+                  type="button"
+                  className="session-header__collapse-button"
+                  onClick={handleHeaderCollapse}
+                >
+                  {headerDetailsToggleTranslations.hide}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
         {hasSessionEnded ? (
           <div className="session-alert session-alert--ended">
           <p>Session ended. Request a new token to start over.</p>
@@ -3913,7 +4186,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                           : "Remote video unavailable"}
                 </div>
               )}
-              <span className="call-panel__media-label">Partner</span>
+              <span className="call-panel__media-label">{sessionTranslations.call.labels.partner}</span>
             </div>
             <div
               className={`call-panel__media-item${
@@ -3954,7 +4227,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                         : "Camera preview unavailable"}
                 </div>
               )}
-              <span className="call-panel__media-label">You</span>
+              <span className="call-panel__media-label">{sessionTranslations.call.labels.you}</span>
             </div>
           </div>
           {isCallFullscreen ? (
@@ -3982,10 +4255,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         <div className="chat-panel">
           <div className="chat-panel__header">
             <div className="chat-panel__stats" role="status" aria-live="polite">
-              <span>Connected participants: {connectedParticipantCount}/2</span>
-              <span>
-                Limit: {sessionStatus ? sessionStatus.messageCharLimit.toLocaleString() : "—"} chars/message
-              </span>
+              <span>{connectedParticipantsText}</span>
+              <span>{messageLimitText}</span>
             </div>
             <div className="chat-panel__controls">
               {shouldShowCallButton && !shouldShowMediaPanel ? (
@@ -4034,7 +4305,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           >
             {reverseMessageOrder ? composer : null}
             {orderedMessages.length === 0 ? (
-              <p className="chat-log__empty">No messages yet. Start the conversation!</p>
+              <p className="chat-log__empty">{sessionTranslations.chat.emptyState}</p>
             ) : (
               orderedMessages.map((message) => {
                 const mine = message.participantId === participantId;
@@ -4155,9 +4426,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       {!hasSessionEnded ? (
         <div className="session-report">
           <button type="button" className="session-report__button" onClick={() => setReportAbuseOpen(true)}>
-            Report abuse
+            {reportAbuseTranslations.title}
           </button>
-          <p className="session-report__helper">End the session and notify ChatOrbit about unlawful behavior.</p>
+          <p className="session-report__helper">{reportAbuseTranslations.helper}</p>
         </div>
       ) : null}
 
@@ -4165,14 +4436,14 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
       <ConfirmDialog
         open={callDialogOpen}
-        title="Incoming video chat"
+        title={sessionTranslations.call.incomingDialog.title}
         description={
           incomingCallFrom
-            ? `${incomingCallFrom} wants to start a video chat.`
-            : "Your peer wants to start a video chat."
+            ? sessionTranslations.call.incomingDialog.descriptionWithName.replace("{name}", incomingCallFrom)
+            : sessionTranslations.call.incomingDialog.descriptionWithoutName
         }
-        confirmLabel="Accept"
-        cancelLabel="Decline"
+        confirmLabel={sessionTranslations.call.incomingDialog.accept}
+        cancelLabel={sessionTranslations.call.incomingDialog.decline}
         onConfirm={() => {
           void handleCallAccept();
         }}
@@ -4182,10 +4453,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
       <ConfirmDialog
         open={confirmEndSessionOpen}
-        title="End session"
-        description="Ending the session will immediately disconnect all participants."
-        confirmLabel="End session"
-        cancelLabel="Cancel"
+        title={endSessionTranslations.confirmTitle}
+        description={endSessionTranslations.confirmDescription}
+        confirmLabel={endSessionTranslations.confirmLabel}
+        cancelLabel={endSessionTranslations.cancelLabel}
         onConfirm={handleConfirmEndSession}
         onCancel={handleCancelEndSession}
         confirmDisabled={endSessionLoading}
