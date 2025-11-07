@@ -133,6 +133,7 @@ const baseTranslation = {
       messageLimit: "Limit: {limit} chars/message",
       messageLimitUnknown: "Limit: — chars/message",
       tokenLabel: "Token",
+      timerLabel: "Session timer",
       copyButton: {
         idle: "Copy",
         success: "Copied",
@@ -151,6 +152,17 @@ const baseTranslation = {
         waiting: "Waiting",
         connected: "Connected",
         ended: "Ended",
+      },
+      countdown: {
+        waiting: "Waiting…",
+        starting: "Starting…",
+      },
+      detailsToggle: {
+        hide: "Hide details",
+        show: "Show details",
+        headerVisible: "Session details visible",
+        headerHidden: "Show session details",
+        regionLabel: "Session details",
       },
     },
     call: {
@@ -318,6 +330,7 @@ export const TRANSLATIONS: Record<LanguageCode, AppTranslation> = {
         messageLimit: "Limit: {limit} znakov/správa",
         messageLimitUnknown: "Limit: — znakov/správa",
         tokenLabel: "Token",
+        timerLabel: "Časovač relácie",
         copyButton: {
           ...baseTranslation.session.statusCard.copyButton,
           idle: "Kopírovať",
@@ -339,6 +352,19 @@ export const TRANSLATIONS: Record<LanguageCode, AppTranslation> = {
           waiting: "Čaká sa",
           connected: "Pripojené",
           ended: "Ukončené",
+        },
+        countdown: {
+          ...baseTranslation.session.statusCard.countdown,
+          waiting: "Čaká sa…",
+          starting: "Spúšťa sa…",
+        },
+        detailsToggle: {
+          ...baseTranslation.session.statusCard.detailsToggle,
+          hide: "Skryť detaily",
+          show: "Zobraziť detaily",
+          headerVisible: "Detaily relácie sú viditeľné",
+          headerHidden: "Zobraziť detaily relácie",
+          regionLabel: "Detaily relácie",
         },
       },
       call: {

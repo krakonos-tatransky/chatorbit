@@ -2991,12 +2991,20 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return "00:00";
     }
     if (remainingSeconds === null) {
-      return sessionStatus?.status === "issued" ? "Waiting…" : "Starting…";
+      return sessionStatus?.status === "issued"
+        ? sessionTranslations.statusCard.countdown.waiting
+        : sessionTranslations.statusCard.countdown.starting;
     }
     const minutes = Math.floor(remainingSeconds / 60);
     const seconds = remainingSeconds % 60;
     return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-  }, [hasSessionEnded, remainingSeconds, sessionStatus?.status]);
+  }, [
+    hasSessionEnded,
+    remainingSeconds,
+    sessionStatus?.status,
+    sessionTranslations.statusCard.countdown.starting,
+    sessionTranslations.statusCard.countdown.waiting,
+  ]);
 
   const headerTimerLabel = useMemo(() => {
     if (!hasSessionEnded && remainingSeconds === null && sessionStatus?.status === "issued") {
@@ -3258,6 +3266,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const showCompactHeader = headerCollapsed && !shouldForceExpandedHeader;
 
   const headerExpanded = !headerCollapsed || shouldForceExpandedHeader;
+  const headerDetailsToggleTranslations = sessionTranslations.statusCard.detailsToggle;
+
   const headerTimerPortal =
     headerTimerContainer && headerTimerLabel
       ? createPortal(
@@ -3267,8 +3277,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             onClick={handleHeaderReveal}
             aria-expanded={headerExpanded}
             aria-controls={sessionHeaderId}
-            aria-label={headerExpanded ? "Session details visible" : "Show session details"}
-            title={headerExpanded ? "Session details visible" : "Show session details"}
+            aria-label={
+              headerExpanded
+                ? headerDetailsToggleTranslations.headerVisible
+                : headerDetailsToggleTranslations.headerHidden
+            }
+            title={
+              headerExpanded
+                ? headerDetailsToggleTranslations.headerVisible
+                : headerDetailsToggleTranslations.headerHidden
+            }
             aria-live="polite"
           >
             <span className="site-header-timer__status">
@@ -3295,7 +3313,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             id={sessionHeaderId}
             className={`session-header${headerExpanded ? " session-header--revealed" : ""}`}
             role="region"
-            aria-label="Session details"
+            aria-label={headerDetailsToggleTranslations.regionLabel}
           >
             <div className="session-header__content">
               <div className="session-header__top">
@@ -3413,23 +3431,23 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                 </div>
               ) : null}
             </div>
-            <div className="countdown">
-              <div className="status-pill">
-                <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
-                <span>{sessionStatusLabel}</span>
+              <div className="countdown">
+                <div className="status-pill">
+                  <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
+                  <span>{sessionStatusLabel}</span>
+                </div>
+                <p className="countdown-label">{sessionTranslations.statusCard.timerLabel}</p>
+                <p className="countdown-time">{countdownLabel}</p>
+                <button
+                  type="button"
+                  className="session-header__collapse-button"
+                  onClick={handleHeaderCollapse}
+                >
+                  {headerDetailsToggleTranslations.hide}
+                </button>
               </div>
-              <p className="countdown-label">Session timer</p>
-              <p className="countdown-time">{countdownLabel}</p>
-              <button
-                type="button"
-                className="session-header__collapse-button"
-                onClick={handleHeaderCollapse}
-              >
-                Hide details
-              </button>
             </div>
           </div>
-        </div>
         {hasSessionEnded ? (
           <div className="session-alert session-alert--ended">
           <p>Session ended. Request a new token to start over.</p>
