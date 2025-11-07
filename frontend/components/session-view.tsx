@@ -504,7 +504,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return;
     }
 
-    const isMobileViewport = window.matchMedia?.("(max-width: 768px)").matches ?? false;
+    const isMobileViewport =
+      window.matchMedia?.("(max-width: 768px), (max-height: 600px)").matches ?? false;
     if (!isMobileViewport) {
       return;
     }
