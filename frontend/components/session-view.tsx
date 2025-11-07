@@ -483,6 +483,32 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       composer.setSelectionRange(length, length);
     }
   }, []);
+  const scrollCallPanelIntoView = useCallback((options?: ScrollIntoViewOptions) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const panel = callPanelRef.current;
+    if (!panel) {
+      return;
+    }
+
+    const mediaQuery = typeof window.matchMedia === "function"
+      ? window.matchMedia("(prefers-reduced-motion: reduce)")
+      : null;
+    const behavior: ScrollBehavior | undefined =
+      options?.behavior ?? (mediaQuery?.matches ? "auto" : "smooth");
+
+    try {
+      panel.scrollIntoView({
+        block: options?.block ?? "start",
+        inline: options?.inline ?? "nearest",
+        behavior,
+      });
+    } catch {
+      panel.scrollIntoView({ block: options?.block ?? "start", inline: options?.inline ?? "nearest" });
+    }
+  }, []);
   const focusCallPanel = useCallback(() => {
     const panel = callPanelRef.current;
     if (!panel) {
@@ -606,6 +632,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           setIsCallFullscreen(false);
           setPipPosition(null);
           pipDragStateRef.current = null;
+          scrollCallPanelIntoView();
           focusCallPanel();
         } else {
           shouldRestoreFullscreenOnPortraitRef.current = false;
@@ -633,7 +660,14 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     return () => {
       portraitQuery.removeListener(listener);
     };
-  }, [callState, focusCallPanel, isTouchDevice, setIsCallFullscreen, setPipPosition]);
+  }, [
+    callState,
+    focusCallPanel,
+    isTouchDevice,
+    scrollCallPanelIntoView,
+    setIsCallFullscreen,
+    setPipPosition,
+  ]);
 
   useEffect(() => {
     if (callState !== "active") {
@@ -645,16 +679,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     if (callState !== "active") {
       return;
     }
-    const panel = callPanelRef.current;
-    if (!panel) {
-      return;
-    }
-    try {
-      panel.scrollIntoView({ block: "start", behavior: "smooth" });
-    } catch {
-      panel.scrollIntoView({ block: "start" });
-    }
-  }, [callState]);
+    scrollCallPanelIntoView();
+  }, [callState, scrollCallPanelIntoView]);
 
   useEffect(() => {
     const element = localVideoRef.current;
@@ -759,6 +785,25 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       document.body.style.overflow = previousOverflow;
     };
   }, [isCallFullscreen]);
+
+  useEffect(() => {
+    if (!isCallFullscreen || typeof window === "undefined") {
+      return;
+    }
+
+    const isMobileViewport = window.matchMedia?.("(max-width: 768px)").matches ?? false;
+    if (!isMobileViewport) {
+      return;
+    }
+
+    const isLandscape = window.matchMedia?.("(orientation: landscape)").matches ?? false;
+    if (!isLandscape) {
+      return;
+    }
+
+    scrollCallPanelIntoView({ block: "center" });
+    focusCallPanel();
+  }, [focusCallPanel, isCallFullscreen, scrollCallPanelIntoView]);
 
   useEffect(() => {
     return () => {
@@ -2962,6 +3007,23 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const canShowCallButtonInHeader = shouldShowCallButton && (!isCallFullscreen || callState !== "active");
   const shouldShowHeaderActions =
     canShowFullscreenToggle || canShowMediaMuteButtons || canShowCallButtonInHeader;
+
+  useEffect(() => {
+    if (callState === "connecting" && connectionState === "connected") {
+      setCallState("active");
+    }
+  }, [callState, connectionState]);
+
+  useEffect(() => {
+    if (!shouldShowMediaPanel) {
+      return;
+    }
+    if (isCallFullscreen) {
+      scrollCallPanelIntoView({ block: "start" });
+      return;
+    }
+    scrollCallPanelIntoView();
+  }, [isCallFullscreen, scrollCallPanelIntoView, shouldShowMediaPanel]);
 
   useEffect(() => {
     if (!shouldShowMediaPanel || callState !== "active") {

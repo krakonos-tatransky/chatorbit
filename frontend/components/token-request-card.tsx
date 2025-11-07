@@ -38,7 +38,9 @@ export function TokenRequestCard() {
   const [result, setResult] = useState<TokenResult | null>(null);
   const [tokenCopyState, setTokenCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const tokenCopyTimeoutRef = useRef<number | null>(null);
-  const generateButtonRef = useRef<HTMLButtonElement | null>(null);
+  const resultCardRef = useRef<HTMLDivElement | null>(null);
+  const copyButtonRef = useRef<HTMLButtonElement | null>(null);
+  const startSessionButtonRef = useRef<HTMLButtonElement | null>(null);
   const [clientIdentity, setClientIdentity] = useState<string | null>(null);
   const [startSessionLoading, setStartSessionLoading] = useState<boolean>(false);
   const [startSessionError, setStartSessionError] = useState<string | null>(null);
@@ -92,7 +94,7 @@ export function TokenRequestCard() {
   }, [result?.token]);
 
   useEffect(() => {
-    if (!result?.token || typeof window === "undefined" || !generateButtonRef.current) {
+    if (!result?.token || typeof window === "undefined") {
       return;
     }
 
@@ -102,12 +104,62 @@ export function TokenRequestCard() {
     }
 
     const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    generateButtonRef.current.scrollIntoView({
-      block: "start",
-      inline: "nearest",
-      behavior: prefersReducedMotion ? "auto" : "smooth",
-    });
+    const target = copyButtonRef.current ?? resultCardRef.current;
+    if (!target) {
+      return;
+    }
+
+    try {
+      target.scrollIntoView({
+        block: "center",
+        inline: "nearest",
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+      });
+    } catch {
+      target.scrollIntoView({ block: "center", inline: "nearest" });
+    }
+
+    if (copyButtonRef.current) {
+      try {
+        copyButtonRef.current.focus({ preventScroll: true });
+      } catch {
+        copyButtonRef.current.focus();
+      }
+    }
   }, [result?.token]);
+
+  useEffect(() => {
+    if (!startSessionAvailable || typeof window === "undefined") {
+      return;
+    }
+
+    const isMobileViewport = window.matchMedia?.("(max-width: 768px)").matches ?? false;
+    if (!isMobileViewport) {
+      return;
+    }
+
+    const button = startSessionButtonRef.current;
+    if (!button) {
+      return;
+    }
+
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    try {
+      button.scrollIntoView({
+        block: "center",
+        inline: "nearest",
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+      });
+    } catch {
+      button.scrollIntoView({ block: "center", inline: "nearest" });
+    }
+
+    try {
+      button.focus({ preventScroll: true });
+    } catch {
+      button.focus();
+    }
+  }, [startSessionAvailable]);
 
   const handleCopyToken = useCallback(async () => {
     if (!result?.token) {
@@ -302,7 +354,7 @@ export function TokenRequestCard() {
       {error ? <p className="alert alert--error">{error}</p> : null}
 
       {result ? (
-        <div className="result-card">
+        <div className="result-card" ref={resultCardRef}>
           <div className="result-card__row result-card__row--token">
             <div className="session-token-header">
               <p className="session-token">{tokenCard.tokenHeader}</p>
@@ -313,6 +365,7 @@ export function TokenRequestCard() {
                 }${tokenCopyState === "failed" ? " session-token-copy--error" : ""}`}
                 onClick={handleCopyToken}
                 aria-label={tokenCard.copyLabel}
+                ref={copyButtonRef}
               >
                 {tokenCopyState === "copied" ? tokenCard.copySuccess : tokenCard.copyIdle}
               </button>
@@ -322,6 +375,7 @@ export function TokenRequestCard() {
                   className="session-token-copy session-token-start"
                   onClick={handleStartSession}
                   disabled={startSessionLoading}
+                  ref={startSessionButtonRef}
                 >
                   {startSessionLoading ? tokenCard.startSessionLoading : tokenCard.startSession}
                 </button>
