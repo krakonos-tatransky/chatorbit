@@ -580,8 +580,13 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     }
 
     const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const isFullscreenLayout =
+      isCallFullscreenRef.current && (!isPhoneViewportType || isPortraitOrientationRef.current);
 
     const scrollTarget = (() => {
+      if (isFullscreenLayout) {
+        return panel;
+      }
       const remoteVideo = remoteVideoRef.current;
       if (remoteVideo?.isConnected) {
         return remoteVideo;
@@ -600,6 +605,56 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       }
 
       const behavior = prefersReducedMotion ? "auto" : "smooth";
+
+      if (isFullscreenLayout && scrollTarget === panel) {
+        const scrollTop = 0;
+
+        const attemptWindowScroll = () => {
+          try {
+            window.scrollTo({ top: scrollTop, behavior });
+            return true;
+          } catch {
+            try {
+              window.scrollTo({ top: scrollTop });
+              return true;
+            } catch {
+              return false;
+            }
+          }
+        };
+
+        const attemptDocumentScroll = () => {
+          if (typeof document === "undefined") {
+            return;
+          }
+          const scrollingElement =
+            document.scrollingElement ?? document.documentElement ?? document.body ?? null;
+          if (!scrollingElement) {
+            return;
+          }
+          try {
+            scrollingElement.scrollTo({ top: scrollTop, behavior });
+          } catch {
+            scrollingElement.scrollTop = scrollTop;
+          }
+        };
+
+        const attemptElementScroll = () => {
+          try {
+            scrollTarget.scrollTo({ top: scrollTop, behavior });
+          } catch {
+            scrollTarget.scrollTop = scrollTop;
+          }
+        };
+
+        const scrolledWindow = attemptWindowScroll();
+        if (!scrolledWindow) {
+          attemptDocumentScroll();
+        }
+        attemptElementScroll();
+
+        return;
+      }
 
       if (typeof window !== "undefined" && typeof scrollTarget.getBoundingClientRect === "function") {
         const rect = scrollTarget.getBoundingClientRect();
@@ -633,7 +688,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     }
 
     performScroll();
-  }, [shouldScrollCallPanel]);
+  }, [isPhoneViewportType, shouldScrollCallPanel]);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const pendingSignalsRef = useRef<any[]>([]);
   const hasSentOfferRef = useRef<boolean>(false);
