@@ -491,6 +491,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [headerTimerContainer, setHeaderTimerContainer] = useState<Element | null>(null);
   const [isCallFullscreen, setIsCallFullscreen] = useState(false);
+  const [isPortraitOrientation, setIsPortraitOrientation] = useState(true);
   const [isLocalVideoMuted, setIsLocalVideoMuted] = useState(false);
   const [isLocalAudioMuted, setIsLocalAudioMuted] = useState(false);
   const [pipPosition, setPipPosition] = useState<{ left: number; top: number } | null>(null);
@@ -539,6 +540,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const pipContainerRef = useRef<HTMLDivElement | null>(null);
   const shouldRestoreFullscreenOnPortraitRef = useRef(false);
   const isCallFullscreenRef = useRef(isCallFullscreen);
+  const isPortraitOrientationRef = useRef(isPortraitOrientation);
   const focusComposer = useCallback(() => {
     const composer = composerRef.current;
     if (!composer) {
@@ -787,6 +789,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [isCallFullscreen]);
 
   useEffect(() => {
+    isPortraitOrientationRef.current = isPortraitOrientation;
+  }, [isPortraitOrientation]);
+
+  useEffect(() => {
     if (
       typeof window === "undefined" ||
       !isTouchDevice ||
@@ -803,19 +809,26 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
     const handleOrientationChange = () => {
       const isPortrait = portraitQuery.matches;
+      setIsPortraitOrientation(isPortrait);
+      isPortraitOrientationRef.current = isPortrait;
+
       if (!isPortrait) {
         if (isCallFullscreenRef.current) {
           shouldRestoreFullscreenOnPortraitRef.current = true;
-          setIsCallFullscreen(false);
           setPipPosition(null);
           pipDragStateRef.current = null;
-          focusCallPanel();
         } else {
           shouldRestoreFullscreenOnPortraitRef.current = false;
         }
-      } else if (shouldRestoreFullscreenOnPortraitRef.current && !isCallFullscreenRef.current) {
-        setIsCallFullscreen(true);
-        shouldRestoreFullscreenOnPortraitRef.current = false;
+        focusCallPanel();
+        scrollCallPanelIntoView();
+      } else {
+        if (shouldRestoreFullscreenOnPortraitRef.current) {
+          shouldRestoreFullscreenOnPortraitRef.current = false;
+        }
+        if (isCallFullscreenRef.current) {
+          scrollCallPanelIntoView();
+        }
       }
     };
 
@@ -841,7 +854,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     focusCallPanel,
     isPhoneViewportType,
     isTouchDevice,
-    setIsCallFullscreen,
+    scrollCallPanelIntoView,
     setPipPosition,
   ]);
 
@@ -859,7 +872,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [callState, scrollCallPanelIntoView]);
 
   useEffect(() => {
-    if (!isCallFullscreen) {
+    if (!isCallFullscreenLayout) {
       return;
     }
 
@@ -890,7 +903,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     return () => {
       landscapeQuery.removeListener(handleOrientationChange);
     };
-  }, [isCallFullscreen, scrollCallPanelIntoView]);
+  }, [isCallFullscreenLayout, scrollCallPanelIntoView]);
 
   useEffect(() => {
     const element = localVideoRef.current;
@@ -3193,9 +3206,13 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     Boolean(localStream) ||
     Boolean(remoteStream);
 
+  const isCallFullscreenLayout =
+    isCallFullscreen && (!isPhoneViewportType || isPortraitOrientation);
+
   const canShowFullscreenToggle = callState === "active";
   const canShowMediaMuteButtons = Boolean(localStream);
-  const canShowCallButtonInHeader = shouldShowCallButton && (!isCallFullscreen || callState !== "active");
+  const canShowCallButtonInHeader =
+    shouldShowCallButton && (!isCallFullscreenLayout || callState !== "active");
   const shouldShowHeaderActions =
     canShowFullscreenToggle || canShowMediaMuteButtons || canShowCallButtonInHeader;
 
@@ -3415,11 +3432,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     if (callState !== "active") {
       return;
     }
+
+    if (isPhoneViewportType && !isPortraitOrientationRef.current && !isCallFullscreenRef.current) {
+      return;
+    }
+
     shouldRestoreFullscreenOnPortraitRef.current = false;
     setIsCallFullscreen((current) => !current);
     setPipPosition(null);
     pipDragStateRef.current = null;
-  }, [callState]);
+  }, [callState, isPhoneViewportType]);
 
   const handleExitFullscreenOnly = useCallback(() => {
     shouldRestoreFullscreenOnPortraitRef.current = false;
@@ -4159,7 +4181,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
       {shouldShowMediaPanel ? (
         <div
-          className={`call-panel${isCallFullscreen ? " call-panel--fullscreen" : ""}`}
+          className={`call-panel${isCallFullscreenLayout ? " call-panel--fullscreen" : ""}`}
           ref={callPanelRef}
           tabIndex={-1}
         >
@@ -4174,7 +4196,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                   aria-hidden
                 />
                 <span className="call-panel__status-text">{callPanelStatusLabel}</span>
-                {isCallFullscreen && callState === "active" ? (
+                {isCallFullscreenLayout && callState === "active" ? (
                   <span className="call-panel__status-timer" aria-label="Session timer">
                     {headerTimerLabel}
                   </span>
@@ -4191,6 +4213,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                     onClick={handleToggleFullscreen}
                     aria-label={isCallFullscreen ? "Exit full screen" : "Enter full screen"}
                     title={isCallFullscreen ? "Exit full screen" : "Enter full screen"}
+                    disabled={isPhoneViewportType && !isPortraitOrientation && !isCallFullscreen}
                   >
                     {isCallFullscreen ? (
                       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -4310,7 +4333,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           <div className="call-panel__media" aria-live="polite">
             <div
               className={`call-panel__media-item${
-                isCallFullscreen ? " call-panel__media-item--remote" : ""
+                isCallFullscreenLayout ? " call-panel__media-item--remote" : ""
               }`}
             >
               {remoteStream ? (
@@ -4332,11 +4355,11 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             </div>
             <div
               className={`call-panel__media-item${
-                isCallFullscreen ? " call-panel__media-item--local" : ""
+                isCallFullscreenLayout ? " call-panel__media-item--local" : ""
               }`}
               ref={pipContainerRef}
               style={
-                isCallFullscreen && pipPosition
+                isCallFullscreenLayout && pipPosition
                   ? {
                       top: `${pipPosition.top}px`,
                       left: `${pipPosition.left}px`,
@@ -4345,10 +4368,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                     }
                   : undefined
               }
-              onPointerDown={isCallFullscreen ? handlePipPointerDown : undefined}
-              onPointerMove={isCallFullscreen ? handlePipPointerMove : undefined}
-              onPointerUp={isCallFullscreen ? handlePipPointerUp : undefined}
-              onPointerCancel={isCallFullscreen ? handlePipPointerUp : undefined}
+              onPointerDown={isCallFullscreenLayout ? handlePipPointerDown : undefined}
+              onPointerMove={isCallFullscreenLayout ? handlePipPointerMove : undefined}
+              onPointerUp={isCallFullscreenLayout ? handlePipPointerUp : undefined}
+              onPointerCancel={isCallFullscreenLayout ? handlePipPointerUp : undefined}
             >
               {localStream ? (
                 <video
@@ -4372,7 +4395,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
               <span className="call-panel__media-label">{sessionTranslations.call.labels.you}</span>
             </div>
           </div>
-          {isCallFullscreen ? (
+          {isCallFullscreenLayout ? (
             <div className="call-panel__fullscreen-controls">
               <button
                 type="button"
