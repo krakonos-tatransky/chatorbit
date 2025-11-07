@@ -134,7 +134,7 @@ infra/
 | `NEXT_PUBLIC_WEBRTC_TURN_URLS` | — | Optional comma-separated list of TURN URLs overriding the default list |
 | `NEXT_PUBLIC_WEBRTC_TURN_USER` | — | TURN username when providing custom TURN URLs |
 | `NEXT_PUBLIC_WEBRTC_TURN_PASSWORD` | — | TURN password when providing custom TURN URLs |
-| `NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_URLS` | `turn:turn.yourserver.com:5349?transport=udp` | Baseline TURN URLs used when no override is provided |
+| `NEXT_PUBLIC_WEBRTC_DEFAULT_TURN_URLS` | `turn:turn.yourserver.com:3478?transport=udp,turn:turn.yourserver.com:3478?transport=tcp,turns:turn.yourserver.com:443?transport=tcp` | Baseline TURN URLs (UDP/TCP/TLS) used when no override is provided |
 | `NEXT_PUBLIC_WEBRTC_TURN_DEFAULT_USER` | `youruser` | TURN username paired with the default TURN URLs |
 | `NEXT_PUBLIC_WEBRTC_TURN_DEFAULT_PASSWORD` | `yourpassword` | TURN password paired with the default TURN URLs |
 

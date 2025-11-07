@@ -198,11 +198,163 @@ const RECONNECT_MAX_DELAY_MS = 30000;
 const MAX_ICE_FAILURE_RETRIES = 3;
 const MAX_PARTICIPANTS = 2;
 const SECRET_DEBUG_KEYWORD = "orbitdebug";
+const DEBUG_EVENT_HISTORY_LIMIT = 50;
 
 function logEvent(message: string, ...details: unknown[]) {
   console.log(`[SessionView] ${message}`, ...details);
   if (debugObserver) {
     debugObserver({ timestamp: Date.now(), message, details });
+  }
+}
+
+type IceCandidateStats = {
+  candidateType: string | null;
+  protocol: string | null;
+  relayProtocol: string | null;
+  address: string | null;
+  port: string | null;
+};
+
+type IceRouteInfo = {
+  display: string;
+  label: string;
+  localDetail: string | null;
+  remoteDetail: string | null;
+  localType: string | null;
+  remoteType: string | null;
+};
+
+function extractIceCandidateStats(candidate: any): IceCandidateStats {
+  if (!candidate || typeof candidate !== "object") {
+    return {
+      candidateType: null,
+      protocol: null,
+      relayProtocol: null,
+      address: null,
+      port: null,
+    };
+  }
+
+  const candidateType = typeof candidate.candidateType === "string" ? candidate.candidateType : null;
+  const protocol = typeof candidate.protocol === "string" ? candidate.protocol : null;
+  const relayProtocol = typeof candidate.relayProtocol === "string" ? candidate.relayProtocol : null;
+  const address =
+    typeof candidate.address === "string"
+      ? candidate.address
+      : typeof candidate.ip === "string"
+        ? candidate.ip
+        : null;
+  const portValue = candidate.port ?? candidate.portNumber;
+  const port =
+    typeof portValue === "number"
+      ? `${portValue}`
+      : typeof portValue === "string"
+        ? portValue
+        : null;
+
+  return { candidateType, protocol, relayProtocol, address, port };
+}
+
+function formatCandidateDetail(candidate: IceCandidateStats): string | null {
+  if (!candidate.candidateType && !candidate.protocol && !candidate.relayProtocol && !candidate.address) {
+    return null;
+  }
+  const protocol = candidate.relayProtocol ?? candidate.protocol;
+  const location = candidate.address ? (candidate.port ? `${candidate.address}:${candidate.port}` : candidate.address) : null;
+  return [candidate.candidateType, protocol ? protocol.toUpperCase() : null, location].filter(Boolean).join(" · ");
+}
+
+function describeRouteLabel(localType: string | null, remoteType: string | null): string {
+  if (localType === "relay" || remoteType === "relay") {
+    return "TURN relay";
+  }
+  if (
+    localType === "srflx" ||
+    remoteType === "srflx" ||
+    localType === "prflx" ||
+    remoteType === "prflx"
+  ) {
+    return "STUN (reflexive)";
+  }
+  if (localType === "host" && remoteType === "host") {
+    return "Direct (host)";
+  }
+  const parts = [localType ? `local ${localType}` : null, remoteType ? `remote ${remoteType}` : null].filter(Boolean);
+  return parts.length > 0 ? parts.join(" / ") : "Unknown";
+}
+
+function summarizeIceRoute(localCandidate: any, remoteCandidate: any): IceRouteInfo {
+  const local = extractIceCandidateStats(localCandidate);
+  const remote = extractIceCandidateStats(remoteCandidate);
+  const label = describeRouteLabel(local.candidateType, remote.candidateType);
+  const localDetail = formatCandidateDetail(local);
+  const remoteDetail = formatCandidateDetail(remote);
+  const detailParts = [localDetail ? `Local ${localDetail}` : null, remoteDetail ? `Remote ${remoteDetail}` : null].filter(Boolean);
+  const display = detailParts.length > 0 ? `${label} – ${detailParts.join(" | ")}` : label;
+
+  return {
+    display,
+    label,
+    localDetail,
+    remoteDetail,
+    localType: local.candidateType,
+    remoteType: remote.candidateType,
+  };
+}
+
+async function getSelectedIceRoute(peerConnection: RTCPeerConnection): Promise<IceRouteInfo | null> {
+  if (typeof peerConnection.getStats !== "function") {
+    return null;
+  }
+
+  try {
+    const stats = await peerConnection.getStats();
+    let selectedPair: any = null;
+
+    stats.forEach((report) => {
+      if (selectedPair) {
+        return;
+      }
+      if (report.type === "transport") {
+        const candidatePairId = (report as any).selectedCandidatePairId;
+        if (candidatePairId) {
+          const pair = stats.get(candidatePairId as string);
+          if (pair) {
+            selectedPair = pair;
+          }
+        }
+      }
+    });
+
+    if (!selectedPair) {
+      stats.forEach((report) => {
+        if (selectedPair) {
+          return;
+        }
+        if (report.type === "candidate-pair" && ((report as any).selected || (report as any).nominated)) {
+          selectedPair = report;
+        }
+      });
+    }
+
+    if (!selectedPair) {
+      return null;
+    }
+
+    const localCandidateId = (selectedPair as any).localCandidateId;
+    const remoteCandidateId = (selectedPair as any).remoteCandidateId;
+
+    if (!localCandidateId && !remoteCandidateId) {
+      return null;
+    }
+
+    const localCandidate = localCandidateId ? stats.get(localCandidateId as string) : undefined;
+    const remoteCandidate = remoteCandidateId ? stats.get(remoteCandidateId as string) : undefined;
+
+    return summarizeIceRoute(localCandidate, remoteCandidate);
+  } catch (error) {
+    logEvent("Failed to inspect ICE route", { error: error instanceof Error ? error.message : error });
+    return null;
   }
 }
 
@@ -285,6 +437,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const [iceConnectionState, setIceConnectionState] = useState<RTCIceConnectionState | null>(null);
   const [iceGatheringState, setIceGatheringState] = useState<RTCIceGatheringState | null>(null);
   const [dataChannelState, setDataChannelState] = useState<RTCDataChannelState | null>(null);
+  const [selectedIceRoute, setSelectedIceRoute] = useState<string | null>(null);
   const [callState, setCallState] = useState<CallState>("idle");
   const callStateRef = useRef<CallState>("idle");
   const [callDialogOpen, setCallDialogOpen] = useState(false);
@@ -311,11 +464,14 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const chatLogRef = useRef<HTMLDivElement | null>(null);
+  const debugEventScrollRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const callPanelRef = useRef<HTMLDivElement | null>(null);
   const pipContainerRef = useRef<HTMLDivElement | null>(null);
+  const shouldRestoreFullscreenOnPortraitRef = useRef(false);
+  const isCallFullscreenRef = useRef(isCallFullscreen);
   const focusComposer = useCallback(() => {
     const composer = composerRef.current;
     if (!composer) {
@@ -325,6 +481,17 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     if (typeof composer.setSelectionRange === "function") {
       const length = composer.value.length;
       composer.setSelectionRange(length, length);
+    }
+  }, []);
+  const focusCallPanel = useCallback(() => {
+    const panel = callPanelRef.current;
+    if (!panel) {
+      return;
+    }
+    try {
+      panel.focus({ preventScroll: true });
+    } catch {
+      panel.focus();
     }
   }, []);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
@@ -343,6 +510,11 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const reconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
   const iceFailureRetriesRef = useRef(0);
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const lastIceRouteLabelRef = useRef<string | null>(null);
+  const lastIceRouteTypesRef = useRef<{ localType: string | null; remoteType: string | null } | null>(null);
+  const forcedRelayRef = useRef(false);
+  const iceRestartAttemptsRef = useRef(0);
+  const iceRestartInProgressRef = useRef(false);
   const disconnectionRecoveryTimeoutRef = useRef<TimeoutHandle | null>(null);
   const sessionActiveRef = useRef(false);
   const sessionEndedRef = useRef(false);
@@ -413,6 +585,63 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [callState]);
 
   useEffect(() => {
+    isCallFullscreenRef.current = isCallFullscreen;
+  }, [isCallFullscreen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !isTouchDevice || callState !== "active") {
+      return;
+    }
+    if (typeof window.matchMedia !== "function") {
+      return;
+    }
+
+    const portraitQuery = window.matchMedia("(orientation: portrait)");
+
+    const handleOrientationChange = () => {
+      const isPortrait = portraitQuery.matches;
+      if (!isPortrait) {
+        if (isCallFullscreenRef.current) {
+          shouldRestoreFullscreenOnPortraitRef.current = true;
+          setIsCallFullscreen(false);
+          setPipPosition(null);
+          pipDragStateRef.current = null;
+          focusCallPanel();
+        } else {
+          shouldRestoreFullscreenOnPortraitRef.current = false;
+        }
+      } else if (shouldRestoreFullscreenOnPortraitRef.current && !isCallFullscreenRef.current) {
+        setIsCallFullscreen(true);
+        shouldRestoreFullscreenOnPortraitRef.current = false;
+      }
+    };
+
+    handleOrientationChange();
+
+    const listener = () => {
+      handleOrientationChange();
+    };
+
+    if (typeof portraitQuery.addEventListener === "function") {
+      portraitQuery.addEventListener("change", listener);
+      return () => {
+        portraitQuery.removeEventListener("change", listener);
+      };
+    }
+
+    portraitQuery.addListener(listener);
+    return () => {
+      portraitQuery.removeListener(listener);
+    };
+  }, [callState, focusCallPanel, isTouchDevice, setIsCallFullscreen, setPipPosition]);
+
+  useEffect(() => {
+    if (callState !== "active") {
+      shouldRestoreFullscreenOnPortraitRef.current = false;
+    }
+  }, [callState]);
+
+  useEffect(() => {
     if (callState !== "active") {
       return;
     }
@@ -470,6 +699,52 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return current;
     });
   }, [remoteStream]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+
+    const resumeVideoPlayback = () => {
+      if (document.hidden) {
+        return;
+      }
+
+      const localElement = localVideoRef.current;
+      const localStream = localStreamRef.current;
+      if (localElement && localStream) {
+        if (localElement.srcObject !== localStream) {
+          localElement.srcObject = localStream;
+        }
+        const playPromise = localElement.play();
+        if (playPromise) {
+          void playPromise.catch(() => {});
+        }
+      }
+
+      const remoteElement = remoteVideoRef.current;
+      const remoteStream = remoteStreamRef.current;
+      if (remoteElement && remoteStream) {
+        if (remoteElement.srcObject !== remoteStream) {
+          remoteElement.srcObject = remoteStream;
+        }
+        const playPromise = remoteElement.play();
+        if (playPromise) {
+          void playPromise.catch(() => {});
+        }
+      }
+    };
+
+    window.addEventListener("focus", resumeVideoPlayback);
+    window.addEventListener("pageshow", resumeVideoPlayback);
+    document.addEventListener("visibilitychange", resumeVideoPlayback);
+
+    return () => {
+      window.removeEventListener("focus", resumeVideoPlayback);
+      window.removeEventListener("pageshow", resumeVideoPlayback);
+      document.removeEventListener("visibilitychange", resumeVideoPlayback);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isCallFullscreen) {
@@ -687,8 +962,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     const observer: DebugObserver = (entry) => {
       setDebugEvents((prev) => {
         const next = [...prev, entry];
-        if (next.length > 25) {
-          return next.slice(next.length - 25);
+        if (next.length > DEBUG_EVENT_HISTORY_LIMIT) {
+          return next.slice(next.length - DEBUG_EVENT_HISTORY_LIMIT);
         }
         return next;
       });
@@ -727,24 +1002,69 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
   useEffect(() => {
     if (!showDebugPanel) {
+      setSelectedIceRoute(null);
+      lastIceRouteLabelRef.current = null;
+      lastIceRouteTypesRef.current = null;
       return;
     }
 
-    const interval = window.setInterval(() => {
+    let cancelled = false;
+
+    const updateSelectedRoute = async () => {
       const pc = peerConnectionRef.current;
       if (!pc) {
+        if (!cancelled) {
+          setSelectedIceRoute(null);
+          lastIceRouteLabelRef.current = null;
+        }
         return;
       }
 
-      logEvent("STATS", {
-        iceConnectionState: pc.iceConnectionState,
-        connectionState: pc.connectionState,
-        signalingState: pc.signalingState,
-        candidatePairs: pc.getSenders().length,
-      });
+      const route = await getSelectedIceRoute(pc);
+      if (cancelled) {
+        return;
+      }
+
+      if (route) {
+        setSelectedIceRoute(route.display);
+        lastIceRouteTypesRef.current = {
+          localType: route.localType ?? null,
+          remoteType: route.remoteType ?? null,
+        };
+        if (lastIceRouteLabelRef.current !== route.label) {
+          lastIceRouteLabelRef.current = route.label;
+          logEvent("Selected ICE route", {
+            label: route.label,
+            localDetail: route.localDetail,
+            remoteDetail: route.remoteDetail,
+            localType: route.localType,
+            remoteType: route.remoteType,
+          });
+        }
+      } else {
+        setSelectedIceRoute(null);
+        lastIceRouteLabelRef.current = null;
+        lastIceRouteTypesRef.current = null;
+      }
+    };
+
+    void updateSelectedRoute();
+
+    const interval = window.setInterval(() => {
+      const pc = peerConnectionRef.current;
+      if (pc) {
+        logEvent("STATS", {
+          iceConnectionState: pc.iceConnectionState,
+          connectionState: pc.connectionState,
+          signalingState: pc.signalingState,
+          candidatePairs: pc.getSenders().length,
+        });
+      }
+      void updateSelectedRoute();
     }, 5000);
 
     return () => {
+      cancelled = true;
       window.clearInterval(interval);
     };
   }, [showDebugPanel]);
@@ -864,6 +1184,11 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         clearTimeout(disconnectionRecoveryTimeoutRef.current);
         disconnectionRecoveryTimeoutRef.current = null;
       }
+      lastIceRouteLabelRef.current = null;
+      lastIceRouteTypesRef.current = null;
+      forcedRelayRef.current = false;
+      iceRestartAttemptsRef.current = 0;
+      iceRestartInProgressRef.current = false;
       const existing = peerConnectionRef.current;
       if (existing) {
         stopLocalMediaTracks(existing);
@@ -881,6 +1206,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setIceConnectionState(null);
       setIceGatheringState(null);
       setDataChannelState(null);
+      setSelectedIceRoute(null);
       setCallState("idle");
       setIncomingCallFrom(null);
       setCallDialogOpen(false);
@@ -925,6 +1251,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setCallDialogOpen,
       setCallNotice,
       setRemoteStream,
+      setSelectedIceRoute,
       stopLocalMediaTracks,
     ],
   );
@@ -980,6 +1307,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setRemainingSeconds,
     ],
   );
+
+  const hasRelayIceServers = useMemo(() => {
+    const servers = getIceServers();
+    return servers.some((server) => {
+      const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+      return urls.some((url) =>
+        typeof url === "string" ? url.trim().toLowerCase().startsWith("turn") : false,
+      );
+    });
+  }, []);
 
   const schedulePeerConnectionRecovery = useCallback(
     (
@@ -1065,6 +1402,163 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     [participantRole, reconnectBaseDelayMs, resetPeerConnection, setIsReconnecting],
   );
 
+  const forceRelayRouting = useCallback(
+    (reason: string) => {
+      if (!hasRelayIceServers) {
+        logEvent("Skipping relay-only enforcement because no TURN servers are configured", { reason });
+        return false;
+      }
+      const pc = peerConnectionRef.current;
+      if (!pc) {
+        return false;
+      }
+      if (forcedRelayRef.current) {
+        return true;
+      }
+      if (typeof pc.getConfiguration !== "function" || typeof pc.setConfiguration !== "function") {
+        return false;
+      }
+
+      try {
+        const currentConfig = pc.getConfiguration();
+        if (currentConfig.iceTransportPolicy === "relay") {
+          forcedRelayRef.current = true;
+          return true;
+        }
+
+        const nextConfig: RTCConfiguration = {
+          ...currentConfig,
+          iceServers: currentConfig.iceServers ? [...currentConfig.iceServers] : currentConfig.iceServers,
+          iceTransportPolicy: "relay",
+        };
+        pc.setConfiguration(nextConfig);
+        forcedRelayRef.current = true;
+        logEvent("Forced ICE transport policy to relay", { reason });
+        return true;
+      } catch (error) {
+        logEvent("Failed to enforce relay transport policy", {
+          reason,
+          error: error instanceof Error ? error.message : error,
+        });
+        return false;
+      }
+    },
+    [hasRelayIceServers],
+  );
+
+  const sendSignal = useCallback(
+    (signalType: string, payload: unknown) => {
+      if (!participantId) {
+        return;
+      }
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      logEvent("Sending signal", { signalType, payload });
+      socket.send(
+        JSON.stringify({
+          type: "signal",
+          signalType,
+          payload,
+        }),
+      );
+    },
+    [participantId],
+  );
+
+  const updateLastIceRouteTypes = useCallback(
+    async (pc?: RTCPeerConnection | null) => {
+      const connection = pc ?? peerConnectionRef.current;
+      if (!connection) {
+        return;
+      }
+      const route = await getSelectedIceRoute(connection);
+      if (!route) {
+        lastIceRouteTypesRef.current = null;
+        return;
+      }
+      lastIceRouteTypesRef.current = {
+        localType: route.localType ?? null,
+        remoteType: route.remoteType ?? null,
+      };
+    },
+    [],
+  );
+
+  const shouldPreferRelayRouting = useCallback(() => {
+    if (!hasRelayIceServers) {
+      return false;
+    }
+    const lastRoute = lastIceRouteTypesRef.current;
+    if (!lastRoute) {
+      return false;
+    }
+    return lastRoute.localType !== "relay" && lastRoute.remoteType !== "relay";
+  }, [hasRelayIceServers]);
+
+  const requestIceRestart = useCallback(
+    async (reason: string, { preferRelay = false }: { preferRelay?: boolean } = {}) => {
+      if (!sessionActiveRef.current) {
+        return false;
+      }
+      const pc = peerConnectionRef.current;
+      if (!pc) {
+        return false;
+      }
+      if (iceRestartInProgressRef.current) {
+        logEvent("ICE restart already in progress", { reason });
+        return true;
+      }
+      if (pc.signalingState !== "stable") {
+        logEvent("Skipping ICE restart while signaling is unstable", {
+          reason,
+          signalingState: pc.signalingState,
+        });
+        return false;
+      }
+      if (iceRestartAttemptsRef.current >= MAX_ICE_FAILURE_RETRIES) {
+        logEvent("Skipping ICE restart because maximum attempts were reached", {
+          reason,
+          attempts: iceRestartAttemptsRef.current,
+        });
+        return false;
+      }
+
+      if (preferRelay) {
+        forceRelayRouting(reason);
+      }
+
+      iceRestartInProgressRef.current = true;
+      setIsReconnecting(true);
+
+      try {
+        logEvent("Attempting ICE restart", { reason });
+        if (typeof pc.restartIce === "function") {
+          try {
+            pc.restartIce();
+          } catch (error) {
+            logEvent("restartIce() threw", { reason, error: error instanceof Error ? error.message : error });
+          }
+        }
+        const offer = await pc.createOffer({ iceRestart: true });
+        await pc.setLocalDescription(offer);
+        if (participantRole === "host") {
+          hasSentOfferRef.current = true;
+        }
+        sendSignal("offer", offer);
+        iceRestartAttemptsRef.current += 1;
+        return true;
+      } catch (error) {
+        logEvent("Failed to restart ICE", { reason, error: error instanceof Error ? error.message : error });
+        return false;
+      } finally {
+        iceRestartInProgressRef.current = false;
+      }
+    },
+    [forceRelayRouting, participantRole, sendSignal, setIsReconnecting],
+  );
+
   useEffect(() => {
     if (typeof navigator === "undefined") {
       return;
@@ -1124,11 +1618,20 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         return;
       }
       setIsReconnecting(true);
-      if (participantRole === "host") {
-        resetPeerConnection();
-      } else {
-        schedulePeerConnectionRecovery(pc, "network change", { delayMs: 0 });
-      }
+
+      const preferRelay = shouldPreferRelayRouting();
+
+      void (async () => {
+        const restarted = await requestIceRestart("network change", { preferRelay });
+        if (restarted) {
+          return;
+        }
+        if (participantRole === "host") {
+          resetPeerConnection();
+        } else {
+          schedulePeerConnectionRecovery(pc, "network change", { delayMs: 0 });
+        }
+      })();
     };
 
     connection.addEventListener("change", handleChange);
@@ -1136,7 +1639,14 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     return () => {
       connection.removeEventListener("change", handleChange);
     };
-  }, [participantRole, resetPeerConnection, schedulePeerConnectionRecovery, setIsReconnecting]);
+  }, [
+    participantRole,
+    requestIceRestart,
+    resetPeerConnection,
+    schedulePeerConnectionRecovery,
+    setIsReconnecting,
+    shouldPreferRelayRouting,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1226,27 +1736,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       sendCapabilities();
     }
   }, [sendCapabilities, supportsEncryption]);
-
-  const sendSignal = useCallback(
-    (signalType: string, payload: unknown) => {
-      if (!participantId) {
-        return;
-      }
-      const socket = socketRef.current;
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        return;
-      }
-      logEvent("Sending signal", { signalType, payload });
-      socket.send(
-        JSON.stringify({
-          type: "signal",
-          signalType,
-          payload,
-        }),
-      );
-    },
-    [participantId],
-  );
 
   const sendCallMessage = useCallback(
     (action: string, detail: Record<string, unknown> = {}) => {
@@ -1747,6 +2236,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   );
 
   useEffect(() => {
+    if (!termsAccepted) {
+      return;
+    }
     if (!participantId || !participantRole) {
       return;
     }
@@ -1769,6 +2261,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         sendSignal("iceCandidate", candidate);
         logEvent("Discovered ICE candidate", candidate);
       } else {
+        sendSignal("iceCandidate", null);
         logEvent("ICE candidate gathering complete");
       }
     };
@@ -1783,6 +2276,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setConnectionState(state);
 
       if (state === "connected") {
+        void updateLastIceRouteTypes(peerConnection);
         iceFailureRetriesRef.current = 0;
         reconnectAttemptsRef.current = 0;
         setIsReconnecting(false);
@@ -1825,11 +2319,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             clearTimeout(disconnectionRecoveryTimeoutRef.current);
             disconnectionRecoveryTimeoutRef.current = null;
           }
-          logEvent("Connection FAILED - immediate reset");
-          resetPeerConnection();
-          if (participantRole === "host") {
-            hasSentOfferRef.current = false;
-          }
+          logEvent("Connection FAILED - awaiting ICE restart");
         }
       } else if (state === "closed") {
         setConnected(false);
@@ -1842,14 +2332,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         state === "disconnected" &&
         participantRole !== "host" &&
         peerConnectionRef.current === peerConnection &&
-        sessionActiveRef.current
+        sessionActiveRef.current &&
+        !iceRestartInProgressRef.current
       ) {
         schedulePeerConnectionRecovery(peerConnection, "peer connection disconnected");
       } else if (
         state === "failed" &&
         participantRole !== "host" &&
         peerConnectionRef.current === peerConnection &&
-        sessionActiveRef.current
+        sessionActiveRef.current &&
+        !iceRestartInProgressRef.current
       ) {
         schedulePeerConnectionRecovery(peerConnection, "peer connection failed", { delayMs: 0 });
       }
@@ -1860,43 +2352,58 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       logEvent("ICE connection state", state);
       setIceConnectionState(state);
 
-      if (
-        state === "disconnected" &&
-        participantRole === "host" &&
-        peerConnectionRef.current === peerConnection
-      ) {
-        logEvent("ICE disconnected as host - initiating restart");
-        try {
-          peerConnection.restartIce();
-        } catch (error) {
-          logEvent("Failed to restart ICE", { error: error instanceof Error ? error.message : error });
-        }
+      if (state === "connected" || state === "completed") {
+        void updateLastIceRouteTypes(peerConnection);
+      }
+
+      if (state === "connected") {
+        iceFailureRetriesRef.current = 0;
+        iceRestartAttemptsRef.current = 0;
         return;
       }
 
-      if (state === "failed" && participantRole === "host" && peerConnectionRef.current === peerConnection) {
-        if (iceFailureRetriesRef.current < MAX_ICE_FAILURE_RETRIES) {
-          const attempt = iceFailureRetriesRef.current + 1;
-          iceFailureRetriesRef.current = attempt;
-          setIsReconnecting(true);
-          resetPeerConnection({ delayMs: 1000 * attempt });
-          logEvent("ICE connection failed; scheduling retry", { attempt });
-        } else {
-          setError("Connection failed. Please refresh to retry.");
-          logEvent("ICE connection failed and maximum retries reached");
-          setIsReconnecting(false);
-        }
-      } else if (
-        (state === "failed" || state === "disconnected") &&
-        participantRole !== "host" &&
-        peerConnectionRef.current === peerConnection &&
-        sessionActiveRef.current
-      ) {
-        const delayMs = state === "failed" ? 0 : reconnectBaseDelayMs;
-        schedulePeerConnectionRecovery(peerConnection, `ice connection ${state}`, { delayMs });
-      } else if (state === "connected") {
-        iceFailureRetriesRef.current = 0;
+      if (peerConnectionRef.current !== peerConnection) {
+        return;
       }
+
+      if (state !== "failed" && state !== "disconnected") {
+        return;
+      }
+
+      const preferRelay = shouldPreferRelayRouting();
+      const reason = `ice connection ${state}`;
+
+      if (participantRole === "host") {
+        void (async () => {
+          const restarted = await requestIceRestart(reason, { preferRelay });
+          if (!restarted && state === "failed") {
+            if (iceFailureRetriesRef.current < MAX_ICE_FAILURE_RETRIES) {
+              const attempt = iceFailureRetriesRef.current + 1;
+              iceFailureRetriesRef.current = attempt;
+              setIsReconnecting(true);
+              resetPeerConnection({ delayMs: 1000 * attempt });
+              logEvent("ICE connection failed; scheduling retry", { attempt });
+            } else {
+              setError("Connection failed. Please refresh to retry.");
+              logEvent("ICE connection failed and maximum retries reached");
+              setIsReconnecting(false);
+            }
+          }
+        })();
+        return;
+      }
+
+      if (!sessionActiveRef.current) {
+        return;
+      }
+
+      void (async () => {
+        const restarted = await requestIceRestart(reason, { preferRelay });
+        if (!restarted) {
+          const delayMs = state === "failed" ? 0 : reconnectBaseDelayMs;
+          schedulePeerConnectionRecovery(peerConnection, reason, { delayMs });
+        }
+      })();
     };
 
     peerConnection.ontrack = (event) => {
@@ -2015,11 +2522,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     resetPeerConnection,
     reconnectBaseDelayMs,
     schedulePeerConnectionRecovery,
+    requestIceRestart,
+    updateLastIceRouteTypes,
     sendSignal,
     setCallState,
     setRemoteStream,
     showCallNotice,
     teardownCall,
+    termsAccepted,
+    hasRelayIceServers,
+    shouldPreferRelayRouting,
   ]);
 
   useEffect(() => {
@@ -2102,6 +2614,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   ]);
 
   useEffect(() => {
+    if (!termsAccepted) {
+      return;
+    }
     if (!participantId || sessionEnded) {
       return;
     }
@@ -2169,6 +2684,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [participantId, participantRole, remainingSeconds, sessionEnded, sessionStatus, token]);
 
   useEffect(() => {
+    if (!termsAccepted) {
+      return;
+    }
     if (!participantId || sessionEnded) {
       return;
     }
@@ -2323,6 +2841,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     setIsReconnecting,
     sessionEnded,
     socketReconnectNonce,
+    termsAccepted,
     token,
   ]);
 
@@ -2660,18 +3179,21 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     if (callState !== "active") {
       return;
     }
+    shouldRestoreFullscreenOnPortraitRef.current = false;
     setIsCallFullscreen((current) => !current);
     setPipPosition(null);
     pipDragStateRef.current = null;
   }, [callState]);
 
   const handleExitFullscreenOnly = useCallback(() => {
+    shouldRestoreFullscreenOnPortraitRef.current = false;
     setIsCallFullscreen(false);
     setPipPosition(null);
     pipDragStateRef.current = null;
   }, []);
 
   const handleFullscreenEndCall = useCallback(() => {
+    shouldRestoreFullscreenOnPortraitRef.current = false;
     setIsCallFullscreen(false);
     setPipPosition(null);
     pipDragStateRef.current = null;
@@ -3060,9 +3582,19 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [peerSupportsEncryption, supportsEncryption]);
 
   const recentDebugEvents = useMemo(() => {
-    const limit = 5;
-    return debugEvents.slice(-limit).reverse();
+    return debugEvents.slice(-DEBUG_EVENT_HISTORY_LIMIT);
   }, [debugEvents]);
+
+  useEffect(() => {
+    if (!showDebugPanel) {
+      return;
+    }
+    const container = debugEventScrollRef.current;
+    if (!container) {
+      return;
+    }
+    container.scrollTop = container.scrollHeight;
+  }, [recentDebugEvents, showDebugPanel]);
 
   const orderedMessages = useMemo(
     () => (reverseMessageOrder ? [...messages].reverse() : messages),
@@ -3333,6 +3865,24 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                     {tokenCopyStatusMessage}
                   </span>
                 </div>
+              </div>
+            </div>
+            <div className="countdown">
+              <div className="status-pill">
+                <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
+                <span>{sessionStatusLabel}</span>
+              </div>
+              <p className="countdown-label">Session timer</p>
+              <p className="countdown-time">{countdownLabel}</p>
+              <div className="session-role-row">
+                <p className="session-role">
+                  You are signed in as
+                  <span>
+                    {" "}
+                    {sessionStatus?.participants.find((p) => p.participantId === participantId)?.role ?? "guest"}
+                  </span>
+                  .
+                </p>
                 <button
                   type="button"
                   className="session-end-button"
@@ -3469,6 +4019,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         <div
           className={`call-panel${isCallFullscreen ? " call-panel--fullscreen" : ""}`}
           ref={callPanelRef}
+          tabIndex={-1}
         >
             <div className="call-panel__header">
               <div
@@ -3781,6 +4332,94 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             )}
             {!reverseMessageOrder ? composer : null}
           </div>
+          {showDebugPanel ? (
+            <div className="session-debug-card">
+              <div className="session-debug" data-test="session-debug-panel">
+                <div className="session-debug__header">
+                  <p className="session-debug__title">Client debug</p>
+                  {isTouchDevice ? (
+                    <button
+                      type="button"
+                      className="session-debug__hide-button"
+                      onClick={() => {
+                        setShowDebugPanel(false);
+                      }}
+                      aria-label="Hide debug panel"
+                    >
+                      Hide
+                    </button>
+                  ) : (
+                    <p className="session-debug__hint">Press Esc to hide</p>
+                  )}
+                </div>
+                <dl className="session-debug__list">
+                  <div className="session-debug__item">
+                    <dt>Identity</dt>
+                    <dd>{clientIdentity ?? "Gathering…"}</dd>
+                  </div>
+                  <div className="session-debug__item">
+                    <dt>Peer state</dt>
+                    <dd>{connectionState ?? "—"}</dd>
+                  </div>
+                  <div className="session-debug__item">
+                    <dt>ICE connection</dt>
+                    <dd>{iceConnectionState ?? "—"}</dd>
+                  </div>
+                  <div className="session-debug__item">
+                    <dt>ICE gathering</dt>
+                    <dd>{iceGatheringState ?? "—"}</dd>
+                  </div>
+                  <div className="session-debug__item">
+                    <dt>ICE route</dt>
+                    <dd>{selectedIceRoute ?? "—"}</dd>
+                  </div>
+                  <div className="session-debug__item">
+                    <dt>Data channel</dt>
+                    <dd>{dataChannelState ?? "—"}</dd>
+                  </div>
+                </dl>
+                <div className="session-debug__events">
+                  <p className="session-debug__subtitle">Recent events</p>
+                  {recentDebugEvents.length === 0 ? (
+                    <p className="session-debug__empty">Watching for new logs…</p>
+                  ) : (
+                    <div className="session-debug__event-scroll" ref={debugEventScrollRef}>
+                      <ul className="session-debug__event-list">
+                        {recentDebugEvents.map((entry, index) => {
+                          const detail = entry.details[0];
+                          let detailSnippet: string | null = null;
+                          if (detail !== undefined) {
+                            try {
+                              detailSnippet = JSON.stringify(detail);
+                            } catch (error) {
+                              detailSnippet = String(detail);
+                            }
+                            if (detailSnippet && detailSnippet.length > 160) {
+                              detailSnippet = `${detailSnippet.slice(0, 157)}…`;
+                            }
+                          }
+                          const timestamp = new Date(entry.timestamp).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          });
+                          return (
+                            <li key={`${entry.timestamp}-${index}`} className="session-debug__event">
+                              <span className="session-debug__event-time">{timestamp}</span>
+                              <span className="session-debug__event-message">{entry.message}</span>
+                              {detailSnippet ? (
+                                <code className="session-debug__event-detail">{detailSnippet}</code>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       ) : null}
 
