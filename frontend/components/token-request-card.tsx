@@ -115,7 +115,7 @@ export function TokenRequestCard() {
   }, [result?.token]);
 
   useEffect(() => {
-    if (!result?.token || typeof window === "undefined" || !isPhoneViewportType) {
+    if (!result?.token || typeof window === "undefined") {
       return;
     }
 
@@ -126,6 +126,14 @@ export function TokenRequestCard() {
       inline: "nearest",
       behavior: prefersReducedMotion ? "auto" : "smooth",
     });
+  }, [result?.token]);
+
+  useEffect(() => {
+    if (!result?.token || typeof window === "undefined" || !isPhoneViewportType) {
+      return;
+    }
+
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
     if (mobileFocusTimeoutRef.current) {
       window.clearTimeout(mobileFocusTimeoutRef.current);
