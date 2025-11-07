@@ -13,6 +13,7 @@ import { ReportAbuseModal, type ReportAbuseFormValues } from "@/components/repor
 import { useLanguage } from "@/components/language/language-provider";
 import { apiUrl, wsUrl } from "@/lib/api";
 import { getClientIdentity } from "@/lib/client-identity";
+import { isPhoneViewport } from "@/lib/viewport";
 import { getIceServers } from "@/lib/webrtc";
 
 const textEncoder = new TextEncoder();
@@ -504,9 +505,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return;
     }
 
-    const isMobileViewport =
-      window.matchMedia?.("(max-width: 768px), (max-height: 600px)").matches ?? false;
-    if (!isMobileViewport) {
+    const isPhone = isPhoneViewport(window);
+    if (!isPhone) {
       return;
     }
 

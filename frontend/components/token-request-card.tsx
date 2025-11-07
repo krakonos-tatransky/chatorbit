@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { useLanguage } from "@/components/language/language-provider";
 import { apiUrl } from "@/lib/api";
 import { getClientIdentity } from "@/lib/client-identity";
+import { isPhoneViewport } from "@/lib/viewport";
 
 type TokenResult = {
   token: string;
@@ -116,8 +117,8 @@ export function TokenRequestCard() {
       return;
     }
 
-    const isMobileViewport = window.matchMedia?.("(max-width: 768px)").matches ?? false;
-    if (!isMobileViewport) {
+    const isPhone = isPhoneViewport(window);
+    if (!isPhone) {
       return;
     }
 
@@ -142,8 +143,8 @@ export function TokenRequestCard() {
       return;
     }
 
-    const isMobileViewport = window.matchMedia?.("(max-width: 768px)").matches ?? false;
-    if (!isMobileViewport) {
+    const isPhone = isPhoneViewport(window);
+    if (!isPhone) {
       return;
     }
 
