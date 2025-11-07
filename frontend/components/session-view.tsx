@@ -761,6 +761,40 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [isCallFullscreen]);
 
   useEffect(() => {
+    if (!isCallFullscreen || typeof window === "undefined") {
+      return;
+    }
+
+    const isMobileViewport = window.matchMedia?.("(max-width: 768px)").matches ?? false;
+    if (!isMobileViewport) {
+      return;
+    }
+
+    const isLandscape = window.matchMedia?.("(orientation: landscape)").matches ?? false;
+    if (!isLandscape) {
+      return;
+    }
+
+    const panel = callPanelRef.current;
+    if (!panel) {
+      return;
+    }
+
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    try {
+      panel.scrollIntoView({
+        block: "center",
+        inline: "nearest",
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+      });
+    } catch {
+      panel.scrollIntoView({ block: "center", inline: "nearest" });
+    }
+
+    focusCallPanel();
+  }, [focusCallPanel, isCallFullscreen]);
+
+  useEffect(() => {
     return () => {
       if (callNoticeTimeoutRef.current && typeof window !== "undefined") {
         window.clearTimeout(callNoticeTimeoutRef.current);
