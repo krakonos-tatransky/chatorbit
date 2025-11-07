@@ -452,6 +452,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const [pipPosition, setPipPosition] = useState<{ left: number; top: number } | null>(null);
   const viewportType = useViewportType();
   const isPhoneViewportType = viewportType === "phone";
+  const shouldScrollCallPanel = viewportType !== "desktop";
   const sessionHeaderId = useId();
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -498,7 +499,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     }
   }, []);
   const scrollCallPanelIntoView = useCallback(() => {
-    if (!isPhoneViewportType) {
+    if (!shouldScrollCallPanel) {
       return;
     }
 
@@ -511,17 +512,45 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return;
     }
 
-    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    try {
-      panel.scrollIntoView({
-        block: "start",
-        inline: "nearest",
-        behavior: prefersReducedMotion ? "auto" : "smooth",
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+
+    const scrollTarget = (() => {
+      const remoteVideo = remoteVideoRef.current;
+      if (remoteVideo?.isConnected) {
+        return remoteVideo;
+      }
+      const localVideo = localVideoRef.current;
+      if (localVideo?.isConnected) {
+        return localVideo;
+      }
+      const mediaContainer = panel.querySelector<HTMLElement>(".call-panel__media");
+      return mediaContainer ?? panel;
+    })();
+
+    const performScroll = () => {
+      if (!scrollTarget?.isConnected) {
+        return;
+      }
+      try {
+        scrollTarget.scrollIntoView({
+          block: "start",
+          inline: "nearest",
+          behavior: prefersReducedMotion ? "auto" : "smooth",
+        });
+      } catch {
+        scrollTarget.scrollIntoView({ block: "start", inline: "nearest" });
+      }
+    };
+
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(performScroll);
       });
-    } catch {
-      panel.scrollIntoView({ block: "start", inline: "nearest" });
+      return;
     }
-  }, [isPhoneViewportType]);
+
+    performScroll();
+  }, [shouldScrollCallPanel]);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const pendingSignalsRef = useRef<any[]>([]);
   const hasSentOfferRef = useRef<boolean>(false);
