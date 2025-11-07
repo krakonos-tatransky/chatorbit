@@ -6,19 +6,19 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 
 import { LegalAwareLink } from "@/components/legal/legal-aware-link";
+import { LanguageSwitcher } from "@/components/language/language-switcher";
+import { useLanguage } from "@/components/language/language-provider";
 
 const CHAT_ORBIT_LOGO_URL = "/brand/chat-orbit-logo.svg";
-
-const BASE_NAV_ITEMS = [
-  { href: "/help", label: "Help & FAQ" },
-  { href: "/terms-of-service", label: "Terms of Service" },
-  { href: "/privacy-policy", label: "Privacy Policy" },
-];
 
 export function SiteHeader() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const pathname = usePathname();
   const [search, setSearch] = useState<string | null>(null);
+  const {
+    translations: { navigation },
+  } = useLanguage();
+  const isSessionPage = pathname?.startsWith("/session/") ?? false;
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -37,12 +37,21 @@ export function SiteHeader() {
     return `${pathname}${query ? `?${query}` : ""}`;
   }, [pathname, search]);
 
+  const baseNavItems = useMemo(
+    () => [
+      { href: "/help", label: navigation.help },
+      { href: "/terms-of-service", label: navigation.terms },
+      { href: "/privacy-policy", label: navigation.privacy },
+    ],
+    [navigation.help, navigation.privacy, navigation.terms],
+  );
+
   const navItems = useMemo(() => {
     if (!reportAbuseLink) {
-      return BASE_NAV_ITEMS;
+      return baseNavItems;
     }
-    return [...BASE_NAV_ITEMS, { href: reportAbuseLink, label: "Report abuse" }];
-  }, [reportAbuseLink]);
+    return [...baseNavItems, { href: reportAbuseLink, label: navigation.reportAbuse }];
+  }, [baseNavItems, navigation.reportAbuse, reportAbuseLink]);
 
   const toggleMenu = () => {
     setIsMenuOpen((prev) => !prev);
@@ -70,10 +79,11 @@ export function SiteHeader() {
         </LegalAwareLink>
         <div className="site-header__timer-slot" id="site-header-timer" />
         <div className="site-header__nav-group">
+          <LanguageSwitcher hideOnMobile={isSessionPage} />
           <button
             type="button"
             className="site-nav__toggle"
-            aria-label={isMenuOpen ? "Close menu" : "Open menu"}
+            aria-label={isMenuOpen ? navigation.closeMenu : navigation.openMenu}
             aria-expanded={isMenuOpen}
             onClick={toggleMenu}
           >

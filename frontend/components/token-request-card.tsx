@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useRouter } from "next/navigation";
 
+import { useLanguage } from "@/components/language/language-provider";
 import { apiUrl } from "@/lib/api";
 import { getClientIdentity } from "@/lib/client-identity";
 
@@ -26,13 +27,6 @@ type JoinResponse = {
   message_char_limit: number;
 };
 
-const validityOptions = [
-  { value: "1_day", label: "1 day" },
-  { value: "1_week", label: "1 week" },
-  { value: "1_month", label: "1 month" },
-  { value: "1_year", label: "1 year" },
-];
-
 const ttlPresets = [5, 15, 30, 60, 180, 720];
 
 export function TokenRequestCard() {
@@ -49,8 +43,20 @@ export function TokenRequestCard() {
   const [startSessionError, setStartSessionError] = useState<string | null>(null);
   const [startSessionAvailable, setStartSessionAvailable] = useState<boolean>(false);
   const router = useRouter();
+  const {
+    translations: { tokenCard },
+  } = useLanguage();
 
   const ttlHours = useMemo(() => (sessionMinutes / 60).toFixed(1), [sessionMinutes]);
+  const validityOptions = useMemo(
+    () => [
+      { value: "1_day", label: tokenCard.validityOptions.oneDay },
+      { value: "1_week", label: tokenCard.validityOptions.oneWeek },
+      { value: "1_month", label: tokenCard.validityOptions.oneMonth },
+      { value: "1_year", label: tokenCard.validityOptions.oneYear },
+    ],
+    [tokenCard.validityOptions.oneDay, tokenCard.validityOptions.oneMonth, tokenCard.validityOptions.oneWeek, tokenCard.validityOptions.oneYear],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -134,14 +140,14 @@ export function TokenRequestCard() {
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        throw new Error(body.detail || "Unable to issue a token.");
+        throw new Error(body.detail || tokenCard.tokenIssueError);
       }
 
       const payload = (await response.json()) as TokenResult;
       setResult(payload);
     } catch (cause) {
       setResult(null);
-      setError(cause instanceof Error ? cause.message : "Unknown error");
+      setError(cause instanceof Error ? cause.message : tokenCard.unknownError);
     } finally {
       setLoading(false);
     }
@@ -184,7 +190,7 @@ export function TokenRequestCard() {
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        throw new Error(body.detail || "Unable to join this token.");
+        throw new Error(body.detail || tokenCard.tokenJoinError);
       }
 
       const payload = (await response.json()) as JoinResponse;
@@ -206,7 +212,7 @@ export function TokenRequestCard() {
 
       router.push(`/session/${payload.token}?participant=${payload.participant_id}`);
     } catch (cause) {
-      setStartSessionError(cause instanceof Error ? cause.message : "Unknown error");
+      setStartSessionError(cause instanceof Error ? cause.message : tokenCard.unknownError);
     } finally {
       setStartSessionLoading(false);
     }
@@ -214,15 +220,12 @@ export function TokenRequestCard() {
 
   return (
     <div className="card card--cyan">
-      <h2 className="card__title">Request a new session token</h2>
-      <p className="card__subtitle">
-        Define how long the token stays claimable and how long the active session should last. Each device can mint ten tokens per
-        hour.
-      </p>
+      <h2 className="card__title">{tokenCard.title}</h2>
+      <p className="card__subtitle">{tokenCard.subtitle}</p>
 
       <form onSubmit={handleSubmit} className="form">
         <label className="form__label">
-          <span>Validity window</span>
+          <span>{tokenCard.validityLabel}</span>
           <select value={validity} onChange={(event) => setValidity(event.target.value)} className="select">
             {validityOptions.map((option) => (
               <option key={option.value} value={option.value}>
@@ -233,7 +236,7 @@ export function TokenRequestCard() {
         </label>
 
         <div className="form__label">
-          <span>Session time-to-live (minutes)</span>
+          <span>{tokenCard.ttlLabel}</span>
           <div className="chip-group">
             {ttlPresets.map((preset) => (
               <button
@@ -254,11 +257,11 @@ export function TokenRequestCard() {
               className="input input--compact"
             />
           </div>
-          <p className="helper-text">≈ {ttlHours} hours</p>
+          <p className="helper-text">{tokenCard.ttlApproxHours.replace("{hours}", ttlHours)}</p>
         </div>
 
         <label className="form__label">
-          <span>Message character limit</span>
+          <span>{tokenCard.messageLimitLabel}</span>
           <input
             type="number"
             min={200}
@@ -268,11 +271,11 @@ export function TokenRequestCard() {
             onChange={(event) => setMessageLimit(Number(event.target.value))}
             className="input"
           />
-          <span className="helper-text">Between 200 and 16,000 characters per message.</span>
+          <span className="helper-text">{tokenCard.messageLimitHelper}</span>
         </label>
 
         <button type="submit" disabled={loading} className="button button--cyan">
-          {loading ? "Issuing token…" : "Generate token"}
+          {loading ? tokenCard.submitLoading : tokenCard.submitIdle}
         </button>
       </form>
 
@@ -282,16 +285,16 @@ export function TokenRequestCard() {
         <div className="result-card">
           <div className="result-card__row result-card__row--token">
             <div className="session-token-header">
-              <p className="session-token">Token</p>
+              <p className="session-token">{tokenCard.tokenHeader}</p>
               <button
                 type="button"
                 className={`session-token-copy${
                   tokenCopyState === "copied" ? " session-token-copy--success" : ""
                 }${tokenCopyState === "failed" ? " session-token-copy--error" : ""}`}
                 onClick={handleCopyToken}
-                aria-label="Copy session token"
+                aria-label={tokenCard.copyLabel}
               >
-                {tokenCopyState === "copied" ? "Copied" : "Copy"}
+                {tokenCopyState === "copied" ? tokenCard.copySuccess : tokenCard.copyIdle}
               </button>
               {startSessionAvailable ? (
                 <button
@@ -300,30 +303,32 @@ export function TokenRequestCard() {
                   onClick={handleStartSession}
                   disabled={startSessionLoading}
                 >
-                  {startSessionLoading ? "Starting…" : "Start session"}
+                  {startSessionLoading ? tokenCard.startSessionLoading : tokenCard.startSession}
                 </button>
               ) : null}
               <span className="session-token-copy-status" role="status" aria-live="polite">
                 {tokenCopyState === "copied"
-                  ? "Token copied to clipboard"
+                  ? tokenCard.copySuccessStatus
                   : tokenCopyState === "failed"
-                    ? "Unable to copy token"
+                    ? tokenCard.copyErrorStatus
                     : ""}
               </span>
             </div>
             <p className="session-token-value">{result.token}</p>
           </div>
           <div className="result-card__row">
-            <span>Valid until</span>
+            <span>{tokenCard.validUntil}</span>
             <span>{new Date(result.validity_expires_at).toLocaleString()}</span>
           </div>
           <div className="result-card__row">
-            <span>Session TTL</span>
-            <span>{Math.round(result.session_ttl_seconds / 60)} minutes</span>
+            <span>{tokenCard.sessionTtl}</span>
+            <span>{tokenCard.ttlMinutes.replace("{minutes}", Math.round(result.session_ttl_seconds / 60).toString())}</span>
           </div>
           <div className="result-card__row">
-            <span>Character limit</span>
-            <span>{result.message_char_limit.toLocaleString()} characters</span>
+            <span>{tokenCard.characterLimit}</span>
+            <span>
+              {tokenCard.characterCount.replace("{count}", result.message_char_limit.toLocaleString())}
+            </span>
           </div>
           {startSessionError ? <p className="alert alert--error">{startSessionError}</p> : null}
         </div>

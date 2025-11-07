@@ -2,8 +2,9 @@ import "./globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
-import { LegalAwareLink } from "@/components/legal/legal-aware-link";
 import { LegalOverlayProvider } from "@/components/legal/legal-overlay-provider";
+import { LanguageProvider } from "@/components/language/language-provider";
+import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 
 const CHAT_ORBIT_LOGO_URL = "/brand/chat-orbit-logo.svg";
@@ -20,26 +21,18 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
-  const year = new Date().getFullYear();
   return (
     <html lang="en">
       <body>
-        <LegalOverlayProvider>
-          <div className="site-shell">
-            <SiteHeader />
-            <div className="site-content">{children}</div>
-            <footer className="site-footer">
-              <div className="site-footer__inner">
-                <p>© {year} ChatOrbit. Peer-to-peer chat without server-side archives.</p>
-                <nav className="site-footer__links" aria-label="Legal">
-                  <LegalAwareLink href="/help">Help</LegalAwareLink>
-                  <LegalAwareLink href="/terms-of-service">Terms</LegalAwareLink>
-                  <LegalAwareLink href="/privacy-policy">Privacy</LegalAwareLink>
-                </nav>
-              </div>
-            </footer>
-          </div>
-        </LegalOverlayProvider>
+        <LanguageProvider>
+          <LegalOverlayProvider>
+            <div className="site-shell">
+              <SiteHeader />
+              <div className="site-content">{children}</div>
+              <SiteFooter />
+            </div>
+          </LegalOverlayProvider>
+        </LanguageProvider>
       </body>
     </html>
   );

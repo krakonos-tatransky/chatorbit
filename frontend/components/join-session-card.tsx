@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import { useRouter } from "next/navigation";
 
+import { useLanguage } from "@/components/language/language-provider";
 import { apiUrl } from "@/lib/api";
 import { getClientIdentity } from "@/lib/client-identity";
 
@@ -27,6 +28,9 @@ export function JoinSessionCard({ tokenInputRef }: JoinSessionCardProps) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const router = useRouter();
+  const {
+    translations: { joinCard },
+  } = useLanguage();
 
   useEffect(() => {
     getClientIdentity().catch((error) => {
@@ -37,7 +41,7 @@ export function JoinSessionCard({ tokenInputRef }: JoinSessionCardProps) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token.trim()) {
-      setError("Enter the token you received from your partner.");
+      setError(joinCard.missingTokenError);
       return;
     }
 
@@ -73,7 +77,7 @@ export function JoinSessionCard({ tokenInputRef }: JoinSessionCardProps) {
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        throw new Error(body.detail || "Unable to join this token.");
+        throw new Error(body.detail || joinCard.unknownError);
       }
 
       const payload = (await response.json()) as JoinResponse;
@@ -94,7 +98,7 @@ export function JoinSessionCard({ tokenInputRef }: JoinSessionCardProps) {
       }
       router.push(`/session/${payload.token}?participant=${payload.participant_id}`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unknown error");
+      setError(cause instanceof Error ? cause.message : joinCard.unknownError);
     } finally {
       setLoading(false);
     }
@@ -102,38 +106,35 @@ export function JoinSessionCard({ tokenInputRef }: JoinSessionCardProps) {
 
   return (
     <div className="card card--indigo">
-      <h2 className="card__title">Join with an existing token</h2>
-      <p className="card__subtitle">
-        Paste the token you received. Once two devices join the same token the session starts immediately and no other logins are
-        permitted.
-      </p>
+      <h2 className="card__title">{joinCard.title}</h2>
+      <p className="card__subtitle">{joinCard.subtitle}</p>
 
       <form onSubmit={handleSubmit} className="form">
         <label className="form__label">
-          <span>Session token</span>
+          <span>{joinCard.tokenLabel}</span>
           <input
             value={token}
             onChange={(event) => setToken(event.target.value)}
             className="input input--token"
-            placeholder="Paste token"
+            placeholder={joinCard.tokenPlaceholder}
             maxLength={64}
             ref={tokenInputRef}
           />
         </label>
 
         <button type="submit" disabled={loading} className="button button--indigo">
-          {loading ? "Connecting…" : "Enter session"}
+          {loading ? joinCard.submitLoading : joinCard.submitIdle}
         </button>
       </form>
 
       {error ? <p className="alert alert--error">{error}</p> : null}
 
       <div className="hint-card">
-        <h3>Heads up</h3>
+        <h3>{joinCard.hintTitle}</h3>
         <ul>
-          <li>Sessions close automatically when the timer hits zero.</li>
-          <li>You can reconnect on the same device before the countdown ends.</li>
-          <li>Messages stay private to the two connected devices.</li>
+          {joinCard.hints.map((item, index) => (
+            <li key={index}>{item}</li>
+          ))}
         </ul>
       </div>
     </div>
