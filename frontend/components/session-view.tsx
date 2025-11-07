@@ -598,11 +598,27 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       if (!scrollTarget?.isConnected) {
         return;
       }
+
+      const behavior = prefersReducedMotion ? "auto" : "smooth";
+
+      if (typeof window !== "undefined" && typeof scrollTarget.getBoundingClientRect === "function") {
+        const rect = scrollTarget.getBoundingClientRect();
+        const absoluteTop = window.scrollY + rect.top;
+
+        try {
+          window.scrollTo({ top: absoluteTop, behavior });
+          return;
+        } catch {
+          window.scrollTo({ top: absoluteTop });
+          return;
+        }
+      }
+
       try {
         scrollTarget.scrollIntoView({
           block: "start",
           inline: "nearest",
-          behavior: prefersReducedMotion ? "auto" : "smooth",
+          behavior,
         });
       } catch {
         scrollTarget.scrollIntoView({ block: "start", inline: "nearest" });
