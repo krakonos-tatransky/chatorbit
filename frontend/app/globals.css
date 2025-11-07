@@ -856,6 +856,13 @@ main {
   color: rgba(148, 163, 184, 0.75);
 }
 
+.form__field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: stretch;
+}
+
 .chip-group {
   display: flex;
   flex-wrap: wrap;
