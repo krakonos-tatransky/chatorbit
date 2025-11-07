@@ -3851,6 +3851,15 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
               <div className="session-header__top">
                 <div className="session-token-header">
                   <p className="session-token">{sessionTranslations.statusCard.tokenLabel}</p>
+                  {!shouldForceExpandedHeader ? (
+                    <button
+                      type="button"
+                      className="session-header__collapse-button"
+                      onClick={handleHeaderCollapse}
+                    >
+                      {headerDetailsToggleTranslations.hide}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className={`session-token-copy${
@@ -3872,17 +3881,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                 <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
                 <span>{sessionStatusLabel}</span>
               </div>
-              <p className="countdown-label">Session timer</p>
+              <p className="countdown-label">{sessionTranslations.statusCard.timerLabel}</p>
               <p className="countdown-time">{countdownLabel}</p>
               <div className="session-role-row">
-                <p className="session-role">
-                  You are signed in as
-                  <span>
-                    {" "}
-                    {sessionStatus?.participants.find((p) => p.participantId === participantId)?.role ?? "guest"}
-                  </span>
-                  .
-                </p>
                 <button
                   type="button"
                   className="session-end-button"
@@ -3981,21 +3982,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                 </div>
               ) : null}
             </div>
-              <div className="countdown">
-                <div className="status-pill">
-                  <span className={`status-indicator${sessionStatusIndicatorClass}`} aria-hidden />
-                  <span>{sessionStatusLabel}</span>
-                </div>
-                <p className="countdown-label">{sessionTranslations.statusCard.timerLabel}</p>
-                <p className="countdown-time">{countdownLabel}</p>
-                <button
-                  type="button"
-                  className="session-header__collapse-button"
-                  onClick={handleHeaderCollapse}
-                >
-                  {headerDetailsToggleTranslations.hide}
-                </button>
-              </div>
             </div>
           </div>
         {hasSessionEnded ? (
