@@ -38,7 +38,11 @@ export function TokenRequestCard() {
   const [result, setResult] = useState<TokenResult | null>(null);
   const [tokenCopyState, setTokenCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const tokenCopyTimeoutRef = useRef<number | null>(null);
-  const generateButtonRef = useRef<HTMLButtonElement | null>(null);
+  const resultActionsRef = useRef<HTMLDivElement | null>(null);
+  const copyButtonRef = useRef<HTMLButtonElement | null>(null);
+  const startSessionButtonRef = useRef<HTMLButtonElement | null>(null);
+  const mobileFocusTimeoutRef = useRef<number | null>(null);
+  const startSessionFocusTimeoutRef = useRef<number | null>(null);
   const [clientIdentity, setClientIdentity] = useState<string | null>(null);
   const [startSessionLoading, setStartSessionLoading] = useState<boolean>(false);
   const [startSessionError, setStartSessionError] = useState<string | null>(null);
@@ -76,6 +80,14 @@ export function TokenRequestCard() {
         window.clearTimeout(tokenCopyTimeoutRef.current);
         tokenCopyTimeoutRef.current = null;
       }
+      if (mobileFocusTimeoutRef.current) {
+        window.clearTimeout(mobileFocusTimeoutRef.current);
+        mobileFocusTimeoutRef.current = null;
+      }
+      if (startSessionFocusTimeoutRef.current) {
+        window.clearTimeout(startSessionFocusTimeoutRef.current);
+        startSessionFocusTimeoutRef.current = null;
+      }
       cancelled = true;
     };
   }, []);
@@ -85,6 +97,14 @@ export function TokenRequestCard() {
       window.clearTimeout(tokenCopyTimeoutRef.current);
       tokenCopyTimeoutRef.current = null;
     }
+    if (mobileFocusTimeoutRef.current) {
+      window.clearTimeout(mobileFocusTimeoutRef.current);
+      mobileFocusTimeoutRef.current = null;
+    }
+    if (startSessionFocusTimeoutRef.current) {
+      window.clearTimeout(startSessionFocusTimeoutRef.current);
+      startSessionFocusTimeoutRef.current = null;
+    }
     setTokenCopyState("idle");
     setStartSessionError(null);
     setStartSessionLoading(false);
@@ -92,7 +112,7 @@ export function TokenRequestCard() {
   }, [result?.token]);
 
   useEffect(() => {
-    if (!result?.token || typeof window === "undefined" || !generateButtonRef.current) {
+    if (!result?.token || typeof window === "undefined") {
       return;
     }
 
@@ -102,12 +122,39 @@ export function TokenRequestCard() {
     }
 
     const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    generateButtonRef.current.scrollIntoView({
+    const scrollTarget = resultActionsRef.current ?? copyButtonRef.current;
+    scrollTarget?.scrollIntoView({
       block: "start",
       inline: "nearest",
       behavior: prefersReducedMotion ? "auto" : "smooth",
     });
+
+    if (mobileFocusTimeoutRef.current) {
+      window.clearTimeout(mobileFocusTimeoutRef.current);
+    }
+    mobileFocusTimeoutRef.current = window.setTimeout(() => {
+      copyButtonRef.current?.focus({ preventScroll: true });
+    }, prefersReducedMotion ? 0 : 250);
   }, [result?.token]);
+
+  useEffect(() => {
+    if (!startSessionAvailable || typeof window === "undefined") {
+      return;
+    }
+
+    const isMobileViewport = window.matchMedia?.("(max-width: 768px)").matches ?? false;
+    if (!isMobileViewport) {
+      return;
+    }
+
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (startSessionFocusTimeoutRef.current) {
+      window.clearTimeout(startSessionFocusTimeoutRef.current);
+    }
+    startSessionFocusTimeoutRef.current = window.setTimeout(() => {
+      startSessionButtonRef.current?.focus({ preventScroll: true });
+    }, prefersReducedMotion ? 0 : 200);
+  }, [startSessionAvailable]);
 
   const handleCopyToken = useCallback(async () => {
     if (!result?.token) {
@@ -304,10 +351,11 @@ export function TokenRequestCard() {
       {result ? (
         <div className="result-card">
           <div className="result-card__row result-card__row--token">
-            <div className="session-token-header">
+            <div className="session-token-header" ref={resultActionsRef}>
               <p className="session-token">{tokenCard.tokenHeader}</p>
               <button
                 type="button"
+                ref={copyButtonRef}
                 className={`session-token-copy${
                   tokenCopyState === "copied" ? " session-token-copy--success" : ""
                 }${tokenCopyState === "failed" ? " session-token-copy--error" : ""}`}
@@ -320,6 +368,7 @@ export function TokenRequestCard() {
                 <button
                   type="button"
                   className="session-token-copy session-token-start"
+                  ref={startSessionButtonRef}
                   onClick={handleStartSession}
                   disabled={startSessionLoading}
                 >

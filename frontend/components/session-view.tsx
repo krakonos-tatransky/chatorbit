@@ -494,6 +494,32 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       panel.focus();
     }
   }, []);
+  const scrollCallPanelIntoView = useCallback(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const panel = callPanelRef.current;
+    if (!panel) {
+      return;
+    }
+
+    const isMobileViewport = window.matchMedia?.("(max-width: 768px)").matches ?? false;
+    if (!isMobileViewport) {
+      return;
+    }
+
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    try {
+      panel.scrollIntoView({
+        block: "start",
+        inline: "nearest",
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+      });
+    } catch {
+      panel.scrollIntoView({ block: "start", inline: "nearest" });
+    }
+  }, []);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const pendingSignalsRef = useRef<any[]>([]);
   const hasSentOfferRef = useRef<boolean>(false);
@@ -645,16 +671,42 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     if (callState !== "active") {
       return;
     }
-    const panel = callPanelRef.current;
-    if (!panel) {
+    scrollCallPanelIntoView();
+  }, [callState, scrollCallPanelIntoView]);
+
+  useEffect(() => {
+    if (!isCallFullscreen) {
       return;
     }
-    try {
-      panel.scrollIntoView({ block: "start", behavior: "smooth" });
-    } catch {
-      panel.scrollIntoView({ block: "start" });
+
+    scrollCallPanelIntoView();
+
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
     }
-  }, [callState]);
+
+    const landscapeQuery = window.matchMedia("(orientation: landscape)");
+
+    const handleOrientationChange = () => {
+      if (landscapeQuery.matches) {
+        scrollCallPanelIntoView();
+      }
+    };
+
+    handleOrientationChange();
+
+    if (typeof landscapeQuery.addEventListener === "function") {
+      landscapeQuery.addEventListener("change", handleOrientationChange);
+      return () => {
+        landscapeQuery.removeEventListener("change", handleOrientationChange);
+      };
+    }
+
+    landscapeQuery.addListener(handleOrientationChange);
+    return () => {
+      landscapeQuery.removeListener(handleOrientationChange);
+    };
+  }, [isCallFullscreen, scrollCallPanelIntoView]);
 
   useEffect(() => {
     const element = localVideoRef.current;
