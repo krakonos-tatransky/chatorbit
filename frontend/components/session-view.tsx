@@ -13,6 +13,7 @@ import { ReportAbuseModal, type ReportAbuseFormValues } from "@/components/repor
 import { useLanguage } from "@/components/language/language-provider";
 import { apiUrl, wsUrl } from "@/lib/api";
 import { getClientIdentity } from "@/lib/client-identity";
+import { useViewportType } from "@/hooks/use-viewport-type";
 import { getIceServers } from "@/lib/webrtc";
 
 const textEncoder = new TextEncoder();
@@ -199,6 +200,50 @@ const MAX_ICE_FAILURE_RETRIES = 3;
 const MAX_PARTICIPANTS = 2;
 const SECRET_DEBUG_KEYWORD = "orbitdebug";
 const DEBUG_EVENT_HISTORY_LIMIT = 50;
+
+type ViewportOrientation = "portrait" | "landscape" | "square" | "unknown";
+
+function readViewportOrientation(target?: Window): ViewportOrientation {
+  const win = typeof target !== "undefined" ? target : typeof window !== "undefined" ? window : undefined;
+  if (!win) {
+    return "unknown";
+  }
+
+  const screenOrientation = (win.screen as Screen & { orientation?: { type?: string } }).orientation;
+  const screenOrientationType = screenOrientation?.type;
+  if (typeof screenOrientationType === "string") {
+    if (screenOrientationType.startsWith("landscape")) {
+      return "landscape";
+    }
+    if (screenOrientationType.startsWith("portrait")) {
+      return "portrait";
+    }
+  }
+
+  if (typeof win.matchMedia === "function") {
+    try {
+      if (win.matchMedia("(orientation: landscape)").matches) {
+        return "landscape";
+      }
+      if (win.matchMedia("(orientation: portrait)").matches) {
+        return "portrait";
+      }
+    } catch {
+      // Ignore matchMedia errors and fall back to dimension detection below.
+    }
+  }
+
+  const width = typeof win.innerWidth === "number" ? win.innerWidth : null;
+  const height = typeof win.innerHeight === "number" ? win.innerHeight : null;
+  if (typeof width === "number" && typeof height === "number") {
+    if (width === height) {
+      return "square";
+    }
+    return width > height ? "landscape" : "portrait";
+  }
+
+  return "unknown";
+}
 
 function logEvent(message: string, ...details: unknown[]) {
   console.log(`[SessionView] ${message}`, ...details);
@@ -449,6 +494,28 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const [isLocalVideoMuted, setIsLocalVideoMuted] = useState(false);
   const [isLocalAudioMuted, setIsLocalAudioMuted] = useState(false);
   const [pipPosition, setPipPosition] = useState<{ left: number; top: number } | null>(null);
+  const viewportType = useViewportType();
+  const [viewportOrientation, setViewportOrientation] = useState<ViewportOrientation>(() =>
+    readViewportOrientation()
+  );
+  const viewportTypeLabel = useMemo(
+    () => viewportType.slice(0, 1).toUpperCase() + viewportType.slice(1),
+    [viewportType]
+  );
+  const viewportOrientationLabel = useMemo(() => {
+    switch (viewportOrientation) {
+      case "portrait":
+        return "Portrait";
+      case "landscape":
+        return "Landscape";
+      case "square":
+        return "Square";
+      default:
+        return "Unknown";
+    }
+  }, [viewportOrientation]);
+  const isPhoneViewportType = viewportType === "phone";
+  const shouldScrollCallPanel = viewportType !== "desktop";
   const sessionHeaderId = useId();
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -494,6 +561,59 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       panel.focus();
     }
   }, []);
+  const scrollCallPanelIntoView = useCallback(() => {
+    if (!shouldScrollCallPanel) {
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const panel = callPanelRef.current;
+    if (!panel) {
+      return;
+    }
+
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+
+    const scrollTarget = (() => {
+      const remoteVideo = remoteVideoRef.current;
+      if (remoteVideo?.isConnected) {
+        return remoteVideo;
+      }
+      const localVideo = localVideoRef.current;
+      if (localVideo?.isConnected) {
+        return localVideo;
+      }
+      const mediaContainer = panel.querySelector<HTMLElement>(".call-panel__media");
+      return mediaContainer ?? panel;
+    })();
+
+    const performScroll = () => {
+      if (!scrollTarget?.isConnected) {
+        return;
+      }
+      try {
+        scrollTarget.scrollIntoView({
+          block: "start",
+          inline: "nearest",
+          behavior: prefersReducedMotion ? "auto" : "smooth",
+        });
+      } catch {
+        scrollTarget.scrollIntoView({ block: "start", inline: "nearest" });
+      }
+    };
+
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(performScroll);
+      });
+      return;
+    }
+
+    performScroll();
+  }, [shouldScrollCallPanel]);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const pendingSignalsRef = useRef<any[]>([]);
   const hasSentOfferRef = useRef<boolean>(false);
@@ -568,6 +688,84 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [initialReportAbuseOpen, router]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const win = window;
+    let rafId: number | null = null;
+
+    const update = () => {
+      const next = readViewportOrientation(win);
+      setViewportOrientation((current) => (current === next ? current : next));
+    };
+
+    const schedule = () => {
+      if (rafId !== null) {
+        win.cancelAnimationFrame(rafId);
+      }
+      rafId = win.requestAnimationFrame(() => {
+        rafId = null;
+        update();
+      });
+    };
+
+    schedule();
+
+    const bindings: Array<{ target: EventTarget; type: string; listener: () => void }> = [];
+
+    const addBinding = (target: EventTarget | null | undefined, type: string) => {
+      if (!target || typeof (target as any).addEventListener !== "function") {
+        return;
+      }
+      const listener = schedule;
+      (target as any).addEventListener(type, listener);
+      bindings.push({ target, type, listener });
+    };
+
+    addBinding(win, "resize");
+    addBinding(win, "orientationchange");
+
+    const visualViewport = win.visualViewport;
+    if (visualViewport) {
+      addBinding(visualViewport as unknown as EventTarget, "resize");
+      addBinding(visualViewport as unknown as EventTarget, "scroll");
+    }
+
+    const screenOrientation = (win.screen as Screen & {
+      orientation?: EventTarget & {
+        addListener?: (listener: () => void) => void;
+        removeListener?: (listener: () => void) => void;
+      };
+    }).orientation;
+    if (screenOrientation) {
+      const listener = schedule;
+      if (typeof (screenOrientation as any).addEventListener === "function") {
+        (screenOrientation as any).addEventListener("change", listener);
+        bindings.push({ target: screenOrientation, type: "change", listener });
+      } else if (typeof (screenOrientation as any).addListener === "function") {
+        (screenOrientation as any).addListener(listener);
+        bindings.push({ target: screenOrientation, type: "change", listener });
+      }
+    }
+
+    return () => {
+      for (const { target, type, listener } of bindings) {
+        if (typeof (target as any).removeEventListener === "function") {
+          (target as any).removeEventListener(type, listener);
+        } else if (typeof (target as any).removeListener === "function") {
+          (target as any).removeListener(listener);
+        }
+      }
+
+      if (rafId !== null) {
+        win.cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const log = chatLogRef.current;
     if (!log) {
       return;
@@ -589,7 +787,12 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [isCallFullscreen]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !isTouchDevice || callState !== "active") {
+    if (
+      typeof window === "undefined" ||
+      !isTouchDevice ||
+      callState !== "active" ||
+      !isPhoneViewportType
+    ) {
       return;
     }
     if (typeof window.matchMedia !== "function") {
@@ -633,7 +836,14 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     return () => {
       portraitQuery.removeListener(listener);
     };
-  }, [callState, focusCallPanel, isTouchDevice, setIsCallFullscreen, setPipPosition]);
+  }, [
+    callState,
+    focusCallPanel,
+    isPhoneViewportType,
+    isTouchDevice,
+    setIsCallFullscreen,
+    setPipPosition,
+  ]);
 
   useEffect(() => {
     if (callState !== "active") {
@@ -645,16 +855,42 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     if (callState !== "active") {
       return;
     }
-    const panel = callPanelRef.current;
-    if (!panel) {
+    scrollCallPanelIntoView();
+  }, [callState, scrollCallPanelIntoView]);
+
+  useEffect(() => {
+    if (!isCallFullscreen) {
       return;
     }
-    try {
-      panel.scrollIntoView({ block: "start", behavior: "smooth" });
-    } catch {
-      panel.scrollIntoView({ block: "start" });
+
+    scrollCallPanelIntoView();
+
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
     }
-  }, [callState]);
+
+    const landscapeQuery = window.matchMedia("(orientation: landscape)");
+
+    const handleOrientationChange = () => {
+      if (landscapeQuery.matches) {
+        scrollCallPanelIntoView();
+      }
+    };
+
+    handleOrientationChange();
+
+    if (typeof landscapeQuery.addEventListener === "function") {
+      landscapeQuery.addEventListener("change", handleOrientationChange);
+      return () => {
+        landscapeQuery.removeEventListener("change", handleOrientationChange);
+      };
+    }
+
+    landscapeQuery.addListener(handleOrientationChange);
+    return () => {
+      landscapeQuery.removeListener(handleOrientationChange);
+    };
+  }, [isCallFullscreen, scrollCallPanelIntoView]);
 
   useEffect(() => {
     const element = localVideoRef.current;
@@ -3901,86 +4137,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                 <span>{sessionRoleDisplayName}</span>
                 {sessionRoleLabelParts[1]}
               </p>
-              {showDebugPanel ? (
-                <div className="session-debug" data-test="session-debug-panel">
-                  <div className="session-debug__header">
-                    <p className="session-debug__title">Client debug</p>
-                    {isTouchDevice ? (
-                      <button
-                        type="button"
-                        className="session-debug__hide-button"
-                        onClick={() => {
-                          setShowDebugPanel(false);
-                        }}
-                        aria-label="Hide debug panel"
-                      >
-                        Hide
-                      </button>
-                    ) : (
-                      <p className="session-debug__hint">Press Esc to hide</p>
-                    )}
-                  </div>
-                  <dl className="session-debug__list">
-                    <div className="session-debug__item">
-                      <dt>Identity</dt>
-                      <dd>{clientIdentity ?? "Gathering…"}</dd>
-                    </div>
-                    <div className="session-debug__item">
-                      <dt>Peer state</dt>
-                      <dd>{connectionState ?? "—"}</dd>
-                    </div>
-                    <div className="session-debug__item">
-                      <dt>ICE connection</dt>
-                      <dd>{iceConnectionState ?? "—"}</dd>
-                    </div>
-                    <div className="session-debug__item">
-                      <dt>ICE gathering</dt>
-                      <dd>{iceGatheringState ?? "—"}</dd>
-                    </div>
-                    <div className="session-debug__item">
-                      <dt>Data channel</dt>
-                      <dd>{dataChannelState ?? "—"}</dd>
-                    </div>
-                  </dl>
-                  <div className="session-debug__events">
-                    <p className="session-debug__subtitle">Recent events</p>
-                    {recentDebugEvents.length === 0 ? (
-                      <p className="session-debug__empty">Watching for new logs…</p>
-                    ) : (
-                      <ul className="session-debug__event-list">
-                        {recentDebugEvents.map((entry, index) => {
-                          const detail = entry.details[0];
-                          let detailSnippet: string | null = null;
-                          if (detail !== undefined) {
-                            try {
-                              detailSnippet = JSON.stringify(detail);
-                            } catch (error) {
-                              detailSnippet = String(detail);
-                            }
-                            if (detailSnippet && detailSnippet.length > 160) {
-                              detailSnippet = `${detailSnippet.slice(0, 157)}…`;
-                            }
-                          }
-                          const timestamp = new Date(entry.timestamp).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            second: "2-digit",
-                          });
-                          return (
-                            <li key={`${entry.timestamp}-${index}`} className="session-debug__event">
-                              <span className="session-debug__event-time">{timestamp}</span>
-                              <span className="session-debug__event-message">{entry.message}</span>
-                              {detailSnippet ? (
-                                <code className="session-debug__event-detail">{detailSnippet}</code>
-                              ) : null}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                  </div>
-                </div>
-              ) : null}
             </div>
             </div>
           </div>
@@ -4318,94 +4474,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             )}
             {!reverseMessageOrder ? composer : null}
           </div>
-          {showDebugPanel ? (
-            <div className="session-debug-card">
-              <div className="session-debug" data-test="session-debug-panel">
-                <div className="session-debug__header">
-                  <p className="session-debug__title">Client debug</p>
-                  {isTouchDevice ? (
-                    <button
-                      type="button"
-                      className="session-debug__hide-button"
-                      onClick={() => {
-                        setShowDebugPanel(false);
-                      }}
-                      aria-label="Hide debug panel"
-                    >
-                      Hide
-                    </button>
-                  ) : (
-                    <p className="session-debug__hint">Press Esc to hide</p>
-                  )}
-                </div>
-                <dl className="session-debug__list">
-                  <div className="session-debug__item">
-                    <dt>Identity</dt>
-                    <dd>{clientIdentity ?? "Gathering…"}</dd>
-                  </div>
-                  <div className="session-debug__item">
-                    <dt>Peer state</dt>
-                    <dd>{connectionState ?? "—"}</dd>
-                  </div>
-                  <div className="session-debug__item">
-                    <dt>ICE connection</dt>
-                    <dd>{iceConnectionState ?? "—"}</dd>
-                  </div>
-                  <div className="session-debug__item">
-                    <dt>ICE gathering</dt>
-                    <dd>{iceGatheringState ?? "—"}</dd>
-                  </div>
-                  <div className="session-debug__item">
-                    <dt>ICE route</dt>
-                    <dd>{selectedIceRoute ?? "—"}</dd>
-                  </div>
-                  <div className="session-debug__item">
-                    <dt>Data channel</dt>
-                    <dd>{dataChannelState ?? "—"}</dd>
-                  </div>
-                </dl>
-                <div className="session-debug__events">
-                  <p className="session-debug__subtitle">Recent events</p>
-                  {recentDebugEvents.length === 0 ? (
-                    <p className="session-debug__empty">Watching for new logs…</p>
-                  ) : (
-                    <div className="session-debug__event-scroll" ref={debugEventScrollRef}>
-                      <ul className="session-debug__event-list">
-                        {recentDebugEvents.map((entry, index) => {
-                          const detail = entry.details[0];
-                          let detailSnippet: string | null = null;
-                          if (detail !== undefined) {
-                            try {
-                              detailSnippet = JSON.stringify(detail);
-                            } catch (error) {
-                              detailSnippet = String(detail);
-                            }
-                            if (detailSnippet && detailSnippet.length > 160) {
-                              detailSnippet = `${detailSnippet.slice(0, 157)}…`;
-                            }
-                          }
-                          const timestamp = new Date(entry.timestamp).toLocaleTimeString([], {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                            second: "2-digit",
-                          });
-                          return (
-                            <li key={`${entry.timestamp}-${index}`} className="session-debug__event">
-                              <span className="session-debug__event-time">{timestamp}</span>
-                              <span className="session-debug__event-message">{entry.message}</span>
-                              {detailSnippet ? (
-                                <code className="session-debug__event-detail">{detailSnippet}</code>
-                              ) : null}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : null}
         </div>
       ) : null}
 
@@ -4415,6 +4483,99 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             {reportAbuseTranslations.title}
           </button>
           <p className="session-report__helper">{reportAbuseTranslations.helper}</p>
+        </div>
+      ) : null}
+
+      {showDebugPanel ? (
+        <div className="session-debug-card">
+          <div className="session-debug" data-test="session-debug-panel">
+            <div className="session-debug__header">
+              <p className="session-debug__title">Client debug</p>
+              {isTouchDevice ? (
+                <button
+                  type="button"
+                  className="session-debug__hide-button"
+                  onClick={() => {
+                    setShowDebugPanel(false);
+                  }}
+                  aria-label="Hide debug panel"
+                >
+                  Hide
+                </button>
+              ) : (
+                <p className="session-debug__hint">Press Esc to hide</p>
+              )}
+            </div>
+            <dl className="session-debug__list">
+              <div className="session-debug__item">
+                <dt>Viewport</dt>
+                <dd>
+                  {viewportTypeLabel} · {viewportOrientationLabel}
+                </dd>
+              </div>
+              <div className="session-debug__item">
+                <dt>Identity</dt>
+                <dd>{clientIdentity ?? "Gathering…"}</dd>
+              </div>
+              <div className="session-debug__item">
+                <dt>Peer state</dt>
+                <dd>{connectionState ?? "—"}</dd>
+              </div>
+              <div className="session-debug__item">
+                <dt>ICE connection</dt>
+                <dd>{iceConnectionState ?? "—"}</dd>
+              </div>
+              <div className="session-debug__item">
+                <dt>ICE gathering</dt>
+                <dd>{iceGatheringState ?? "—"}</dd>
+              </div>
+              <div className="session-debug__item">
+                <dt>ICE route</dt>
+                <dd>{selectedIceRoute ?? "—"}</dd>
+              </div>
+              <div className="session-debug__item">
+                <dt>Data channel</dt>
+                <dd>{dataChannelState ?? "—"}</dd>
+              </div>
+            </dl>
+            <div className="session-debug__events">
+              <p className="session-debug__subtitle">Recent events</p>
+              {recentDebugEvents.length === 0 ? (
+                <p className="session-debug__empty">Watching for new logs…</p>
+              ) : (
+                <div className="session-debug__event-scroll" ref={debugEventScrollRef}>
+                  <ul className="session-debug__event-list">
+                    {recentDebugEvents.map((entry, index) => {
+                      const detail = entry.details[0];
+                      let detailSnippet: string | null = null;
+                      if (detail !== undefined) {
+                        try {
+                          detailSnippet = JSON.stringify(detail);
+                        } catch (error) {
+                          detailSnippet = String(detail);
+                        }
+                        if (detailSnippet && detailSnippet.length > 160) {
+                          detailSnippet = `${detailSnippet.slice(0, 157)}…`;
+                        }
+                      }
+                      const timestamp = new Date(entry.timestamp).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      });
+                      return (
+                        <li key={`${entry.timestamp}-${index}`} className="session-debug__event">
+                          <span className="session-debug__event-time">{timestamp}</span>
+                          <span className="session-debug__event-message">{entry.message}</span>
+                          {detailSnippet ? <code className="session-debug__event-detail">{detailSnippet}</code> : null}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       ) : null}
 

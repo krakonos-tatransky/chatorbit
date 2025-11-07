@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { useLanguage } from "@/components/language/language-provider";
 import { apiUrl } from "@/lib/api";
 import { getClientIdentity } from "@/lib/client-identity";
+import { useViewportType } from "@/hooks/use-viewport-type";
 
 type TokenResult = {
   token: string;
@@ -38,12 +39,18 @@ export function TokenRequestCard() {
   const [result, setResult] = useState<TokenResult | null>(null);
   const [tokenCopyState, setTokenCopyState] = useState<"idle" | "copied" | "failed">("idle");
   const tokenCopyTimeoutRef = useRef<number | null>(null);
-  const generateButtonRef = useRef<HTMLButtonElement | null>(null);
+  const resultActionsRef = useRef<HTMLDivElement | null>(null);
+  const copyButtonRef = useRef<HTMLButtonElement | null>(null);
+  const startSessionButtonRef = useRef<HTMLButtonElement | null>(null);
+  const mobileFocusTimeoutRef = useRef<number | null>(null);
+  const startSessionFocusTimeoutRef = useRef<number | null>(null);
   const [clientIdentity, setClientIdentity] = useState<string | null>(null);
   const [startSessionLoading, setStartSessionLoading] = useState<boolean>(false);
   const [startSessionError, setStartSessionError] = useState<string | null>(null);
   const [startSessionAvailable, setStartSessionAvailable] = useState<boolean>(false);
   const router = useRouter();
+  const viewportType = useViewportType();
+  const isPhoneViewportType = viewportType === "phone";
   const {
     translations: { tokenCard },
   } = useLanguage();
@@ -76,6 +83,14 @@ export function TokenRequestCard() {
         window.clearTimeout(tokenCopyTimeoutRef.current);
         tokenCopyTimeoutRef.current = null;
       }
+      if (mobileFocusTimeoutRef.current) {
+        window.clearTimeout(mobileFocusTimeoutRef.current);
+        mobileFocusTimeoutRef.current = null;
+      }
+      if (startSessionFocusTimeoutRef.current) {
+        window.clearTimeout(startSessionFocusTimeoutRef.current);
+        startSessionFocusTimeoutRef.current = null;
+      }
       cancelled = true;
     };
   }, []);
@@ -85,6 +100,14 @@ export function TokenRequestCard() {
       window.clearTimeout(tokenCopyTimeoutRef.current);
       tokenCopyTimeoutRef.current = null;
     }
+    if (mobileFocusTimeoutRef.current) {
+      window.clearTimeout(mobileFocusTimeoutRef.current);
+      mobileFocusTimeoutRef.current = null;
+    }
+    if (startSessionFocusTimeoutRef.current) {
+      window.clearTimeout(startSessionFocusTimeoutRef.current);
+      startSessionFocusTimeoutRef.current = null;
+    }
     setTokenCopyState("idle");
     setStartSessionError(null);
     setStartSessionLoading(false);
@@ -92,22 +115,39 @@ export function TokenRequestCard() {
   }, [result?.token]);
 
   useEffect(() => {
-    if (!result?.token || typeof window === "undefined" || !generateButtonRef.current) {
-      return;
-    }
-
-    const isMobileViewport = window.matchMedia?.("(max-width: 768px)").matches ?? false;
-    if (!isMobileViewport) {
+    if (!result?.token || typeof window === "undefined" || !isPhoneViewportType) {
       return;
     }
 
     const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    generateButtonRef.current.scrollIntoView({
+    const scrollTarget = resultActionsRef.current ?? copyButtonRef.current;
+    scrollTarget?.scrollIntoView({
       block: "start",
       inline: "nearest",
       behavior: prefersReducedMotion ? "auto" : "smooth",
     });
-  }, [result?.token]);
+
+    if (mobileFocusTimeoutRef.current) {
+      window.clearTimeout(mobileFocusTimeoutRef.current);
+    }
+    mobileFocusTimeoutRef.current = window.setTimeout(() => {
+      copyButtonRef.current?.focus({ preventScroll: true });
+    }, prefersReducedMotion ? 0 : 250);
+  }, [isPhoneViewportType, result?.token]);
+
+  useEffect(() => {
+    if (!startSessionAvailable || typeof window === "undefined" || !isPhoneViewportType) {
+      return;
+    }
+
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (startSessionFocusTimeoutRef.current) {
+      window.clearTimeout(startSessionFocusTimeoutRef.current);
+    }
+    startSessionFocusTimeoutRef.current = window.setTimeout(() => {
+      startSessionButtonRef.current?.focus({ preventScroll: true });
+    }, prefersReducedMotion ? 0 : 200);
+  }, [isPhoneViewportType, startSessionAvailable]);
 
   const handleCopyToken = useCallback(async () => {
     if (!result?.token) {
@@ -304,10 +344,11 @@ export function TokenRequestCard() {
       {result ? (
         <div className="result-card">
           <div className="result-card__row result-card__row--token">
-            <div className="session-token-header">
+            <div className="session-token-header" ref={resultActionsRef}>
               <p className="session-token">{tokenCard.tokenHeader}</p>
               <button
                 type="button"
+                ref={copyButtonRef}
                 className={`session-token-copy${
                   tokenCopyState === "copied" ? " session-token-copy--success" : ""
                 }${tokenCopyState === "failed" ? " session-token-copy--error" : ""}`}
@@ -320,6 +361,7 @@ export function TokenRequestCard() {
                 <button
                   type="button"
                   className="session-token-copy session-token-start"
+                  ref={startSessionButtonRef}
                   onClick={handleStartSession}
                   disabled={startSessionLoading}
                 >
