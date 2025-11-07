@@ -335,7 +335,7 @@ body {
   outline: none;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 900px), (pointer: coarse) and (max-height: 600px) {
   .site-nav__toggle {
     display: inline-flex;
   }
