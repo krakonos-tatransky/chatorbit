@@ -1,9 +1,12 @@
-const PHONE_MAX_SHORT_DIMENSION = 480;
+const PHONE_MAX_SHORT_DIMENSION = 440;
+const PHONE_MAX_LONG_DIMENSION = 960;
 const TABLET_MAX_SHORT_DIMENSION = 900;
-const MOBILE_TABLET_MAX_SHORT_DIMENSION = 1080;
 const TABLET_MAX_LONG_DIMENSION = 1440;
-const DESKTOP_MIN_WIDTH = 1025;
-const DESKTOP_MIN_HEIGHT = 700;
+const DESKTOP_MIN_WIDTH = 1024;
+const DESKTOP_MIN_HEIGHT = 720;
+
+const PHONE_USER_AGENT = /\b(iPhone|iPod|Windows Phone|webOS|BlackBerry|Opera Mini)\b|Android.+Mobile/i;
+const TABLET_USER_AGENT = /\b(iPad|Tablet)\b|Android(?!.*Mobile)/i;
 
 export type ViewportType = "phone" | "tablet" | "desktop";
 
@@ -59,6 +62,26 @@ function resolveDimension(win: Window, dimension: "width" | "height"): number {
   return Number.POSITIVE_INFINITY;
 }
 
+type ExtendedNavigator = Navigator & {
+  userAgentData?: { mobile?: boolean } | undefined;
+  maxTouchPoints?: number | undefined;
+};
+
+function hasCoarsePointer(win: Window): boolean {
+  if (typeof win.matchMedia !== "function") {
+    return false;
+  }
+  try {
+    return win.matchMedia("(pointer: coarse)").matches;
+  } catch {
+    return false;
+  }
+}
+
+function getNavigator(win: Window): ExtendedNavigator | null {
+  return (win.navigator as ExtendedNavigator | undefined) ?? null;
+}
+
 export function getViewportType(target?: Window): ViewportType {
   const win = resolveWindow(target);
   if (!win) {
@@ -70,26 +93,30 @@ export function getViewportType(target?: Window): ViewportType {
   const shortestSide = Math.min(viewportWidth, viewportHeight);
   const longestSide = Math.max(viewportWidth, viewportHeight);
 
-  const navigator = win.navigator as (Navigator & {
-    userAgentData?: { mobile?: boolean };
-  }) | null;
+  const navigator = getNavigator(win);
   const userAgent = navigator?.userAgent ?? "";
-  const hasMobileHint = Boolean(navigator?.userAgentData?.mobile) || /Mobi|Android/i.test(userAgent);
+  const isPhoneUserAgent = PHONE_USER_AGENT.test(userAgent);
+  const isTabletUserAgent = !isPhoneUserAgent && TABLET_USER_AGENT.test(userAgent);
+  const hasTouchPoints = typeof navigator?.maxTouchPoints === "number" && navigator.maxTouchPoints > 0;
+  const hasMobileUserAgentHint = Boolean(navigator?.userAgentData?.mobile) || isPhoneUserAgent || isTabletUserAgent;
+  const coarsePointer = hasCoarsePointer(win);
 
-  if (hasMobileHint) {
+  if (isPhoneUserAgent) {
+    if (shortestSide <= PHONE_MAX_SHORT_DIMENSION || longestSide <= PHONE_MAX_LONG_DIMENSION) {
+      return "phone";
+    }
+  }
+
+  if (isTabletUserAgent) {
     if (shortestSide <= PHONE_MAX_SHORT_DIMENSION) {
       return "phone";
     }
-
-    if (
-      shortestSide <= MOBILE_TABLET_MAX_SHORT_DIMENSION ||
-      longestSide <= TABLET_MAX_LONG_DIMENSION
-    ) {
+    if (shortestSide <= TABLET_MAX_SHORT_DIMENSION || longestSide <= TABLET_MAX_LONG_DIMENSION) {
       return "tablet";
     }
   }
 
-  if (viewportWidth >= DESKTOP_MIN_WIDTH && viewportHeight >= DESKTOP_MIN_HEIGHT) {
+  if (viewportWidth >= DESKTOP_MIN_WIDTH && viewportHeight >= DESKTOP_MIN_HEIGHT && !coarsePointer) {
     return "desktop";
   }
 
@@ -97,10 +124,11 @@ export function getViewportType(target?: Window): ViewportType {
     return "phone";
   }
 
-  if (
-    shortestSide <= TABLET_MAX_SHORT_DIMENSION ||
-    longestSide <= TABLET_MAX_LONG_DIMENSION
-  ) {
+  if (shortestSide <= TABLET_MAX_SHORT_DIMENSION || longestSide <= TABLET_MAX_LONG_DIMENSION) {
+    return "tablet";
+  }
+
+  if (coarsePointer || hasMobileUserAgentHint || hasTouchPoints) {
     return "tablet";
   }
 
@@ -121,8 +149,8 @@ export function isDesktopViewport(target?: Window): boolean {
 
 export const viewportBreakpoints = {
   phoneMaxShortDimension: PHONE_MAX_SHORT_DIMENSION,
+  phoneMaxLongDimension: PHONE_MAX_LONG_DIMENSION,
   tabletMaxShortDimension: TABLET_MAX_SHORT_DIMENSION,
-  mobileTabletMaxShortDimension: MOBILE_TABLET_MAX_SHORT_DIMENSION,
   tabletMaxLongDimension: TABLET_MAX_LONG_DIMENSION,
   desktopMinWidth: DESKTOP_MIN_WIDTH,
   desktopMinHeight: DESKTOP_MIN_HEIGHT,

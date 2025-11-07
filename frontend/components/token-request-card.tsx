@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { useLanguage } from "@/components/language/language-provider";
 import { apiUrl } from "@/lib/api";
 import { getClientIdentity } from "@/lib/client-identity";
-import { isPhoneViewport } from "@/lib/viewport";
+import { useViewportType } from "@/hooks/use-viewport-type";
 
 type TokenResult = {
   token: string;
@@ -49,6 +49,8 @@ export function TokenRequestCard() {
   const [startSessionError, setStartSessionError] = useState<string | null>(null);
   const [startSessionAvailable, setStartSessionAvailable] = useState<boolean>(false);
   const router = useRouter();
+  const viewportType = useViewportType();
+  const isPhoneViewportType = viewportType === "phone";
   const {
     translations: { tokenCard },
   } = useLanguage();
@@ -113,12 +115,7 @@ export function TokenRequestCard() {
   }, [result?.token]);
 
   useEffect(() => {
-    if (!result?.token || typeof window === "undefined") {
-      return;
-    }
-
-    const isPhone = isPhoneViewport(window);
-    if (!isPhone) {
+    if (!result?.token || typeof window === "undefined" || !isPhoneViewportType) {
       return;
     }
 
@@ -136,15 +133,10 @@ export function TokenRequestCard() {
     mobileFocusTimeoutRef.current = window.setTimeout(() => {
       copyButtonRef.current?.focus({ preventScroll: true });
     }, prefersReducedMotion ? 0 : 250);
-  }, [result?.token]);
+  }, [isPhoneViewportType, result?.token]);
 
   useEffect(() => {
-    if (!startSessionAvailable || typeof window === "undefined") {
-      return;
-    }
-
-    const isPhone = isPhoneViewport(window);
-    if (!isPhone) {
+    if (!startSessionAvailable || typeof window === "undefined" || !isPhoneViewportType) {
       return;
     }
 
@@ -155,7 +147,7 @@ export function TokenRequestCard() {
     startSessionFocusTimeoutRef.current = window.setTimeout(() => {
       startSessionButtonRef.current?.focus({ preventScroll: true });
     }, prefersReducedMotion ? 0 : 200);
-  }, [startSessionAvailable]);
+  }, [isPhoneViewportType, startSessionAvailable]);
 
   const handleCopyToken = useCallback(async () => {
     if (!result?.token) {

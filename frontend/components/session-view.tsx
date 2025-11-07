@@ -13,7 +13,7 @@ import { ReportAbuseModal, type ReportAbuseFormValues } from "@/components/repor
 import { useLanguage } from "@/components/language/language-provider";
 import { apiUrl, wsUrl } from "@/lib/api";
 import { getClientIdentity } from "@/lib/client-identity";
-import { isPhoneViewport } from "@/lib/viewport";
+import { useViewportType } from "@/hooks/use-viewport-type";
 import { getIceServers } from "@/lib/webrtc";
 
 const textEncoder = new TextEncoder();
@@ -450,6 +450,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const [isLocalVideoMuted, setIsLocalVideoMuted] = useState(false);
   const [isLocalAudioMuted, setIsLocalAudioMuted] = useState(false);
   const [pipPosition, setPipPosition] = useState<{ left: number; top: number } | null>(null);
+  const viewportType = useViewportType();
+  const isPhoneViewportType = viewportType === "phone";
   const sessionHeaderId = useId();
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -496,17 +498,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     }
   }, []);
   const scrollCallPanelIntoView = useCallback(() => {
+    if (!isPhoneViewportType) {
+      return;
+    }
+
     if (typeof window === "undefined") {
       return;
     }
 
     const panel = callPanelRef.current;
     if (!panel) {
-      return;
-    }
-
-    const isPhone = isPhoneViewport(window);
-    if (!isPhone) {
       return;
     }
 
@@ -520,7 +521,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     } catch {
       panel.scrollIntoView({ block: "start", inline: "nearest" });
     }
-  }, []);
+  }, [isPhoneViewportType]);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const pendingSignalsRef = useRef<any[]>([]);
   const hasSentOfferRef = useRef<boolean>(false);
@@ -616,7 +617,12 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [isCallFullscreen]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !isTouchDevice || callState !== "active") {
+    if (
+      typeof window === "undefined" ||
+      !isTouchDevice ||
+      callState !== "active" ||
+      !isPhoneViewportType
+    ) {
       return;
     }
     if (typeof window.matchMedia !== "function") {
@@ -660,7 +666,14 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     return () => {
       portraitQuery.removeListener(listener);
     };
-  }, [callState, focusCallPanel, isTouchDevice, setIsCallFullscreen, setPipPosition]);
+  }, [
+    callState,
+    focusCallPanel,
+    isPhoneViewportType,
+    isTouchDevice,
+    setIsCallFullscreen,
+    setPipPosition,
+  ]);
 
   useEffect(() => {
     if (callState !== "active") {
