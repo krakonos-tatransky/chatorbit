@@ -132,6 +132,21 @@ const baseTranslation = {
       connectedParticipants: "Connected participants: {current}/{max}",
       messageLimit: "Limit: {limit} chars/message",
       messageLimitUnknown: "Limit: — chars/message",
+      tokenLabel: "Token",
+      copyButton: {
+        idle: "Copy",
+        success: "Copied",
+        ariaLabel: "Copy session token",
+      },
+      copyStatus: {
+        copied: "Token copied to clipboard",
+        failed: "Unable to copy token",
+      },
+      roleLabel: "You are signed in as {role}.",
+      roleNames: {
+        host: "host",
+        guest: "guest",
+      },
       statusLabel: {
         waiting: "Waiting",
         connected: "Connected",
@@ -298,9 +313,28 @@ export const TRANSLATIONS: Record<LanguageCode, AppTranslation> = {
     session: {
       ...baseTranslation.session,
       statusCard: {
+        ...baseTranslation.session.statusCard,
         connectedParticipants: "Pripojení účastníci: {current}/{max}",
         messageLimit: "Limit: {limit} znakov/správa",
         messageLimitUnknown: "Limit: — znakov/správa",
+        tokenLabel: "Token",
+        copyButton: {
+          ...baseTranslation.session.statusCard.copyButton,
+          idle: "Kopírovať",
+          success: "Skopírované",
+          ariaLabel: "Skopírovať token relácie",
+        },
+        copyStatus: {
+          ...baseTranslation.session.statusCard.copyStatus,
+          copied: "Token skopírovaný do schránky",
+          failed: "Token sa nepodarilo skopírovať",
+        },
+        roleLabel: "Ste prihlásený ako {role}.",
+        roleNames: {
+          ...baseTranslation.session.statusCard.roleNames,
+          host: "hostiteľ",
+          guest: "hosť",
+        },
         statusLabel: {
           waiting: "Čaká sa",
           connected: "Pripojené",

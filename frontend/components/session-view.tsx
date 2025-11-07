@@ -2805,6 +2805,30 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const messageLimitText = formattedMessageLimit
     ? sessionTranslations.statusCard.messageLimit.replace("{limit}", formattedMessageLimit)
     : sessionTranslations.statusCard.messageLimitUnknown;
+  const sessionRoleDisplayName = useMemo(() => {
+    const rawRole =
+      sessionStatus?.participants.find((p) => p.participantId === participantId)?.role ?? "guest";
+    const roleNames = sessionTranslations.statusCard.roleNames ?? {};
+    return (roleNames as Record<string, string>)[rawRole] ?? rawRole;
+  }, [participantId, sessionStatus, sessionTranslations.statusCard.roleNames]);
+  const sessionRoleLabelParts = useMemo((): [string, string] => {
+    const template = sessionTranslations.statusCard.roleLabel;
+    if (!template.includes("{role}")) {
+      return [template, ""];
+    }
+    const parts = template.split("{role}");
+    return [parts[0] ?? "", parts[1] ?? ""];
+  }, [sessionTranslations.statusCard.roleLabel]);
+  const tokenCopyButtonLabel =
+    tokenCopyState === "copied"
+      ? sessionTranslations.statusCard.copyButton.success
+      : sessionTranslations.statusCard.copyButton.idle;
+  const tokenCopyStatusMessage =
+    tokenCopyState === "copied"
+      ? sessionTranslations.statusCard.copyStatus.copied
+      : tokenCopyState === "failed"
+        ? sessionTranslations.statusCard.copyStatus.failed
+        : "";
 
   const endSessionTranslations = sessionTranslations.controls.endSession;
 
@@ -3276,23 +3300,19 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             <div className="session-header__content">
               <div className="session-header__top">
                 <div className="session-token-header">
-                  <p className="session-token">Token</p>
+                  <p className="session-token">{sessionTranslations.statusCard.tokenLabel}</p>
                   <button
                     type="button"
                     className={`session-token-copy${
                       tokenCopyState === "copied" ? " session-token-copy--success" : ""
                     }${tokenCopyState === "failed" ? " session-token-copy--error" : ""}`}
                     onClick={handleCopyToken}
-                    aria-label="Copy session token"
+                    aria-label={sessionTranslations.statusCard.copyButton.ariaLabel}
                   >
-                    {tokenCopyState === "copied" ? "Copied" : "Copy"}
+                    {tokenCopyButtonLabel}
                   </button>
                   <span className="session-token-copy-status" role="status" aria-live="polite">
-                    {tokenCopyState === "copied"
-                      ? "Token copied to clipboard"
-                      : tokenCopyState === "failed"
-                        ? "Unable to copy token"
-                        : ""}
+                    {tokenCopyStatusMessage}
                   </span>
                 </div>
                 <button
@@ -3308,12 +3328,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
               </div>
               <p className="session-token-value">{token}</p>
               <p className="session-role">
-                You are signed in as
-                <span>
-                  {" "}
-                  {sessionStatus?.participants.find((p) => p.participantId === participantId)?.role ?? "guest"}
-                </span>
-                .
+                {sessionRoleLabelParts[0]}
+                <span>{sessionRoleDisplayName}</span>
+                {sessionRoleLabelParts[1]}
               </p>
               {showDebugPanel ? (
                 <div className="session-debug" data-test="session-debug-panel">
