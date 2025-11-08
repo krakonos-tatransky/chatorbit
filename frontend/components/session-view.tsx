@@ -530,6 +530,11 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
+  const remoteTrackStreamsRef = useRef(new Map<string, MediaStream>());
+  const remoteStreamHandlersRef = useRef(
+    new WeakMap<MediaStream, (event: MediaStreamTrackEvent) => void>(),
+  );
+  const remoteTrackHandlersRef = useRef(new WeakMap<MediaStreamTrack, () => void>());
   const chatLogRef = useRef<HTMLDivElement | null>(null);
   const debugEventScrollRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -2079,13 +2084,40 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       throw new Error("Peer connection is not ready.");
     }
     const senders = pc.getSenders();
+    const userAgent = typeof navigator !== "undefined" ? navigator.userAgent : "unknown";
     for (const track of stream.getTracks()) {
       const sender = senders.find((candidate) => candidate.track?.kind === track.kind);
       if (sender) {
         try {
           await sender.replaceTrack(track);
         } catch (cause) {
-          console.warn("Failed to replace track on sender", cause);
+          console.warn("Failed to replace track on sender", {
+            cause,
+            kind: track.kind,
+            readyState: track.readyState,
+            senderHasTrack: Boolean(sender.track),
+            userAgent,
+          });
+          try {
+            pc.removeTrack(sender);
+          } catch (removeError) {
+            console.warn("Failed to remove track sender after replaceTrack error", {
+              kind: track.kind,
+              removeError,
+              userAgent,
+            });
+          }
+          try {
+            pc.addTrack(track, stream);
+          } catch (addError) {
+            console.error("Failed to add track after replaceTrack error", {
+              addError,
+              kind: track.kind,
+              readyState: track.readyState,
+              userAgent,
+            });
+            throw addError;
+          }
         }
       } else {
         pc.addTrack(track, stream);
@@ -2512,6 +2544,12 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setConnectionState(state);
 
       if (state === "connected") {
+        setCallState((current) => {
+          if (current === "connecting" || current === "incoming" || current === "requesting") {
+            return "active";
+          }
+          return current;
+        });
         void updateLastIceRouteTypes(peerConnection);
         iceFailureRetriesRef.current = 0;
         reconnectAttemptsRef.current = 0;
@@ -2643,38 +2681,105 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     };
 
     peerConnection.ontrack = (event) => {
-      const [stream] = event.streams;
+      const { track } = event;
+      let [stream] = event.streams;
+
       if (!stream) {
-        return;
+        const cachedStream = remoteTrackStreamsRef.current.get(track.id);
+        if (cachedStream) {
+          stream = cachedStream;
+        } else {
+          stream = remoteStreamRef.current ?? new MediaStream();
+        }
+        if (!stream.getTrackById(track.id)) {
+          stream.addTrack(track);
+        }
       }
-      remoteStreamRef.current = stream;
-      setRemoteStream(stream);
+
+      if (remoteStreamRef.current && remoteStreamRef.current !== stream) {
+        const previousStream = remoteStreamRef.current;
+        const previousHandler = remoteStreamHandlersRef.current.get(previousStream);
+        if (previousHandler) {
+          previousStream.removeEventListener("removetrack", previousHandler);
+          remoteStreamHandlersRef.current.delete(previousStream);
+        }
+      }
+
+      if (!remoteStreamRef.current || remoteStreamRef.current !== stream) {
+        if (remoteStreamRef.current && remoteStreamRef.current !== stream) {
+          remoteTrackStreamsRef.current.clear();
+        }
+        remoteStreamRef.current = stream;
+        setRemoteStream(stream);
+      }
+
+      remoteTrackStreamsRef.current.set(track.id, stream);
+
       setCallState((current) => {
         if (current === "connecting" || current === "incoming" || current === "requesting") {
           return "active";
         }
         return current;
       });
+
       const handleTrackUpdate = () => {
         const currentStream = remoteStreamRef.current;
         if (!currentStream) {
           return;
         }
-        const hasLiveTrack = currentStream.getTracks().some((track) => track.readyState !== "ended");
+        const hasLiveTrack = currentStream
+          .getTracks()
+          .some((currentTrack) => currentTrack.readyState !== "ended");
         if (!hasLiveTrack) {
           const hadStream = remoteStreamRef.current !== null;
+          const endedStream = remoteStreamRef.current;
+          if (endedStream) {
+            const handler = remoteStreamHandlersRef.current.get(endedStream);
+            if (handler) {
+              endedStream.removeEventListener("removetrack", handler);
+              remoteStreamHandlersRef.current.delete(endedStream);
+            }
+          }
           remoteStreamRef.current = null;
           setRemoteStream(null);
+          remoteTrackStreamsRef.current.clear();
+          remoteStreamHandlersRef.current = new WeakMap<
+            MediaStream,
+            (event: MediaStreamTrackEvent) => void
+          >();
+          remoteTrackHandlersRef.current = new WeakMap<MediaStreamTrack, () => void>();
           if (hadStream) {
             teardownCall({ notifyPeer: false });
             showCallNotice("Video chat ended.");
           }
         }
       };
-      stream.addEventListener("removetrack", handleTrackUpdate);
-      for (const track of stream.getTracks()) {
-        track.addEventListener("ended", handleTrackUpdate);
+
+      const targetStream = remoteStreamRef.current;
+      if (targetStream) {
+        const existingHandler = remoteStreamHandlersRef.current.get(targetStream);
+        if (existingHandler) {
+          targetStream.removeEventListener("removetrack", existingHandler);
+        }
+        const onRemoveTrack = (removeEvent: MediaStreamTrackEvent) => {
+          remoteTrackStreamsRef.current.delete(removeEvent.track.id);
+          handleTrackUpdate();
+        };
+        targetStream.addEventListener("removetrack", onRemoveTrack);
+        remoteStreamHandlersRef.current.set(targetStream, onRemoveTrack);
       }
+
+      const existingTrackHandler = remoteTrackHandlersRef.current.get(track);
+      if (existingTrackHandler) {
+        track.removeEventListener("ended", existingTrackHandler);
+      }
+      const onTrackEnded = () => {
+        remoteTrackStreamsRef.current.delete(track.id);
+        remoteTrackHandlersRef.current.delete(track);
+        handleTrackUpdate();
+      };
+      track.addEventListener("ended", onTrackEnded, { once: true });
+      remoteTrackHandlersRef.current.set(track, onTrackEnded);
     };
 
     peerConnection.onsignalingstatechange = () => {
