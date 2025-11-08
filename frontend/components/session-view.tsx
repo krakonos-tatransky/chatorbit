@@ -602,6 +602,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       }
 
       const behavior = prefersReducedMotion ? "auto" : "smooth";
+      const allowViewportScroll = !isFullscreenLayout;
 
       const attemptWindowScroll = (top: number) => {
         try {
@@ -652,8 +653,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           : null;
       const absoluteTop = rect ? window.scrollY + rect.top : 0;
 
-      const scrolledWindow = attemptWindowScroll(absoluteTop);
-      const scrolledDocument = scrolledWindow ? false : attemptDocumentScroll(absoluteTop);
+      const scrolledWindow = allowViewportScroll ? attemptWindowScroll(absoluteTop) : false;
+      const scrolledDocument =
+        allowViewportScroll && !scrolledWindow ? attemptDocumentScroll(absoluteTop) : false;
 
       if (isFullscreenLayout) {
         const panelRect =
@@ -980,6 +982,60 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       landscapeQuery.removeListener(handleOrientationChange);
     };
   }, [isCallFullscreenLayout, scrollCallPanelIntoView]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const handleFullscreenChange = () => {
+      const hasFullscreenElement = Boolean(
+        document.fullscreenElement ??
+          (document as Document & { webkitFullscreenElement?: Element | null }).webkitFullscreenElement ??
+          (document as Document & { mozFullScreenElement?: Element | null }).mozFullScreenElement ??
+          (document as Document & { msFullscreenElement?: Element | null }).msFullscreenElement,
+      );
+
+      if (hasFullscreenElement) {
+        return;
+      }
+
+      const scheduleScroll = () => {
+        if (typeof window === "undefined") {
+          scrollCallPanelIntoView();
+          return;
+        }
+
+        if (typeof window.requestAnimationFrame === "function") {
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(scrollCallPanelIntoView);
+          });
+          return;
+        }
+
+        scrollCallPanelIntoView();
+      };
+
+      scheduleScroll();
+    };
+
+    const eventNames: Array<keyof DocumentEventMap | string> = [
+      "fullscreenchange",
+      "webkitfullscreenchange",
+      "mozfullscreenchange",
+      "MSFullscreenChange",
+    ];
+
+    for (const eventName of eventNames) {
+      document.addEventListener(eventName, handleFullscreenChange as EventListener);
+    }
+
+    return () => {
+      for (const eventName of eventNames) {
+        document.removeEventListener(eventName, handleFullscreenChange as EventListener);
+      }
+    };
+  }, [scrollCallPanelIntoView]);
 
   useEffect(() => {
     const element = localVideoRef.current;
