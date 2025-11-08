@@ -147,6 +147,15 @@ function setDebugObserver(observer: DebugObserver | null) {
   debugObserver = observer;
 }
 
+type DocumentWithFullscreen = Document & {
+  webkitFullscreenElement?: Element | null;
+  mozFullScreenElement?: Element | null;
+  msFullscreenElement?: Element | null;
+  webkitExitFullscreen?: () => Promise<void> | void;
+  mozCancelFullScreen?: () => Promise<void> | void;
+  msExitFullscreen?: () => Promise<void> | void;
+};
+
 function resolveCrypto(): CryptoLike | null {
   const globalScope: any =
     typeof globalThis !== "undefined"
@@ -890,6 +899,99 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setIsPortraitOrientation(isPortrait);
       isPortraitOrientationRef.current = isPortrait;
 
+      const finalizeOrientationChange = async (
+        options: { exitFullscreen: boolean; focusPanel: boolean; scrollPanel: boolean },
+      ) => {
+        const { exitFullscreen, focusPanel, scrollPanel } = options;
+
+        if (exitFullscreen && typeof document !== "undefined") {
+          const doc = document as DocumentWithFullscreen;
+
+          const getFullscreenElement = () =>
+            doc.fullscreenElement ??
+            doc.webkitFullscreenElement ??
+            doc.mozFullScreenElement ??
+            doc.msFullscreenElement ??
+            null;
+
+          const waitForFullscreenExit = () => {
+            const currentElement = getFullscreenElement();
+            if (!currentElement) {
+              return Promise.resolve();
+            }
+
+            return new Promise<void>((resolve) => {
+              const eventNames: Array<keyof DocumentEventMap | string> = [
+                "fullscreenchange",
+                "webkitfullscreenchange",
+                "mozfullscreenchange",
+                "MSFullscreenChange",
+              ];
+
+              let timeoutId: number | null = null;
+
+              function cleanup() {
+                for (const eventName of eventNames) {
+                  doc.removeEventListener(eventName, handleEvent as EventListener);
+                }
+                if (timeoutId !== null && typeof window !== "undefined") {
+                  window.clearTimeout(timeoutId);
+                }
+              }
+
+              function handleEvent() {
+                if (getFullscreenElement()) {
+                  return;
+                }
+                cleanup();
+                resolve();
+              }
+
+              for (const eventName of eventNames) {
+                doc.addEventListener(eventName, handleEvent as EventListener);
+              }
+
+              if (typeof window !== "undefined") {
+                timeoutId = window.setTimeout(() => {
+                  cleanup();
+                  resolve();
+                }, 500);
+              }
+            });
+          };
+
+          const waitForExitPromise = waitForFullscreenExit();
+
+          const exitFullscreenMethod =
+            doc.exitFullscreen ??
+            doc.webkitExitFullscreen ??
+            doc.mozCancelFullScreen ??
+            doc.msExitFullscreen ??
+            null;
+
+          if (typeof exitFullscreenMethod === "function" && getFullscreenElement()) {
+            try {
+              const result = exitFullscreenMethod.call(doc);
+              if (result && typeof (result as PromiseLike<void>).then === "function") {
+                await (result as PromiseLike<void>).catch(() => {});
+              }
+            } catch {
+              // ignore errors when exiting fullscreen
+            }
+          }
+
+          await waitForExitPromise;
+        }
+
+        if (focusPanel) {
+          focusCallPanel();
+        }
+
+        if (scrollPanel) {
+          scrollCallPanelIntoView();
+        }
+      };
+
       if (!isPortrait) {
         if (isCallFullscreenRef.current) {
           shouldRestoreFullscreenOnPortraitRef.current = true;
@@ -898,14 +1000,21 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         } else {
           shouldRestoreFullscreenOnPortraitRef.current = false;
         }
-        focusCallPanel();
-        scrollCallPanelIntoView();
+        void finalizeOrientationChange({
+          exitFullscreen: isCallFullscreenRef.current,
+          focusPanel: true,
+          scrollPanel: true,
+        });
       } else {
         if (shouldRestoreFullscreenOnPortraitRef.current) {
           shouldRestoreFullscreenOnPortraitRef.current = false;
         }
         if (isCallFullscreenRef.current) {
-          scrollCallPanelIntoView();
+          void finalizeOrientationChange({
+            exitFullscreen: false,
+            focusPanel: false,
+            scrollPanel: true,
+          });
         }
       }
     };
