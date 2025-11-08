@@ -147,6 +147,15 @@ function setDebugObserver(observer: DebugObserver | null) {
   debugObserver = observer;
 }
 
+type DocumentWithFullscreen = Document & {
+  webkitFullscreenElement?: Element | null;
+  mozFullScreenElement?: Element | null;
+  msFullscreenElement?: Element | null;
+  webkitExitFullscreen?: () => Promise<void> | void;
+  mozCancelFullScreen?: () => Promise<void> | void;
+  msExitFullscreen?: () => Promise<void> | void;
+};
+
 function resolveCrypto(): CryptoLike | null {
   const globalScope: any =
     typeof globalThis !== "undefined"
@@ -491,6 +500,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const [headerTimerContainer, setHeaderTimerContainer] = useState<Element | null>(null);
   const [isCallFullscreen, setIsCallFullscreen] = useState(false);
+  const [isPortraitOrientation, setIsPortraitOrientation] = useState(true);
   const [isLocalVideoMuted, setIsLocalVideoMuted] = useState(false);
   const [isLocalAudioMuted, setIsLocalAudioMuted] = useState(false);
   const [pipPosition, setPipPosition] = useState<{ left: number; top: number } | null>(null);
@@ -516,6 +526,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [viewportOrientation]);
   const isPhoneViewportType = viewportType === "phone";
   const shouldScrollCallPanel = viewportType !== "desktop";
+  const isCallFullscreenLayout =
+    isCallFullscreen && (!isPhoneViewportType || isPortraitOrientation);
   const sessionHeaderId = useId();
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
@@ -544,6 +556,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const pipContainerRef = useRef<HTMLDivElement | null>(null);
   const shouldRestoreFullscreenOnPortraitRef = useRef(false);
   const isCallFullscreenRef = useRef(isCallFullscreen);
+  const isPortraitOrientationRef = useRef(isPortraitOrientation);
   const focusComposer = useCallback(() => {
     const composer = composerRef.current;
     if (!composer) {
@@ -581,6 +594,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     }
 
     const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const isFullscreenLayout =
+      isCallFullscreenRef.current && (!isPhoneViewportType || isPortraitOrientationRef.current);
 
     const scrollTarget = (() => {
       const remoteVideo = remoteVideoRef.current;
@@ -599,11 +614,85 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       if (!scrollTarget?.isConnected) {
         return;
       }
+
+      const behavior = prefersReducedMotion ? "auto" : "smooth";
+      const allowViewportScroll = !isFullscreenLayout;
+
+      const attemptWindowScroll = (top: number) => {
+        try {
+          window.scrollTo({ top, behavior });
+          return true;
+        } catch {
+          try {
+            window.scrollTo({ top });
+            return true;
+          } catch {
+            return false;
+          }
+        }
+      };
+
+      const attemptDocumentScroll = (top: number) => {
+        if (typeof document === "undefined") {
+          return false;
+        }
+        const scrollingElement =
+          document.scrollingElement ?? document.documentElement ?? document.body ?? null;
+        if (!scrollingElement) {
+          return false;
+        }
+        try {
+          scrollingElement.scrollTo({ top, behavior });
+        } catch {
+          scrollingElement.scrollTop = top;
+        }
+        return true;
+      };
+
+      const attemptElementScroll = (element: Element, top: number) => {
+        if (typeof (element as HTMLElement).scrollTo === "function") {
+          try {
+            (element as HTMLElement).scrollTo({ top, behavior });
+            return;
+          } catch {
+            // fall through to assigning scrollTop
+          }
+        }
+        (element as HTMLElement).scrollTop = top;
+      };
+
+      const rect =
+        typeof scrollTarget.getBoundingClientRect === "function"
+          ? scrollTarget.getBoundingClientRect()
+          : null;
+      const absoluteTop = rect ? window.scrollY + rect.top : 0;
+
+      const scrolledWindow = allowViewportScroll ? attemptWindowScroll(absoluteTop) : false;
+      const scrolledDocument =
+        allowViewportScroll && !scrolledWindow ? attemptDocumentScroll(absoluteTop) : false;
+
+      if (isFullscreenLayout) {
+        const panelRect =
+          typeof panel.getBoundingClientRect === "function" ? panel.getBoundingClientRect() : null;
+        const panelScrollTop = (panel as HTMLElement).scrollTop ?? 0;
+        const targetWithinPanel =
+          rect && panelRect ? rect.top - panelRect.top + panelScrollTop : panelScrollTop;
+        attemptElementScroll(panel, targetWithinPanel);
+
+        if (rect && (scrolledWindow || scrolledDocument)) {
+          return;
+        }
+      }
+
+      if (rect && (scrolledWindow || scrolledDocument)) {
+        return;
+      }
+
       try {
         scrollTarget.scrollIntoView({
           block: "start",
           inline: "nearest",
-          behavior: prefersReducedMotion ? "auto" : "smooth",
+          behavior,
         });
       } catch {
         scrollTarget.scrollIntoView({ block: "start", inline: "nearest" });
@@ -618,7 +707,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     }
 
     performScroll();
-  }, [shouldScrollCallPanel]);
+  }, [isPhoneViewportType, shouldScrollCallPanel]);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const pendingSignalsRef = useRef<any[]>([]);
   const hasSentOfferRef = useRef<boolean>(false);
@@ -792,6 +881,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [isCallFullscreen]);
 
   useEffect(() => {
+    isPortraitOrientationRef.current = isPortraitOrientation;
+  }, [isPortraitOrientation]);
+
+  useEffect(() => {
     if (
       typeof window === "undefined" ||
       !isTouchDevice ||
@@ -808,19 +901,126 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
     const handleOrientationChange = () => {
       const isPortrait = portraitQuery.matches;
+      setIsPortraitOrientation(isPortrait);
+      isPortraitOrientationRef.current = isPortrait;
+
+      const finalizeOrientationChange = async (
+        options: { exitFullscreen: boolean; focusPanel: boolean; scrollPanel: boolean },
+      ) => {
+        const { exitFullscreen, focusPanel, scrollPanel } = options;
+
+        if (exitFullscreen && typeof document !== "undefined") {
+          const doc = document as DocumentWithFullscreen;
+
+          const getFullscreenElement = () =>
+            doc.fullscreenElement ??
+            doc.webkitFullscreenElement ??
+            doc.mozFullScreenElement ??
+            doc.msFullscreenElement ??
+            null;
+
+          const waitForFullscreenExit = () => {
+            const currentElement = getFullscreenElement();
+            if (!currentElement) {
+              return Promise.resolve();
+            }
+
+            return new Promise<void>((resolve) => {
+              const eventNames: Array<keyof DocumentEventMap | string> = [
+                "fullscreenchange",
+                "webkitfullscreenchange",
+                "mozfullscreenchange",
+                "MSFullscreenChange",
+              ];
+
+              let timeoutId: number | null = null;
+
+              function cleanup() {
+                for (const eventName of eventNames) {
+                  doc.removeEventListener(eventName, handleEvent as EventListener);
+                }
+                if (timeoutId !== null && typeof window !== "undefined") {
+                  window.clearTimeout(timeoutId);
+                }
+              }
+
+              function handleEvent() {
+                if (getFullscreenElement()) {
+                  return;
+                }
+                cleanup();
+                resolve();
+              }
+
+              for (const eventName of eventNames) {
+                doc.addEventListener(eventName, handleEvent as EventListener);
+              }
+
+              if (typeof window !== "undefined") {
+                timeoutId = window.setTimeout(() => {
+                  cleanup();
+                  resolve();
+                }, 500);
+              }
+            });
+          };
+
+          const waitForExitPromise = waitForFullscreenExit();
+
+          const exitFullscreenMethod =
+            doc.exitFullscreen ??
+            doc.webkitExitFullscreen ??
+            doc.mozCancelFullScreen ??
+            doc.msExitFullscreen ??
+            null;
+
+          if (typeof exitFullscreenMethod === "function" && getFullscreenElement()) {
+            try {
+              const result = exitFullscreenMethod.call(doc);
+              if (result && typeof (result as PromiseLike<void>).then === "function") {
+                await Promise.resolve<void>(result as PromiseLike<void> | void).catch(() => {});
+              }
+            } catch {
+              // ignore errors when exiting fullscreen
+            }
+          }
+
+          await waitForExitPromise;
+        }
+
+        if (focusPanel) {
+          focusCallPanel();
+        }
+
+        if (scrollPanel) {
+          scrollCallPanelIntoView();
+        }
+      };
+
       if (!isPortrait) {
         if (isCallFullscreenRef.current) {
           shouldRestoreFullscreenOnPortraitRef.current = true;
-          setIsCallFullscreen(false);
           setPipPosition(null);
           pipDragStateRef.current = null;
-          focusCallPanel();
         } else {
           shouldRestoreFullscreenOnPortraitRef.current = false;
         }
-      } else if (shouldRestoreFullscreenOnPortraitRef.current && !isCallFullscreenRef.current) {
-        setIsCallFullscreen(true);
-        shouldRestoreFullscreenOnPortraitRef.current = false;
+        void finalizeOrientationChange({
+          exitFullscreen: isCallFullscreenRef.current,
+          focusPanel: true,
+          scrollPanel: true,
+        });
+      } else {
+        if (shouldRestoreFullscreenOnPortraitRef.current) {
+          shouldRestoreFullscreenOnPortraitRef.current = false;
+        }
+        if (isCallFullscreenRef.current) {
+          void finalizeOrientationChange({
+            exitFullscreen: false,
+            focusPanel: false,
+            scrollPanel: true,
+          });
+        }
       }
     };
 
@@ -846,7 +1046,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     focusCallPanel,
     isPhoneViewportType,
     isTouchDevice,
-    setIsCallFullscreen,
+    scrollCallPanelIntoView,
     setPipPosition,
   ]);
 
@@ -864,7 +1064,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [callState, scrollCallPanelIntoView]);
 
   useEffect(() => {
-    if (!isCallFullscreen) {
+    if (!isCallFullscreenLayout) {
       return;
     }
 
@@ -895,7 +1095,61 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     return () => {
       landscapeQuery.removeListener(handleOrientationChange);
     };
-  }, [isCallFullscreen, scrollCallPanelIntoView]);
+  }, [isCallFullscreenLayout, scrollCallPanelIntoView]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const handleFullscreenChange = () => {
+      const hasFullscreenElement = Boolean(
+        document.fullscreenElement ??
+          (document as Document & { webkitFullscreenElement?: Element | null }).webkitFullscreenElement ??
+          (document as Document & { mozFullScreenElement?: Element | null }).mozFullScreenElement ??
+          (document as Document & { msFullscreenElement?: Element | null }).msFullscreenElement,
+      );
+
+      if (hasFullscreenElement) {
+        return;
+      }
+
+      const scheduleScroll = () => {
+        if (typeof window === "undefined") {
+          scrollCallPanelIntoView();
+          return;
+        }
+
+        if (typeof window.requestAnimationFrame === "function") {
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(scrollCallPanelIntoView);
+          });
+          return;
+        }
+
+        scrollCallPanelIntoView();
+      };
+
+      scheduleScroll();
+    };
+
+    const eventNames: Array<keyof DocumentEventMap | string> = [
+      "fullscreenchange",
+      "webkitfullscreenchange",
+      "mozfullscreenchange",
+      "MSFullscreenChange",
+    ];
+
+    for (const eventName of eventNames) {
+      document.addEventListener(eventName, handleFullscreenChange as EventListener);
+    }
+
+    return () => {
+      for (const eventName of eventNames) {
+        document.removeEventListener(eventName, handleFullscreenChange as EventListener);
+      }
+    };
+  }, [scrollCallPanelIntoView]);
 
   useEffect(() => {
     const element = localVideoRef.current;
@@ -3300,7 +3554,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
   const canShowFullscreenToggle = callState === "active";
   const canShowMediaMuteButtons = Boolean(localStream);
-  const canShowCallButtonInHeader = shouldShowCallButton && (!isCallFullscreen || callState !== "active");
+  const canShowCallButtonInHeader =
+    shouldShowCallButton && (!isCallFullscreenLayout || callState !== "active");
   const shouldShowHeaderActions =
     canShowFullscreenToggle || canShowMediaMuteButtons || canShowCallButtonInHeader;
 
@@ -3520,11 +3775,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     if (callState !== "active") {
       return;
     }
+
+    if (isPhoneViewportType && !isPortraitOrientationRef.current && !isCallFullscreenRef.current) {
+      return;
+    }
+
     shouldRestoreFullscreenOnPortraitRef.current = false;
     setIsCallFullscreen((current) => !current);
     setPipPosition(null);
     pipDragStateRef.current = null;
-  }, [callState]);
+  }, [callState, isPhoneViewportType]);
 
   const handleExitFullscreenOnly = useCallback(() => {
     shouldRestoreFullscreenOnPortraitRef.current = false;
@@ -4264,7 +4524,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
       {shouldShowMediaPanel ? (
         <div
-          className={`call-panel${isCallFullscreen ? " call-panel--fullscreen" : ""}`}
+          className={`call-panel${isCallFullscreenLayout ? " call-panel--fullscreen" : ""}`}
           ref={callPanelRef}
           tabIndex={-1}
         >
@@ -4279,7 +4539,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                   aria-hidden
                 />
                 <span className="call-panel__status-text">{callPanelStatusLabel}</span>
-                {isCallFullscreen && callState === "active" ? (
+                {isCallFullscreenLayout && callState === "active" ? (
                   <span className="call-panel__status-timer" aria-label="Session timer">
                     {headerTimerLabel}
                   </span>
@@ -4296,6 +4556,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                     onClick={handleToggleFullscreen}
                     aria-label={isCallFullscreen ? "Exit full screen" : "Enter full screen"}
                     title={isCallFullscreen ? "Exit full screen" : "Enter full screen"}
+                    disabled={isPhoneViewportType && !isPortraitOrientation && !isCallFullscreen}
                   >
                     {isCallFullscreen ? (
                       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -4415,7 +4676,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           <div className="call-panel__media" aria-live="polite">
             <div
               className={`call-panel__media-item${
-                isCallFullscreen ? " call-panel__media-item--remote" : ""
+                isCallFullscreenLayout ? " call-panel__media-item--remote" : ""
               }`}
             >
               {remoteStream ? (
@@ -4437,11 +4698,11 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             </div>
             <div
               className={`call-panel__media-item${
-                isCallFullscreen ? " call-panel__media-item--local" : ""
+                isCallFullscreenLayout ? " call-panel__media-item--local" : ""
               }`}
               ref={pipContainerRef}
               style={
-                isCallFullscreen && pipPosition
+                isCallFullscreenLayout && pipPosition
                   ? {
                       top: `${pipPosition.top}px`,
                       left: `${pipPosition.left}px`,
@@ -4450,10 +4711,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                     }
                   : undefined
               }
-              onPointerDown={isCallFullscreen ? handlePipPointerDown : undefined}
-              onPointerMove={isCallFullscreen ? handlePipPointerMove : undefined}
-              onPointerUp={isCallFullscreen ? handlePipPointerUp : undefined}
-              onPointerCancel={isCallFullscreen ? handlePipPointerUp : undefined}
+              onPointerDown={isCallFullscreenLayout ? handlePipPointerDown : undefined}
+              onPointerMove={isCallFullscreenLayout ? handlePipPointerMove : undefined}
+              onPointerUp={isCallFullscreenLayout ? handlePipPointerUp : undefined}
+              onPointerCancel={isCallFullscreenLayout ? handlePipPointerUp : undefined}
             >
               {localStream ? (
                 <video
@@ -4477,7 +4738,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
               <span className="call-panel__media-label">{sessionTranslations.call.labels.you}</span>
             </div>
           </div>
-          {isCallFullscreen ? (
+          {isCallFullscreenLayout ? (
             <div className="call-panel__fullscreen-controls">
               <button
                 type="button"
