@@ -584,9 +584,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       isCallFullscreenRef.current && (!isPhoneViewportType || isPortraitOrientationRef.current);
 
     const scrollTarget = (() => {
-      if (isFullscreenLayout) {
-        return panel;
-      }
       const remoteVideo = remoteVideoRef.current;
       if (remoteVideo?.isConnected) {
         return remoteVideo;
@@ -658,9 +655,17 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       const scrolledWindow = attemptWindowScroll(absoluteTop);
       const scrolledDocument = scrolledWindow ? false : attemptDocumentScroll(absoluteTop);
 
-      if (isFullscreenLayout && scrollTarget === panel) {
-        attemptElementScroll(scrollTarget, 0);
-        return;
+      if (isFullscreenLayout) {
+        const panelRect =
+          typeof panel.getBoundingClientRect === "function" ? panel.getBoundingClientRect() : null;
+        const panelScrollTop = (panel as HTMLElement).scrollTop ?? 0;
+        const targetWithinPanel =
+          rect && panelRect ? rect.top - panelRect.top + panelScrollTop : panelScrollTop;
+        attemptElementScroll(panel, targetWithinPanel);
+
+        if (rect && (scrolledWindow || scrolledDocument)) {
+          return;
+        }
       }
 
       if (rect && (scrolledWindow || scrolledDocument)) {
