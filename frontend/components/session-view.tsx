@@ -973,7 +973,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             try {
               const result = exitFullscreenMethod.call(doc);
               if (result && typeof (result as PromiseLike<void>).then === "function") {
-                await (result as PromiseLike<void>).catch(() => {});
+                await Promise.resolve<void>(result as PromiseLike<void> | void).catch(() => {});
               }
             } catch {
               // ignore errors when exiting fullscreen
