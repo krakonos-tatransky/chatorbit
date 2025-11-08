@@ -493,6 +493,12 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const [isCallFullscreen, setIsCallFullscreen] = useState(false);
   const [isLocalVideoMuted, setIsLocalVideoMuted] = useState(false);
   const [isLocalAudioMuted, setIsLocalAudioMuted] = useState(false);
+  const [videoInputDevices, setVideoInputDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedVideoDeviceId, setSelectedVideoDeviceId] = useState<string | null>(null);
+  const [preferredFacingMode, setPreferredFacingMode] = useState<"user" | "environment" | null>(
+    null,
+  );
+  const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
   const [pipPosition, setPipPosition] = useState<{ left: number; top: number } | null>(null);
   const viewportType = useViewportType();
   const [viewportOrientation, setViewportOrientation] = useState<ViewportOrientation>(() =>
@@ -564,6 +570,31 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       panel.focus({ preventScroll: true });
     } catch {
       panel.focus();
+    }
+  }, []);
+  const refreshVideoInputDevices = useCallback(async () => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) {
+      setVideoInputDevices([]);
+      return;
+    }
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(
+        (device): device is MediaDeviceInfo => device.kind === "videoinput" && Boolean(device.deviceId),
+      );
+      setVideoInputDevices(videoDevices);
+      setSelectedVideoDeviceId((current) => {
+        if (videoDevices.length === 0) {
+          return null;
+        }
+        if (current && videoDevices.some((device) => device.deviceId === current)) {
+          return current;
+        }
+        return videoDevices[0]?.deviceId ?? null;
+      });
+    } catch (cause) {
+      console.warn("Failed to enumerate media devices", cause);
     }
   }, []);
   const scrollCallPanelIntoView = useCallback(() => {
@@ -769,6 +800,34 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices) {
+      return;
+    }
+
+    void refreshVideoInputDevices();
+
+    const mediaDevices = navigator.mediaDevices;
+    const handleDeviceChange = () => {
+      void refreshVideoInputDevices();
+    };
+
+    if (typeof mediaDevices.addEventListener === "function") {
+      mediaDevices.addEventListener("devicechange", handleDeviceChange);
+      return () => {
+        mediaDevices.removeEventListener("devicechange", handleDeviceChange);
+      };
+    }
+
+    const previousHandler = mediaDevices.ondevicechange;
+    mediaDevices.ondevicechange = handleDeviceChange;
+    return () => {
+      if (mediaDevices.ondevicechange === handleDeviceChange) {
+        mediaDevices.ondevicechange = previousHandler ?? null;
+      }
+    };
+  }, [refreshVideoInputDevices]);
 
   useEffect(() => {
     const log = chatLogRef.current;
@@ -2059,23 +2118,59 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [participantRole, renegotiate, sendCallMessage]);
 
   const ensureLocalStream = useCallback(async () => {
-    if (localStreamRef.current) {
-      return localStreamRef.current;
+    const existing = localStreamRef.current;
+    if (existing) {
+      const [existingVideoTrack] = existing.getVideoTracks();
+      if (existingVideoTrack) {
+        const settings = existingVideoTrack.getSettings();
+        if (typeof settings.deviceId === "string" && settings.deviceId.length > 0) {
+          setSelectedVideoDeviceId((current) => current ?? settings.deviceId);
+        }
+        if (
+          typeof settings.facingMode === "string" &&
+          (settings.facingMode === "environment" || settings.facingMode === "user")
+        ) {
+          setPreferredFacingMode((current) => current ?? settings.facingMode);
+        }
+      }
+      return existing;
     }
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       throw new Error("Media devices are not available.");
     }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-    for (const track of stream.getVideoTracks()) {
-      track.enabled = !isLocalVideoMuted;
+    const desiredFacingMode = preferredFacingMode ?? "user";
+    const videoConstraints: MediaTrackConstraints = selectedVideoDeviceId
+      ? { deviceId: { exact: selectedVideoDeviceId } }
+      : { facingMode: { ideal: desiredFacingMode } };
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: videoConstraints });
+    const [videoTrack] = stream.getVideoTracks();
+    if (videoTrack) {
+      videoTrack.enabled = !isLocalVideoMuted;
+      const settings = videoTrack.getSettings();
+      if (typeof settings.deviceId === "string" && settings.deviceId.length > 0) {
+        setSelectedVideoDeviceId(settings.deviceId);
+      }
+      if (
+        typeof settings.facingMode === "string" &&
+        (settings.facingMode === "environment" || settings.facingMode === "user")
+      ) {
+        setPreferredFacingMode(settings.facingMode);
+      }
     }
     for (const track of stream.getAudioTracks()) {
       track.enabled = !isLocalAudioMuted;
     }
     localStreamRef.current = stream;
     setLocalStream(stream);
+    void refreshVideoInputDevices();
     return stream;
-  }, [isLocalAudioMuted, isLocalVideoMuted]);
+  }, [
+    isLocalAudioMuted,
+    isLocalVideoMuted,
+    preferredFacingMode,
+    refreshVideoInputDevices,
+    selectedVideoDeviceId,
+  ]);
 
   const attachLocalMedia = useCallback(async () => {
     const stream = await ensureLocalStream();
@@ -3300,6 +3395,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
   const canShowFullscreenToggle = callState === "active";
   const canShowMediaMuteButtons = Boolean(localStream);
+  const hasMultipleVideoInputs = videoInputDevices.length > 1;
+  const canSwitchCamera = canShowMediaMuteButtons && hasMultipleVideoInputs;
   const canShowCallButtonInHeader = shouldShowCallButton && (!isCallFullscreen || callState !== "active");
   const shouldShowHeaderActions =
     canShowFullscreenToggle || canShowMediaMuteButtons || canShowCallButtonInHeader;
@@ -3488,6 +3585,102 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     showCallNotice,
     stopLocalMediaTracks,
     teardownCall,
+  ]);
+
+  const handleSwitchCamera = useCallback(async () => {
+    if (isSwitchingCamera) {
+      return;
+    }
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      return;
+    }
+    const existingStream = localStreamRef.current;
+    if (!existingStream) {
+      return;
+    }
+    if (videoInputDevices.length < 2) {
+      void refreshVideoInputDevices();
+      return;
+    }
+
+    setIsSwitchingCamera(true);
+    let pendingStream: MediaStream | null = null;
+    try {
+      const [currentVideoTrack] = existingStream.getVideoTracks();
+      const currentSettings = currentVideoTrack?.getSettings() ?? {};
+      const fallbackDeviceId =
+        typeof currentSettings.deviceId === "string" && currentSettings.deviceId.length > 0
+          ? currentSettings.deviceId
+          : null;
+      const currentId = selectedVideoDeviceId ?? fallbackDeviceId;
+      const currentIndex = currentId
+        ? videoInputDevices.findIndex((device) => device.deviceId === currentId)
+        : -1;
+      const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % videoInputDevices.length : 0;
+      const nextDevice = videoInputDevices[nextIndex] ?? videoInputDevices[0];
+
+      pendingStream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: nextDevice.deviceId } },
+        audio: false,
+      });
+
+      const [newTrack] = pendingStream.getVideoTracks();
+      if (!newTrack) {
+        throw new Error("Unable to obtain a video track from the selected camera.");
+      }
+      newTrack.enabled = !isLocalVideoMuted;
+
+      for (const track of [...existingStream.getVideoTracks()]) {
+        try {
+          existingStream.removeTrack(track);
+        } catch (cause) {
+          console.warn("Failed to remove existing video track", cause);
+        }
+        track.stop();
+      }
+
+      const updatedStream = new MediaStream([...existingStream.getAudioTracks(), newTrack]);
+      localStreamRef.current = updatedStream;
+      setLocalStream(updatedStream);
+
+      const settings = newTrack.getSettings();
+      const nextDeviceId =
+        typeof settings.deviceId === "string" && settings.deviceId.length > 0
+          ? settings.deviceId
+          : nextDevice.deviceId;
+      setSelectedVideoDeviceId(nextDeviceId);
+      if (
+        typeof settings.facingMode === "string" &&
+        (settings.facingMode === "environment" || settings.facingMode === "user")
+      ) {
+        setPreferredFacingMode(settings.facingMode);
+      }
+
+      await attachLocalMedia();
+      void refreshVideoInputDevices();
+    } catch (cause) {
+      console.error("Failed to switch camera", cause);
+      if (pendingStream) {
+        for (const track of pendingStream.getTracks()) {
+          try {
+            track.stop();
+          } catch (stopError) {
+            console.warn("Failed to stop pending camera track after error", stopError);
+          }
+        }
+      }
+      showCallNotice("Unable to switch camera.");
+    } finally {
+      setIsSwitchingCamera(false);
+    }
+  }, [
+    attachLocalMedia,
+    isLocalVideoMuted,
+    isSwitchingCamera,
+    refreshVideoInputDevices,
+    selectedVideoDeviceId,
+    showCallNotice,
+    videoInputDevices,
   ]);
 
   const handleToggleLocalVideo = useCallback(() => {
@@ -4316,6 +4509,29 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
                 ) : null}
                 {canShowMediaMuteButtons ? (
                   <>
+                    {canSwitchCamera ? (
+                      <button
+                        type="button"
+                        className="call-panel__icon-button"
+                        onClick={() => {
+                          void handleSwitchCamera();
+                        }}
+                        aria-label="Switch camera"
+                        title="Switch camera"
+                        disabled={isSwitchingCamera}
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                          <path
+                            fill="currentColor"
+                            d="M4.75 5A2.75 2.75 0 0 0 2 7.75v4.5A2.75 2.75 0 0 0 4.75 15H9l-1.47 1.47a.75.75 0 1 0 1.06 1.06l2.5-2.5a.75.75 0 0 0 0-1.06l-2.5-2.5a.75.75 0 0 0-1.06 1.06L9 13H4.75A1.25 1.25 0 0 1 3.5 11.75v-4A1.25 1.25 0 0 1 4.75 6.5H7l.8 1.07c.14.19.36.3.6.3h5.7a.75.75 0 0 0 .6-.3L15.5 6.5H19.5c.69 0 1.25.56 1.25 1.25V10a.75.75 0 0 0 1.5 0V7.75A2.75 2.75 0 0 0 19.5 5h-3.45l-.8-1.07a.75.75 0 0 0-.6-.3H8.4a.75.75 0 0 0-.6.3L7 5H4.75Z"
+                          />
+                          <path
+                            fill="currentColor"
+                            d="M19.25 9A.75.75 0 0 0 18.5 9.75v3A1.25 1.25 0 0 1 17.25 14h-4.25l1.47-1.47a.75.75 0 0 0-1.06-1.06l-2.5 2.5a.75.75 0 0 0 0 1.06l2.5 2.5a.75.75 0 1 0 1.06-1.06L12.9 15.5h4.35A2.75 2.75 0 0 0 20 12.75v-3a.75.75 0 0 0-.75-.75Z"
+                          />
+                        </svg>
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className={`call-panel__icon-button${
