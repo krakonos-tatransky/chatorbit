@@ -2126,11 +2126,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         if (typeof settings.deviceId === "string" && settings.deviceId.length > 0) {
           setSelectedVideoDeviceId((current) => current ?? settings.deviceId);
         }
-        if (
-          typeof settings.facingMode === "string" &&
-          (settings.facingMode === "environment" || settings.facingMode === "user")
-        ) {
-          setPreferredFacingMode((current) => current ?? settings.facingMode);
+        const facingMode = settings.facingMode;
+        if (facingMode === "environment" || facingMode === "user") {
+          setPreferredFacingMode((current) => current ?? facingMode);
         }
       }
       return existing;
@@ -2150,11 +2148,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       if (typeof settings.deviceId === "string" && settings.deviceId.length > 0) {
         setSelectedVideoDeviceId(settings.deviceId);
       }
-      if (
-        typeof settings.facingMode === "string" &&
-        (settings.facingMode === "environment" || settings.facingMode === "user")
-      ) {
-        setPreferredFacingMode(settings.facingMode);
+      const facingMode = settings.facingMode;
+      if (facingMode === "environment" || facingMode === "user") {
+        setPreferredFacingMode(facingMode);
       }
     }
     for (const track of stream.getAudioTracks()) {
@@ -3649,11 +3645,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           ? settings.deviceId
           : nextDevice.deviceId;
       setSelectedVideoDeviceId(nextDeviceId);
-      if (
-        typeof settings.facingMode === "string" &&
-        (settings.facingMode === "environment" || settings.facingMode === "user")
-      ) {
-        setPreferredFacingMode(settings.facingMode);
+      const facingMode = settings.facingMode;
+      if (facingMode === "environment" || facingMode === "user") {
+        setPreferredFacingMode(facingMode);
       }
 
       await attachLocalMedia();
