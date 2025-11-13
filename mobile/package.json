@@ -2,7 +2,7 @@
   "name": "chatorbit-mobile",
   "version": "1.0.0",
   "private": true,
-  "main": "expo/AppEntry",
+  "main": "./index.ts",
   "scripts": {
     "start": "expo start",
     "ios": "expo start --ios",
