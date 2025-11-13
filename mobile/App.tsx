@@ -26,6 +26,7 @@ const COLORS = {
   lagoon: '#1C6BC7',
   ice: '#E6F3FF',
   mint: '#8EE7FF',
+  solar: '#FFB86C',
   white: '#FFFFFF',
   lilac: '#B4C5FF',
   danger: '#EF476F'
@@ -347,11 +348,11 @@ const TokenResultCard: React.FC<{
           <Ionicons name="share-outline" size={20} color={COLORS.deepBlue} />
           <Text style={styles.resultButtonLabel}>Share</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.resultButton} onPress={startSession}>
-          <MaterialCommunityIcons name="rocket-launch-outline" size={20} color={COLORS.deepBlue} />
-          <Text style={styles.resultButtonLabel}>Start session</Text>
-        </TouchableOpacity>
       </View>
+      <TouchableOpacity style={[styles.resultButton, styles.primaryResultButton]} onPress={startSession}>
+        <MaterialCommunityIcons name="rocket-launch-outline" size={20} color={COLORS.midnight} />
+        <Text style={[styles.resultButtonLabel, styles.primaryResultButtonLabel]}>Start session</Text>
+      </TouchableOpacity>
       <TouchableOpacity style={styles.resetButton} onPress={onReset}>
         <Text style={styles.resetButtonLabel}>Generate another token</Text>
       </TouchableOpacity>
@@ -649,10 +650,11 @@ const styles = StyleSheet.create({
     marginBottom: 12
   },
   tokenText: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '700',
-    color: COLORS.midnight,
-    letterSpacing: 1.1
+    color: COLORS.solar,
+    letterSpacing: 1.1,
+    marginTop: 4
   },
   expiryText: {
     marginTop: 6,
@@ -661,9 +663,9 @@ const styles = StyleSheet.create({
   },
   resultButtonRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     marginTop: 20,
-    gap: 8
+    gap: 12
   },
   resultMeta: {
     marginTop: 8,
@@ -684,6 +686,14 @@ const styles = StyleSheet.create({
   resultButtonLabel: {
     color: COLORS.deepBlue,
     fontWeight: '700'
+  },
+  primaryResultButton: {
+    backgroundColor: COLORS.solar,
+    marginTop: 12,
+    alignSelf: 'stretch'
+  },
+  primaryResultButtonLabel: {
+    color: COLORS.midnight
   },
   resetButton: {
     marginTop: 24,
