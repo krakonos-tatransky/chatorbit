@@ -19,6 +19,9 @@ npm install
 npm run ios # requires Xcode / iOS simulator
 ```
 
+> **Note:** Run all Expo CLI commands from inside the `mobile/` directory so Metro resolves the
+> workspace-local entry points and configuration correctly.
+
 You can also run `npm run start` to choose the desired platform from the Expo CLI interface.
 
 ### Optional: add custom icons locally
