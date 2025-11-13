@@ -10,13 +10,11 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   View
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
-import { Picker } from '@react-native-picker/picker';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 
@@ -142,6 +140,35 @@ const BigActionButton: React.FC<{
   );
 };
 
+type OptionGroupProps<T extends string> = {
+  label: string;
+  options: { label: string; value: T }[];
+  selected: T;
+  onSelect: (value: T) => void;
+};
+
+const OptionGroup = <T extends string>({ label, options, selected, onSelect }: OptionGroupProps<T>) => (
+  <View style={styles.optionGroup}>
+    <Text style={styles.optionLabel}>{label}</Text>
+    <View style={styles.optionGrid}>
+      {options.map((option) => {
+        const isSelected = option.value === selected;
+        return (
+          <TouchableOpacity
+            key={option.value}
+            style={[styles.optionButton, isSelected && styles.optionButtonSelected]}
+            onPress={() => onSelect(option.value)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: isSelected }}
+          >
+            <Text style={[styles.optionButtonText, isSelected && styles.optionButtonTextSelected]}>{option.label}</Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  </View>
+);
+
 const NeedTokenForm: React.FC<{
   visible: boolean;
   onClose: () => void;
@@ -201,106 +228,68 @@ const NeedTokenForm: React.FC<{
   return (
     <Modal
       visible={visible}
-      transparent
       animationType="slide"
-      presentationStyle="overFullScreen"
+      presentationStyle="fullScreen"
       onRequestClose={() => {
         if (!loading) {
           onClose();
         }
       }}
     >
-      <View style={styles.sheetOverlay}>
-        <TouchableWithoutFeedback onPress={() => {
-          if (!loading) {
-            onClose();
-          }
-        }}>
-          <View style={styles.sheetBackdrop} />
-        </TouchableWithoutFeedback>
-        <SafeAreaView style={styles.sheetSafeArea}>
-          <View style={styles.sheetContainer}>
-            <View style={styles.sheetHandle} />
-            <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Need a token?</Text>
-              <TouchableOpacity
-                onPress={onClose}
-                accessibilityRole="button"
-                disabled={loading}
-                style={loading ? styles.disabledClose : undefined}
-              >
-                <Ionicons name="close" size={28} color={COLORS.ice} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView
-              contentContainerStyle={styles.sheetContent}
-              showsVerticalScrollIndicator={false}
-              bounces={false}
-              keyboardShouldPersistTaps="handled"
+      <LinearGradient colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean]} style={styles.formContainer}>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.formSafeArea}>
+          <View style={styles.formHeader}>
+            <Text style={styles.formTitle}>Need a token?</Text>
+            <TouchableOpacity
+              onPress={onClose}
+              accessibilityRole="button"
+              disabled={loading}
+              style={[styles.formCloseButton, loading && styles.disabledClose]}
             >
-              <Text style={styles.sheetSubtitle}>
-                Set how long the live session runs once everyone connects, how long the token stays claimable, and the experience tier you need.
-              </Text>
-              <View style={styles.pickerGroup}>
-                <Text style={styles.pickerLabel}>Session duration</Text>
-                <View style={styles.pickerWrapper}>
-                  <Picker
-                    selectedValue={selectedDuration}
-                    onValueChange={setSelectedDuration}
-                    dropdownIconColor={COLORS.lagoon}
-                    style={styles.picker}
-                  >
-                    {durationOptions.map((option) => (
-                      <Picker.Item key={option.value} label={option.label} value={option.value} />
-                    ))}
-                  </Picker>
-                </View>
-              </View>
-              <View style={styles.pickerGroup}>
-                <Text style={styles.pickerLabel}>Validity window</Text>
-                <View style={styles.pickerWrapper}>
-                  <Picker
-                    selectedValue={selectedValidity}
-                    onValueChange={(value) => setSelectedValidity(value as ValidityOption['value'])}
-                    dropdownIconColor={COLORS.lagoon}
-                    style={styles.picker}
-                  >
-                    {validityOptions.map((option) => (
-                      <Picker.Item key={option.value} label={option.label} value={option.value} />
-                    ))}
-                  </Picker>
-                </View>
-              </View>
-              <View style={styles.pickerGroup}>
-                <Text style={styles.pickerLabel}>Token tier</Text>
-                <View style={styles.pickerWrapper}>
-                  <Picker
-                    selectedValue={selectedTier}
-                    onValueChange={setSelectedTier}
-                    dropdownIconColor={COLORS.lagoon}
-                    style={styles.picker}
-                  >
-                    {tokenTierOptions.map((option) => (
-                      <Picker.Item key={option.value} label={option.label} value={option.value} />
-                    ))}
-                  </Picker>
-                </View>
-              </View>
-              <TouchableOpacity
-                style={[styles.generateButton, loading && styles.generateButtonDisabled]}
-                onPress={requestToken}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator color={COLORS.white} />
-                ) : (
-                  <Text style={styles.generateButtonLabel}>Generate token</Text>
-                )}
-              </TouchableOpacity>
-            </ScrollView>
+              <Ionicons name="close" size={28} color={COLORS.ice} />
+            </TouchableOpacity>
           </View>
+          <ScrollView
+            contentContainerStyle={styles.formContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={styles.formSubtitle}>
+              Set how long the live session runs, how long the token stays claimable, and the experience tier you need.
+            </Text>
+            <OptionGroup
+              label="Session duration"
+              options={durationOptions}
+              selected={selectedDuration}
+              onSelect={setSelectedDuration}
+            />
+            <OptionGroup
+              label="Validity window"
+              options={validityOptions}
+              selected={selectedValidity}
+              onSelect={(value) => setSelectedValidity(value as ValidityOption['value'])}
+            />
+            <OptionGroup
+              label="Token tier"
+              options={tokenTierOptions}
+              selected={selectedTier}
+              onSelect={setSelectedTier}
+            />
+            <TouchableOpacity
+              style={[styles.generateButton, loading && styles.generateButtonDisabled]}
+              onPress={requestToken}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color={COLORS.white} />
+              ) : (
+                <Text style={styles.generateButtonLabel}>Generate token</Text>
+              )}
+            </TouchableOpacity>
+          </ScrollView>
         </SafeAreaView>
-      </View>
+      </LinearGradient>
     </Modal>
   );
 };
@@ -564,81 +553,73 @@ const styles = StyleSheet.create({
     opacity: 0.7,
     marginTop: 6
   },
-  sheetOverlay: {
-    flex: 1,
-    width: '100%',
-    justifyContent: 'flex-end',
-    alignItems: 'center'
-  },
-  sheetBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(7, 27, 47, 0.6)'
-  },
-  sheetSafeArea: {
-    width: '100%',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingBottom: 16
-  },
-  sheetContainer: {
-    backgroundColor: COLORS.midnight,
-    paddingHorizontal: 24,
-    paddingBottom: 32,
-    paddingTop: 16,
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    borderWidth: 1,
-    borderColor: 'rgba(140, 194, 255, 0.3)',
-    maxHeight: '85%',
-    width: '100%',
-    maxWidth: 520,
-    alignSelf: 'center',
-    overflow: 'hidden'
-  },
-  sheetHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12
-  },
   disabledClose: {
     opacity: 0.4
   },
-  sheetHandle: {
-    alignSelf: 'center',
-    width: 56,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: 'rgba(230, 243, 255, 0.3)',
-    marginBottom: 12
+  formContainer: {
+    flex: 1,
+    justifyContent: 'flex-start'
   },
-  sheetContent: {
-    paddingBottom: 24
+  formSafeArea: {
+    flex: 1,
+    paddingHorizontal: 20
   },
-  sheetTitle: {
-    color: COLORS.mint,
-    fontSize: 20,
+  formHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 8,
+    marginBottom: 16
+  },
+  formTitle: {
+    color: COLORS.white,
+    fontSize: 24,
     fontWeight: '700'
   },
-  sheetSubtitle: {
-    color: 'rgba(230, 243, 255, 0.78)',
-    marginBottom: 12,
+  formCloseButton: {
+    padding: 4
+  },
+  formContent: {
+    paddingBottom: 32
+  },
+  formSubtitle: {
+    color: 'rgba(230, 243, 255, 0.8)',
+    marginBottom: 16,
     lineHeight: 20
   },
-  pickerGroup: {
-    marginBottom: 12
+  optionGroup: {
+    marginBottom: 20
   },
-  pickerLabel: {
+  optionLabel: {
     color: COLORS.ice,
-    fontSize: 14,
-    marginBottom: 6
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 10
   },
-  pickerWrapper: {
-    borderRadius: 16,
-    backgroundColor: 'rgba(230, 243, 255, 0.14)'
+  optionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -6
   },
-  picker: {
-    color: COLORS.white
+  optionButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 18,
+    backgroundColor: 'rgba(230, 243, 255, 0.12)',
+    marginHorizontal: 6,
+    marginBottom: 12,
+    minWidth: 140
+  },
+  optionButtonSelected: {
+    backgroundColor: COLORS.mint
+  },
+  optionButtonText: {
+    color: COLORS.white,
+    fontSize: 15,
+    fontWeight: '600'
+  },
+  optionButtonTextSelected: {
+    color: COLORS.deepBlue
   },
   generateButton: {
     marginTop: 16,
