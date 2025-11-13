@@ -1,0 +1,600 @@
+import React, { useMemo, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Dimensions,
+  Linking,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
+} from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Clipboard from 'expo-clipboard';
+import { Picker } from '@react-native-picker/picker';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+
+const COLORS = {
+  midnight: '#071B2F',
+  deepBlue: '#0E3059',
+  ocean: '#164A89',
+  lagoon: '#1C6BC7',
+  ice: '#E6F3FF',
+  mint: '#8EE7FF',
+  white: '#FFFFFF',
+  lilac: '#B4C5FF',
+  danger: '#EF476F'
+};
+
+const API_BASE_URL = 'https://endpoints.chatorbit.com';
+
+const TERMS_TEXT = `Welcome to ChatOrbit!\n\nBefore generating secure session tokens, please take a moment to review these highlights:\n\n• Tokens are valid only for the duration selected during creation.\n• Share your token only with trusted participants.\n• Generated sessions may be monitored for quality and abuse prevention.\n• Using the token implies that you agree to abide by ChatOrbit community guidelines.\n\nThis preview app is designed for rapid testing of the ChatOrbit realtime experience. By continuing you acknowledge that:\n\n1. You are authorised to request access tokens on behalf of your organisation or team.\n2. All interactions facilitated by the token must respect local regulations regarding recorded communication.\n3. ChatOrbit may contact you for product feedback using the email or account associated with your workspace.\n4. Abuse of the system, including sharing illicit content, will result in automatic suspension of the workspace.\n\nScroll to the bottom of this message to enable the Accept button. Thank you for helping us keep the orbit safe and collaborative!`;
+
+type DurationOption = {
+  label: string;
+  value: string;
+};
+
+type TokenTierOption = {
+  label: string;
+  value: string;
+};
+
+type TokenResponse = {
+  token: string;
+  expiresAt?: string;
+};
+
+const durationOptions: DurationOption[] = [
+  { label: '15 minutes', value: '15m' },
+  { label: '30 minutes', value: '30m' },
+  { label: '1 hour', value: '1h' },
+  { label: '4 hours', value: '4h' }
+];
+
+const tokenTierOptions: TokenTierOption[] = [
+  { label: 'Standard Session', value: 'standard' },
+  { label: 'Premium Session', value: 'premium' }
+];
+
+function useSlideIn(visible: boolean) {
+  const translateY = useRef(new Animated.Value(Dimensions.get('window').height)).current;
+
+  React.useEffect(() => {
+    Animated.timing(translateY, {
+      toValue: visible ? 0 : Dimensions.get('window').height,
+      duration: 400,
+      useNativeDriver: true
+    }).start();
+  }, [translateY, visible]);
+
+  return translateY;
+}
+
+const AcceptScreen: React.FC<{ onAccept: () => void }> = ({ onAccept }) => {
+  const [acceptEnabled, setAcceptEnabled] = useState(false);
+
+  const handleScroll = (event: any) => {
+    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+    const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
+    if (distanceFromBottom <= 24) {
+      setAcceptEnabled(true);
+    }
+  };
+
+  return (
+    <LinearGradient colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean]} style={styles.container}>
+      <StatusBar style="light" />
+      <View style={styles.termsCard}>
+        <Text style={styles.logoText}>ChatOrbit Token Lab</Text>
+        <ScrollView
+          style={styles.termsScroll}
+          contentContainerStyle={styles.termsContent}
+          onScroll={handleScroll}
+          scrollEventThrottle={24}
+        >
+          <Text style={styles.termsText}>{TERMS_TEXT}</Text>
+        </ScrollView>
+        <TouchableOpacity
+          accessibilityRole="button"
+          style={[styles.acceptButton, !acceptEnabled && styles.acceptButtonDisabled]}
+          onPress={onAccept}
+          disabled={!acceptEnabled}
+        >
+          <Text style={styles.acceptButtonLabel}>{acceptEnabled ? 'Accept & Continue' : 'Scroll to accept'}</Text>
+        </TouchableOpacity>
+      </View>
+    </LinearGradient>
+  );
+};
+
+const BigActionButton: React.FC<{
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  onPress: () => void;
+  background: string;
+}> = ({ icon, title, description, onPress, background }) => {
+  return (
+    <TouchableOpacity style={[styles.bigActionButton, { backgroundColor: background }]} onPress={onPress}>
+      <View style={styles.bigActionIcon}>{icon}</View>
+      <View style={styles.bigActionTextContainer}>
+        <Text style={styles.bigActionTitle}>{title}</Text>
+        <Text style={styles.bigActionDescription}>{description}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+};
+
+const NeedTokenForm: React.FC<{
+  visible: boolean;
+  onClose: () => void;
+  onGenerated: (token: TokenResponse) => void;
+}> = ({ visible, onClose, onGenerated }) => {
+  const translateY = useSlideIn(visible);
+  const [selectedDuration, setSelectedDuration] = useState(durationOptions[2].value);
+  const [selectedTier, setSelectedTier] = useState(tokenTierOptions[0].value);
+  const [loading, setLoading] = useState(false);
+
+  const requestToken = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch(`${API_BASE_URL}/token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          duration: selectedDuration,
+          tokenType: selectedTier
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Failed to generate token');
+      }
+
+      const data = (await response.json()) as TokenResponse;
+      if (!data.token) {
+        throw new Error('The API response did not include a token.');
+      }
+      onGenerated(data);
+    } catch (error: any) {
+      console.error('Token request failed', error);
+      Alert.alert('Token error', error.message || 'Unable to generate token at this time.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Animated.View style={[styles.sheetContainer, { transform: [{ translateY }] }]}> 
+      <View style={styles.sheetHeader}>
+        <Text style={styles.sheetTitle}>Need a token?</Text>
+        <TouchableOpacity onPress={onClose} accessibilityRole="button">
+          <Ionicons name="close" size={28} color={COLORS.ice} />
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.sheetSubtitle}>
+        Choose how long your secure session should stay active and the experience tier you need.
+      </Text>
+      <View style={styles.pickerGroup}>
+        <Text style={styles.pickerLabel}>Duration</Text>
+        <View style={styles.pickerWrapper}>
+          <Picker
+            selectedValue={selectedDuration}
+            onValueChange={setSelectedDuration}
+            dropdownIconColor={COLORS.lagoon}
+            style={styles.picker}
+          >
+            {durationOptions.map((option) => (
+              <Picker.Item key={option.value} label={option.label} value={option.value} />
+            ))}
+          </Picker>
+        </View>
+      </View>
+      <View style={styles.pickerGroup}>
+        <Text style={styles.pickerLabel}>Token tier</Text>
+        <View style={styles.pickerWrapper}>
+          <Picker
+            selectedValue={selectedTier}
+            onValueChange={setSelectedTier}
+            dropdownIconColor={COLORS.lagoon}
+            style={styles.picker}
+          >
+            {tokenTierOptions.map((option) => (
+              <Picker.Item key={option.value} label={option.label} value={option.value} />
+            ))}
+          </Picker>
+        </View>
+      </View>
+      <TouchableOpacity
+        style={[styles.generateButton, loading && styles.generateButtonDisabled]}
+        onPress={requestToken}
+        disabled={loading}
+      >
+        {loading ? (
+          <ActivityIndicator color={COLORS.white} />
+        ) : (
+          <Text style={styles.generateButtonLabel}>Generate token</Text>
+        )}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+};
+
+const TokenResultCard: React.FC<{
+  token: TokenResponse;
+  onReset: () => void;
+}> = ({ token, onReset }) => {
+  const shareMessage = useMemo(() => `Join my ChatOrbit session using this token: ${token.token}`, [token.token]);
+
+  const copyToClipboard = async () => {
+    await Clipboard.setStringAsync(token.token);
+    Alert.alert('Copied', 'Token copied to clipboard.');
+  };
+
+  const shareToken = async () => {
+    try {
+      await Share.share({ message: shareMessage });
+    } catch (error: any) {
+      Alert.alert('Unable to share', error?.message ?? 'Unexpected error while sharing token');
+    }
+  };
+
+  const startSession = async () => {
+    const sessionUrl = `https://chatorbit.com/session/${encodeURIComponent(token.token)}`;
+    const supported = await Linking.canOpenURL(sessionUrl);
+    if (supported) {
+      await Linking.openURL(sessionUrl);
+    } else {
+      Alert.alert('Cannot open session', 'Your device cannot open the ChatOrbit session URL.');
+    }
+  };
+
+  return (
+    <View style={styles.resultCard}>
+      <Text style={styles.resultTitle}>Your token is ready!</Text>
+      <Text style={styles.tokenText}>{token.token}</Text>
+      {token.expiresAt ? <Text style={styles.expiryText}>Expires {token.expiresAt}</Text> : null}
+      <View style={styles.resultButtonRow}>
+        <TouchableOpacity style={styles.resultButton} onPress={copyToClipboard}>
+          <Ionicons name="copy-outline" size={20} color={COLORS.deepBlue} />
+          <Text style={styles.resultButtonLabel}>Copy</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.resultButton} onPress={shareToken}>
+          <Ionicons name="share-outline" size={20} color={COLORS.deepBlue} />
+          <Text style={styles.resultButtonLabel}>Share</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.resultButton} onPress={startSession}>
+          <MaterialCommunityIcons name="rocket-launch-outline" size={20} color={COLORS.deepBlue} />
+          <Text style={styles.resultButtonLabel}>Start session</Text>
+        </TouchableOpacity>
+      </View>
+      <TouchableOpacity style={styles.resetButton} onPress={onReset}>
+        <Text style={styles.resetButtonLabel}>Generate another token</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+const GotTokenCard: React.FC = () => (
+  <View style={styles.gotTokenCard}>
+    <Text style={styles.gotTokenTitle}>Already have a token?</Text>
+    <Text style={styles.gotTokenSubtitle}>
+      We will soon add secure chat, video and collaborative boards powered by WebRTC. Stay tuned!
+    </Text>
+  </View>
+);
+
+const MainScreen: React.FC = () => {
+  const [showForm, setShowForm] = useState(false);
+  const [tokenResponse, setTokenResponse] = useState<TokenResponse | null>(null);
+
+  return (
+    <LinearGradient colors={[COLORS.deepBlue, COLORS.ocean, COLORS.lagoon]} style={styles.container}>
+      <StatusBar style="light" />
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Launch a ChatOrbit session</Text>
+        <Text style={styles.headerSubtitle}>
+          Generate a one-time secure token or prepare to join an existing session with a single tap.
+        </Text>
+      </View>
+      {tokenResponse ? (
+        <TokenResultCard token={tokenResponse} onReset={() => setTokenResponse(null)} />
+      ) : (
+        <View style={styles.actionRow}>
+          <BigActionButton
+            title="Need token"
+            description="Create a secure pass with custom duration."
+            onPress={() => setShowForm(true)}
+            background={COLORS.ice}
+            icon={<Ionicons name="planet" size={42} color={COLORS.deepBlue} />}
+          />
+          <BigActionButton
+            title="Got token"
+            description="Coming soon: instantly jump into live orbit."
+            onPress={() => Alert.alert('Coming soon', 'Session join will arrive with the WebRTC update!')}
+            background={COLORS.lilac}
+            icon={<MaterialCommunityIcons name="shield-check" size={42} color={COLORS.deepBlue} />}
+          />
+        </View>
+      )}
+      <NeedTokenForm
+        visible={showForm && !tokenResponse}
+        onClose={() => setShowForm(false)}
+        onGenerated={(token) => {
+          setShowForm(false);
+          setTokenResponse(token);
+        }}
+      />
+      <GotTokenCard />
+    </LinearGradient>
+  );
+};
+
+export default function App() {
+  const [accepted, setAccepted] = useState(false);
+
+  if (!accepted) {
+    return <AcceptScreen onAccept={() => setAccepted(true)} />;
+  }
+
+  return <MainScreen />;
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingTop: 64,
+    paddingHorizontal: 24
+  },
+  termsCard: {
+    backgroundColor: 'rgba(7, 27, 47, 0.72)',
+    borderRadius: 28,
+    padding: 24,
+    paddingTop: 48,
+    width: '100%',
+    maxWidth: 420,
+    flex: 1,
+    shadowColor: COLORS.lagoon,
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.24,
+    shadowRadius: 24
+  },
+  logoText: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: COLORS.mint,
+    textAlign: 'center',
+    marginBottom: 24,
+    letterSpacing: 1.2
+  },
+  termsScroll: {
+    flex: 1,
+    borderRadius: 16,
+    backgroundColor: 'rgba(230, 243, 255, 0.08)'
+  },
+  termsContent: {
+    padding: 16
+  },
+  termsText: {
+    color: COLORS.ice,
+    fontSize: 16,
+    lineHeight: 24
+  },
+  acceptButton: {
+    marginTop: 20,
+    backgroundColor: COLORS.lagoon,
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center'
+  },
+  acceptButtonDisabled: {
+    backgroundColor: 'rgba(28, 107, 199, 0.4)'
+  },
+  acceptButtonLabel: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: '600'
+  },
+  header: {
+    width: '100%',
+    maxWidth: 480,
+    marginBottom: 24
+  },
+  headerTitle: {
+    color: COLORS.white,
+    fontSize: 28,
+    fontWeight: '700',
+    marginBottom: 8
+  },
+  headerSubtitle: {
+    color: 'rgba(230, 243, 255, 0.75)',
+    fontSize: 16,
+    lineHeight: 22
+  },
+  actionRow: {
+    width: '100%',
+    maxWidth: 520,
+    gap: 16
+  },
+  bigActionButton: {
+    borderRadius: 24,
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: COLORS.midnight,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.3,
+    shadowRadius: 18,
+    elevation: 8
+  },
+  bigActionIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(22, 74, 137, 0.1)'
+  },
+  bigActionTextContainer: {
+    flex: 1,
+    marginLeft: 16
+  },
+  bigActionTitle: {
+    color: COLORS.deepBlue,
+    fontSize: 22,
+    fontWeight: '700'
+  },
+  bigActionDescription: {
+    color: COLORS.deepBlue,
+    fontSize: 14,
+    opacity: 0.7,
+    marginTop: 6
+  },
+  sheetContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: COLORS.midnight,
+    padding: 24,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    borderWidth: 1,
+    borderColor: 'rgba(140, 194, 255, 0.3)'
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12
+  },
+  sheetTitle: {
+    color: COLORS.mint,
+    fontSize: 20,
+    fontWeight: '700'
+  },
+  sheetSubtitle: {
+    color: 'rgba(230, 243, 255, 0.78)',
+    marginBottom: 12,
+    lineHeight: 20
+  },
+  pickerGroup: {
+    marginBottom: 12
+  },
+  pickerLabel: {
+    color: COLORS.ice,
+    fontSize: 14,
+    marginBottom: 6
+  },
+  pickerWrapper: {
+    borderRadius: 16,
+    backgroundColor: 'rgba(230, 243, 255, 0.14)'
+  },
+  picker: {
+    color: COLORS.white
+  },
+  generateButton: {
+    marginTop: 16,
+    backgroundColor: COLORS.lagoon,
+    borderRadius: 18,
+    paddingVertical: 16,
+    alignItems: 'center'
+  },
+  generateButtonDisabled: {
+    opacity: 0.6
+  },
+  generateButtonLabel: {
+    color: COLORS.white,
+    fontSize: 17,
+    fontWeight: '700'
+  },
+  resultCard: {
+    width: '100%',
+    maxWidth: 520,
+    backgroundColor: 'rgba(230, 243, 255, 0.92)',
+    borderRadius: 28,
+    padding: 24,
+    marginBottom: 32,
+    shadowColor: COLORS.midnight,
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10
+  },
+  resultTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: COLORS.deepBlue,
+    marginBottom: 12
+  },
+  tokenText: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: COLORS.midnight,
+    letterSpacing: 1.1
+  },
+  expiryText: {
+    marginTop: 6,
+    color: COLORS.ocean,
+    fontSize: 14
+  },
+  resultButtonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+    gap: 8
+  },
+  resultButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.mint,
+    borderRadius: 16,
+    paddingVertical: 12,
+    gap: 8
+  },
+  resultButtonLabel: {
+    color: COLORS.deepBlue,
+    fontWeight: '700'
+  },
+  resetButton: {
+    marginTop: 24,
+    alignItems: 'center'
+  },
+  resetButtonLabel: {
+    color: COLORS.deepBlue,
+    fontSize: 15,
+    textDecorationLine: 'underline',
+    fontWeight: '600'
+  },
+  gotTokenCard: {
+    marginTop: 24,
+    backgroundColor: 'rgba(230, 243, 255, 0.2)',
+    borderRadius: 24,
+    padding: 20,
+    width: '100%',
+    maxWidth: 520
+  },
+  gotTokenTitle: {
+    color: COLORS.white,
+    fontSize: 18,
+    fontWeight: '700'
+  },
+  gotTokenSubtitle: {
+    color: 'rgba(230, 243, 255, 0.75)',
+    marginTop: 8,
+    lineHeight: 20
+  }
+});
