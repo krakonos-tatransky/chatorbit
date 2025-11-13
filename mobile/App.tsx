@@ -16,6 +16,7 @@ import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Picker } from '@react-native-picker/picker';
 import { useFonts } from 'expo-font';
 
 const COLORS = {
@@ -140,35 +141,6 @@ const BigActionButton: React.FC<{
   );
 };
 
-type OptionGroupProps<T extends string> = {
-  label: string;
-  options: { label: string; value: T }[];
-  selected: T;
-  onSelect: (value: T) => void;
-};
-
-const OptionGroup = <T extends string>({ label, options, selected, onSelect }: OptionGroupProps<T>) => (
-  <View style={styles.optionGroup}>
-    <Text style={styles.optionLabel}>{label}</Text>
-    <View style={styles.optionGrid}>
-      {options.map((option) => {
-        const isSelected = option.value === selected;
-        return (
-          <TouchableOpacity
-            key={option.value}
-            style={[styles.optionButton, isSelected && styles.optionButtonSelected]}
-            onPress={() => onSelect(option.value)}
-            accessibilityRole="button"
-            accessibilityState={{ selected: isSelected }}
-          >
-            <Text style={[styles.optionButtonText, isSelected && styles.optionButtonTextSelected]}>{option.label}</Text>
-          </TouchableOpacity>
-        );
-      })}
-    </View>
-  </View>
-);
-
 const NeedTokenForm: React.FC<{
   visible: boolean;
   onClose: () => void;
@@ -258,24 +230,54 @@ const NeedTokenForm: React.FC<{
             <Text style={styles.formSubtitle}>
               Set how long the live session runs, how long the token stays claimable, and the experience tier you need.
             </Text>
-            <OptionGroup
-              label="Session duration"
-              options={durationOptions}
-              selected={selectedDuration}
-              onSelect={setSelectedDuration}
-            />
-            <OptionGroup
-              label="Validity window"
-              options={validityOptions}
-              selected={selectedValidity}
-              onSelect={(value) => setSelectedValidity(value as ValidityOption['value'])}
-            />
-            <OptionGroup
-              label="Token tier"
-              options={tokenTierOptions}
-              selected={selectedTier}
-              onSelect={setSelectedTier}
-            />
+            <View style={styles.pickerGroup}>
+              <Text style={styles.pickerLabel}>Session duration</Text>
+              <View style={styles.pickerWrapper}>
+                <Picker
+                  selectedValue={selectedDuration}
+                  onValueChange={(value) => setSelectedDuration(value.toString())}
+                  dropdownIconColor={COLORS.mint}
+                  style={styles.picker}
+                  itemStyle={styles.pickerItem}
+                >
+                  {durationOptions.map((option) => (
+                    <Picker.Item key={option.value} label={option.label} value={option.value} />
+                  ))}
+                </Picker>
+              </View>
+            </View>
+            <View style={styles.pickerGroup}>
+              <Text style={styles.pickerLabel}>Validity window</Text>
+              <View style={styles.pickerWrapper}>
+                <Picker
+                  selectedValue={selectedValidity}
+                  onValueChange={(value) => setSelectedValidity(value as ValidityOption['value'])}
+                  dropdownIconColor={COLORS.mint}
+                  style={styles.picker}
+                  itemStyle={styles.pickerItem}
+                >
+                  {validityOptions.map((option) => (
+                    <Picker.Item key={option.value} label={option.label} value={option.value} />
+                  ))}
+                </Picker>
+              </View>
+            </View>
+            <View style={styles.pickerGroup}>
+              <Text style={styles.pickerLabel}>Token tier</Text>
+              <View style={styles.pickerWrapper}>
+                <Picker
+                  selectedValue={selectedTier}
+                  onValueChange={(value) => setSelectedTier(value.toString())}
+                  dropdownIconColor={COLORS.mint}
+                  style={styles.picker}
+                  itemStyle={styles.pickerItem}
+                >
+                  {tokenTierOptions.map((option) => (
+                    <Picker.Item key={option.value} label={option.label} value={option.value} />
+                  ))}
+                </Picker>
+              </View>
+            </View>
             <TouchableOpacity
               style={[styles.generateButton, loading && styles.generateButtonDisabled]}
               onPress={requestToken}
@@ -587,39 +589,28 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     lineHeight: 20
   },
-  optionGroup: {
-    marginBottom: 20
+  pickerGroup: {
+    marginBottom: 24
   },
-  optionLabel: {
+  pickerLabel: {
     color: COLORS.ice,
     fontSize: 15,
     fontWeight: '600',
-    marginBottom: 10
+    marginBottom: 12
   },
-  optionGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginHorizontal: -6
-  },
-  optionButton: {
-    paddingVertical: 14,
-    paddingHorizontal: 18,
+  pickerWrapper: {
     borderRadius: 18,
-    backgroundColor: 'rgba(230, 243, 255, 0.12)',
-    marginHorizontal: 6,
-    marginBottom: 12,
-    minWidth: 140
+    overflow: 'hidden',
+    backgroundColor: 'rgba(230, 243, 255, 0.12)'
   },
-  optionButtonSelected: {
-    backgroundColor: COLORS.mint
-  },
-  optionButtonText: {
+  picker: {
     color: COLORS.white,
-    fontSize: 15,
-    fontWeight: '600'
+    width: '100%'
   },
-  optionButtonTextSelected: {
-    color: COLORS.deepBlue
+  pickerItem: {
+    color: COLORS.deepBlue,
+    fontSize: 16,
+    height: 160
   },
   generateButton: {
     marginTop: 16,
