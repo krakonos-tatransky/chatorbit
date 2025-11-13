@@ -1,15 +1,16 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Animated,
-  Dimensions,
   Linking,
+  Modal,
+  SafeAreaView,
   ScrollView,
   Share,
   StyleSheet,
   Text,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
@@ -31,7 +32,7 @@ const COLORS = {
   danger: '#EF476F'
 };
 
-const API_BASE_URL = 'https://endpoints.chatorbit.com';
+const API_BASE_URL = 'https://endpoints.chatorbit.com/api';
 
 const TERMS_TEXT = `Welcome to ChatOrbit!\n\nBefore generating secure session tokens, please take a moment to review these highlights:\n\n• Tokens are valid only for the duration selected during creation.\n• Share your token only with trusted participants.\n• Generated sessions may be monitored for quality and abuse prevention.\n• Using the token implies that you agree to abide by ChatOrbit community guidelines.\n\nThis preview app is designed for rapid testing of the ChatOrbit realtime experience. By continuing you acknowledge that:\n\n1. You are authorised to request access tokens on behalf of your organisation or team.\n2. All interactions facilitated by the token must respect local regulations regarding recorded communication.\n3. ChatOrbit may contact you for product feedback using the email or account associated with your workspace.\n4. Abuse of the system, including sharing illicit content, will result in automatic suspension of the workspace.\n\nScroll to the bottom of this message to enable the Accept button. Thank you for helping us keep the orbit safe and collaborative!`;
 
@@ -47,7 +48,15 @@ type TokenTierOption = {
 
 type TokenResponse = {
   token: string;
-  expiresAt?: string;
+  validity_expires_at: string;
+  session_ttl_seconds: number;
+  message_char_limit: number;
+  created_at: string;
+};
+
+type ValidityOption = {
+  label: string;
+  value: '1_day' | '1_week' | '1_month' | '1_year';
 };
 
 const durationOptions: DurationOption[] = [
@@ -62,19 +71,21 @@ const tokenTierOptions: TokenTierOption[] = [
   { label: 'Premium Session', value: 'premium' }
 ];
 
-function useSlideIn(visible: boolean) {
-  const translateY = useRef(new Animated.Value(Dimensions.get('window').height)).current;
+const validityOptions: ValidityOption[] = [
+  { label: 'Valid for 1 day', value: '1_day' },
+  { label: 'Valid for 1 week', value: '1_week' },
+  { label: 'Valid for 1 month', value: '1_month' },
+  { label: 'Valid for 1 year', value: '1_year' }
+];
 
-  React.useEffect(() => {
-    Animated.timing(translateY, {
-      toValue: visible ? 0 : Dimensions.get('window').height,
-      duration: 400,
-      useNativeDriver: true
-    }).start();
-  }, [translateY, visible]);
+const SESSION_TTL_MINUTES: Record<string, number> = {
+  '15m': 15,
+  '30m': 30,
+  '1h': 60,
+  '4h': 240
+};
 
-  return translateY;
-}
+const DEFAULT_MESSAGE_CHAR_LIMIT = 2000;
 
 const AcceptScreen: React.FC<{ onAccept: () => void }> = ({ onAccept }) => {
   const [acceptEnabled, setAcceptEnabled] = useState(false);
@@ -136,28 +147,42 @@ const NeedTokenForm: React.FC<{
   onClose: () => void;
   onGenerated: (token: TokenResponse) => void;
 }> = ({ visible, onClose, onGenerated }) => {
-  const translateY = useSlideIn(visible);
   const [selectedDuration, setSelectedDuration] = useState(durationOptions[2].value);
   const [selectedTier, setSelectedTier] = useState(tokenTierOptions[0].value);
+  const [selectedValidity, setSelectedValidity] = useState<ValidityOption['value']>(validityOptions[0].value);
   const [loading, setLoading] = useState(false);
 
   const requestToken = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/token`, {
+      const sessionTtlMinutes = SESSION_TTL_MINUTES[selectedDuration] ?? SESSION_TTL_MINUTES['1h'];
+      const response = await fetch(`${API_BASE_URL}/tokens`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          duration: selectedDuration,
-          tokenType: selectedTier
+          validity_period: selectedValidity,
+          session_ttl_minutes: sessionTtlMinutes,
+          message_char_limit: DEFAULT_MESSAGE_CHAR_LIMIT,
+          client_identity: `mobile-${selectedTier}`
         })
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(errorText || 'Failed to generate token');
+        let friendlyMessage = errorText || 'Failed to generate token';
+        try {
+          const parsed = JSON.parse(errorText);
+          if (Array.isArray(parsed?.detail)) {
+            friendlyMessage = parsed.detail.map((item: any) => item?.msg).filter(Boolean).join('\n');
+          } else if (typeof parsed?.detail === 'string') {
+            friendlyMessage = parsed.detail;
+          }
+        } catch {
+          // Ignore JSON parsing errors and fall back to raw text.
+        }
+        throw new Error(friendlyMessage);
       }
 
       const data = (await response.json()) as TokenResponse;
@@ -174,58 +199,109 @@ const NeedTokenForm: React.FC<{
   };
 
   return (
-    <Animated.View style={[styles.sheetContainer, { transform: [{ translateY }] }]}> 
-      <View style={styles.sheetHeader}>
-        <Text style={styles.sheetTitle}>Need a token?</Text>
-        <TouchableOpacity onPress={onClose} accessibilityRole="button">
-          <Ionicons name="close" size={28} color={COLORS.ice} />
-        </TouchableOpacity>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      presentationStyle="overFullScreen"
+      onRequestClose={() => {
+        if (!loading) {
+          onClose();
+        }
+      }}
+    >
+      <View style={styles.sheetOverlay}>
+        <TouchableWithoutFeedback onPress={() => {
+          if (!loading) {
+            onClose();
+          }
+        }}>
+          <View style={styles.sheetBackdrop} />
+        </TouchableWithoutFeedback>
+        <SafeAreaView style={styles.sheetSafeArea}>
+          <View style={styles.sheetContainer}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Need a token?</Text>
+              <TouchableOpacity
+                onPress={onClose}
+                accessibilityRole="button"
+                disabled={loading}
+                style={loading ? styles.disabledClose : undefined}
+              >
+                <Ionicons name="close" size={28} color={COLORS.ice} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              contentContainerStyle={styles.sheetContent}
+              showsVerticalScrollIndicator={false}
+              bounces={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={styles.sheetSubtitle}>
+                Set how long the live session runs once everyone connects, how long the token stays claimable, and the experience tier you need.
+              </Text>
+              <View style={styles.pickerGroup}>
+                <Text style={styles.pickerLabel}>Session duration</Text>
+                <View style={styles.pickerWrapper}>
+                  <Picker
+                    selectedValue={selectedDuration}
+                    onValueChange={setSelectedDuration}
+                    dropdownIconColor={COLORS.lagoon}
+                    style={styles.picker}
+                  >
+                    {durationOptions.map((option) => (
+                      <Picker.Item key={option.value} label={option.label} value={option.value} />
+                    ))}
+                  </Picker>
+                </View>
+              </View>
+              <View style={styles.pickerGroup}>
+                <Text style={styles.pickerLabel}>Validity window</Text>
+                <View style={styles.pickerWrapper}>
+                  <Picker
+                    selectedValue={selectedValidity}
+                    onValueChange={(value) => setSelectedValidity(value as ValidityOption['value'])}
+                    dropdownIconColor={COLORS.lagoon}
+                    style={styles.picker}
+                  >
+                    {validityOptions.map((option) => (
+                      <Picker.Item key={option.value} label={option.label} value={option.value} />
+                    ))}
+                  </Picker>
+                </View>
+              </View>
+              <View style={styles.pickerGroup}>
+                <Text style={styles.pickerLabel}>Token tier</Text>
+                <View style={styles.pickerWrapper}>
+                  <Picker
+                    selectedValue={selectedTier}
+                    onValueChange={setSelectedTier}
+                    dropdownIconColor={COLORS.lagoon}
+                    style={styles.picker}
+                  >
+                    {tokenTierOptions.map((option) => (
+                      <Picker.Item key={option.value} label={option.label} value={option.value} />
+                    ))}
+                  </Picker>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={[styles.generateButton, loading && styles.generateButtonDisabled]}
+                onPress={requestToken}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color={COLORS.white} />
+                ) : (
+                  <Text style={styles.generateButtonLabel}>Generate token</Text>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </SafeAreaView>
       </View>
-      <Text style={styles.sheetSubtitle}>
-        Choose how long your secure session should stay active and the experience tier you need.
-      </Text>
-      <View style={styles.pickerGroup}>
-        <Text style={styles.pickerLabel}>Duration</Text>
-        <View style={styles.pickerWrapper}>
-          <Picker
-            selectedValue={selectedDuration}
-            onValueChange={setSelectedDuration}
-            dropdownIconColor={COLORS.lagoon}
-            style={styles.picker}
-          >
-            {durationOptions.map((option) => (
-              <Picker.Item key={option.value} label={option.label} value={option.value} />
-            ))}
-          </Picker>
-        </View>
-      </View>
-      <View style={styles.pickerGroup}>
-        <Text style={styles.pickerLabel}>Token tier</Text>
-        <View style={styles.pickerWrapper}>
-          <Picker
-            selectedValue={selectedTier}
-            onValueChange={setSelectedTier}
-            dropdownIconColor={COLORS.lagoon}
-            style={styles.picker}
-          >
-            {tokenTierOptions.map((option) => (
-              <Picker.Item key={option.value} label={option.label} value={option.value} />
-            ))}
-          </Picker>
-        </View>
-      </View>
-      <TouchableOpacity
-        style={[styles.generateButton, loading && styles.generateButtonDisabled]}
-        onPress={requestToken}
-        disabled={loading}
-      >
-        {loading ? (
-          <ActivityIndicator color={COLORS.white} />
-        ) : (
-          <Text style={styles.generateButtonLabel}>Generate token</Text>
-        )}
-      </TouchableOpacity>
-    </Animated.View>
+    </Modal>
   );
 };
 
@@ -234,6 +310,8 @@ const TokenResultCard: React.FC<{
   onReset: () => void;
 }> = ({ token, onReset }) => {
   const shareMessage = useMemo(() => `Join my ChatOrbit session using this token: ${token.token}`, [token.token]);
+  const sessionMinutes = Math.max(1, Math.round(token.session_ttl_seconds / 60));
+  const messageLimit = token.message_char_limit.toLocaleString();
 
   const copyToClipboard = async () => {
     await Clipboard.setStringAsync(token.token);
@@ -262,7 +340,13 @@ const TokenResultCard: React.FC<{
     <View style={styles.resultCard}>
       <Text style={styles.resultTitle}>Your token is ready!</Text>
       <Text style={styles.tokenText}>{token.token}</Text>
-      {token.expiresAt ? <Text style={styles.expiryText}>Expires {token.expiresAt}</Text> : null}
+      {token.validity_expires_at ? (
+        <Text style={styles.expiryText}>
+          Valid until {new Date(token.validity_expires_at).toLocaleString()}
+        </Text>
+      ) : null}
+      <Text style={styles.resultMeta}>Session stays live for {sessionMinutes} minutes after everyone joins.</Text>
+      <Text style={styles.resultMeta}>Messages are limited to {messageLimit} characters.</Text>
       <View style={styles.resultButtonRow}>
         <TouchableOpacity style={styles.resultButton} onPress={copyToClipboard}>
           <Ionicons name="copy-outline" size={20} color={COLORS.deepBlue} />
@@ -334,7 +418,7 @@ const MainScreen: React.FC = () => {
           setTokenResponse(token);
         }}
       />
-      <GotTokenCard />
+      {!showForm && <GotTokenCard />}
     </LinearGradient>
   );
 };
@@ -480,23 +564,56 @@ const styles = StyleSheet.create({
     opacity: 0.7,
     marginTop: 6
   },
+  sheetOverlay: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'flex-end',
+    alignItems: 'center'
+  },
+  sheetBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(7, 27, 47, 0.6)'
+  },
+  sheetSafeArea: {
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingBottom: 16
+  },
   sheetContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     backgroundColor: COLORS.midnight,
-    padding: 24,
+    paddingHorizontal: 24,
+    paddingBottom: 32,
+    paddingTop: 16,
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
     borderWidth: 1,
-    borderColor: 'rgba(140, 194, 255, 0.3)'
+    borderColor: 'rgba(140, 194, 255, 0.3)',
+    maxHeight: '85%',
+    width: '100%',
+    maxWidth: 520,
+    alignSelf: 'center',
+    overflow: 'hidden'
   },
   sheetHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12
+  },
+  disabledClose: {
+    opacity: 0.4
+  },
+  sheetHandle: {
+    alignSelf: 'center',
+    width: 56,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(230, 243, 255, 0.3)',
+    marginBottom: 12
+  },
+  sheetContent: {
+    paddingBottom: 24
   },
   sheetTitle: {
     color: COLORS.mint,
@@ -573,6 +690,12 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 20,
     gap: 8
+  },
+  resultMeta: {
+    marginTop: 8,
+    color: COLORS.ocean,
+    fontSize: 14,
+    lineHeight: 20
   },
   resultButton: {
     flex: 1,
