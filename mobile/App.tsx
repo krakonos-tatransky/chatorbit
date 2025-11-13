@@ -300,7 +300,8 @@ const NeedTokenForm: React.FC<{
 const TokenResultCard: React.FC<{
   token: TokenResponse;
   onReset: () => void;
-}> = ({ token, onReset }) => {
+  onStartInApp: () => void;
+}> = ({ token, onReset, onStartInApp }) => {
   const shareMessage = useMemo(() => `Join my ChatOrbit session using this token: ${token.token}`, [token.token]);
   const sessionMinutes = Math.max(1, Math.round(token.session_ttl_seconds / 60));
   const messageLimit = token.message_char_limit.toLocaleString();
@@ -318,7 +319,7 @@ const TokenResultCard: React.FC<{
     }
   };
 
-  const startSession = async () => {
+  const startSessionOnWeb = async () => {
     const sessionUrl = `https://chatorbit.com/session/${encodeURIComponent(token.token)}`;
     const supported = await Linking.canOpenURL(sessionUrl);
     if (supported) {
@@ -349,10 +350,17 @@ const TokenResultCard: React.FC<{
           <Text style={styles.resultButtonLabel}>Share</Text>
         </TouchableOpacity>
       </View>
-      <TouchableOpacity style={[styles.resultButton, styles.primaryResultButton]} onPress={startSession}>
-        <MaterialCommunityIcons name="rocket-launch-outline" size={20} color={COLORS.midnight} />
-        <Text style={[styles.resultButtonLabel, styles.primaryResultButtonLabel]}>Start session</Text>
-      </TouchableOpacity>
+      <Text style={styles.startSessionLabel}>Start session</Text>
+      <View style={styles.sessionButtonsRow}>
+        <TouchableOpacity style={[styles.resultButton, styles.primaryResultButton]} onPress={onStartInApp}>
+          <MaterialCommunityIcons name="tablet-cellphone" size={20} color={COLORS.midnight} />
+          <Text style={[styles.resultButtonLabel, styles.primaryResultButtonLabel]}>In app</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.resultButton, styles.primaryResultButton]} onPress={startSessionOnWeb}>
+          <MaterialCommunityIcons name="rocket-launch-outline" size={20} color={COLORS.midnight} />
+          <Text style={[styles.resultButtonLabel, styles.primaryResultButtonLabel]}>On web</Text>
+        </TouchableOpacity>
+      </View>
       <TouchableOpacity style={styles.resetButton} onPress={onReset}>
         <Text style={styles.resetButtonLabel}>Generate another token</Text>
       </TouchableOpacity>
@@ -360,18 +368,74 @@ const TokenResultCard: React.FC<{
   );
 };
 
-const GotTokenCard: React.FC = () => (
-  <View style={styles.gotTokenCard}>
-    <Text style={styles.gotTokenTitle}>Already have a token?</Text>
-    <Text style={styles.gotTokenSubtitle}>
-      We will soon add secure chat, video and collaborative boards powered by WebRTC. Stay tuned!
-    </Text>
-  </View>
-);
+const InAppSessionScreen: React.FC<{ token: TokenResponse; onExit: () => void }> = ({ token, onExit }) => {
+  return (
+    <View style={styles.inAppSessionContainer}>
+      <View style={styles.inAppHeader}>
+        <Text style={styles.inAppTitle}>Session cockpit</Text>
+        <Text style={styles.inAppSubtitle}>You're hosting directly from the app. Participants can join with the token below.</Text>
+      </View>
+      <View style={styles.inAppCard}>
+        <Text style={styles.inAppCardTitle}>Status</Text>
+        <Text style={styles.inAppCardBody}>Waiting for participants to connect…</Text>
+        <Text style={styles.inAppTokenLabel}>Session token</Text>
+        <Text style={styles.inAppToken}>{token.token}</Text>
+      </View>
+      <View style={[styles.inAppCard, styles.chatCard]}>
+        <Text style={styles.inAppCardTitle}>Chat preview</Text>
+        <Text style={styles.inAppCardBody}>Text chat will appear here once the realtime channel is active.</Text>
+      </View>
+      <TouchableOpacity style={styles.exitSessionButton} onPress={onExit}>
+        <Text style={styles.exitSessionButtonLabel}>Back to token details</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
 
 const MainScreen: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [tokenResponse, setTokenResponse] = useState<TokenResponse | null>(null);
+  const [inAppSession, setInAppSession] = useState(false);
+
+  const handleReset = () => {
+    setTokenResponse(null);
+    setInAppSession(false);
+  };
+
+  const renderContent = () => {
+    if (tokenResponse && inAppSession) {
+      return <InAppSessionScreen token={tokenResponse} onExit={() => setInAppSession(false)} />;
+    }
+
+    if (tokenResponse) {
+      return (
+        <TokenResultCard
+          token={tokenResponse}
+          onReset={handleReset}
+          onStartInApp={() => setInAppSession(true)}
+        />
+      );
+    }
+
+    return (
+      <View style={styles.actionRow}>
+        <BigActionButton
+          title="Need token"
+          description="Create a secure pass with custom duration."
+          onPress={() => setShowForm(true)}
+          background={COLORS.ice}
+          icon={<Ionicons name="planet" size={42} color={COLORS.deepBlue} />}
+        />
+        <BigActionButton
+          title="Got token"
+          description="Coming soon: instantly jump into live orbit."
+          onPress={() => Alert.alert('Coming soon', 'Session join will arrive with the WebRTC update!')}
+          background={COLORS.lilac}
+          icon={<MaterialCommunityIcons name="shield-check" size={42} color={COLORS.deepBlue} />}
+        />
+      </View>
+    );
+  };
 
   return (
     <LinearGradient colors={[COLORS.deepBlue, COLORS.ocean, COLORS.lagoon]} style={styles.container}>
@@ -382,26 +446,7 @@ const MainScreen: React.FC = () => {
           Generate a one-time secure token or prepare to join an existing session with a single tap.
         </Text>
       </View>
-      {tokenResponse ? (
-        <TokenResultCard token={tokenResponse} onReset={() => setTokenResponse(null)} />
-      ) : (
-        <View style={styles.actionRow}>
-          <BigActionButton
-            title="Need token"
-            description="Create a secure pass with custom duration."
-            onPress={() => setShowForm(true)}
-            background={COLORS.ice}
-            icon={<Ionicons name="planet" size={42} color={COLORS.deepBlue} />}
-          />
-          <BigActionButton
-            title="Got token"
-            description="Coming soon: instantly jump into live orbit."
-            onPress={() => Alert.alert('Coming soon', 'Session join will arrive with the WebRTC update!')}
-            background={COLORS.lilac}
-            icon={<MaterialCommunityIcons name="shield-check" size={42} color={COLORS.deepBlue} />}
-          />
-        </View>
-      )}
+      {renderContent()}
       <NeedTokenForm
         visible={showForm && !tokenResponse}
         onClose={() => setShowForm(false)}
@@ -410,7 +455,6 @@ const MainScreen: React.FC = () => {
           setTokenResponse(token);
         }}
       />
-      {!showForm && <GotTokenCard />}
     </LinearGradient>
   );
 };
@@ -689,11 +733,22 @@ const styles = StyleSheet.create({
   },
   primaryResultButton: {
     backgroundColor: COLORS.solar,
-    marginTop: 12,
     alignSelf: 'stretch'
   },
   primaryResultButtonLabel: {
     color: COLORS.midnight
+  },
+  startSessionLabel: {
+    marginTop: 20,
+    color: COLORS.deepBlue,
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center'
+  },
+  sessionButtonsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 12
   },
   resetButton: {
     marginTop: 24,
@@ -705,22 +760,81 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
     fontWeight: '600'
   },
-  gotTokenCard: {
-    marginTop: 24,
-    backgroundColor: 'rgba(230, 243, 255, 0.2)',
-    borderRadius: 24,
-    padding: 20,
+  inAppSessionContainer: {
     width: '100%',
-    maxWidth: 520
+    maxWidth: 520,
+    backgroundColor: 'rgba(230, 243, 255, 0.92)',
+    borderRadius: 28,
+    padding: 24,
+    marginBottom: 32,
+    shadowColor: COLORS.midnight,
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10
   },
-  gotTokenTitle: {
-    color: COLORS.white,
-    fontSize: 18,
-    fontWeight: '700'
+  inAppHeader: {
+    marginBottom: 20
   },
-  gotTokenSubtitle: {
-    color: 'rgba(230, 243, 255, 0.75)',
+  inAppTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: COLORS.deepBlue
+  },
+  inAppSubtitle: {
     marginTop: 8,
+    color: COLORS.ocean,
     lineHeight: 20
+  },
+  inAppCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: COLORS.midnight,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    elevation: 4
+  },
+  inAppCardTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.deepBlue
+  },
+  inAppCardBody: {
+    marginTop: 8,
+    color: COLORS.ocean,
+    lineHeight: 20
+  },
+  inAppTokenLabel: {
+    marginTop: 16,
+    color: COLORS.deepBlue,
+    fontSize: 12,
+    textTransform: 'uppercase',
+    fontWeight: '700',
+    letterSpacing: 1
+  },
+  inAppToken: {
+    marginTop: 8,
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.solar,
+    letterSpacing: 1.1
+  },
+  chatCard: {
+    borderStyle: 'dashed',
+    borderWidth: 1.5,
+    borderColor: 'rgba(7, 27, 47, 0.18)'
+  },
+  exitSessionButton: {
+    marginTop: 8,
+    alignSelf: 'center'
+  },
+  exitSessionButtonLabel: {
+    color: COLORS.deepBlue,
+    fontSize: 15,
+    textDecorationLine: 'underline',
+    fontWeight: '600'
   }
 });
