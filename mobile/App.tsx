@@ -601,16 +601,18 @@ const styles = StyleSheet.create({
   pickerWrapper: {
     borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: 'rgba(230, 243, 255, 0.12)'
+    backgroundColor: 'rgba(230, 243, 255, 0.12)',
+    height: 132
   },
   picker: {
-    color: COLORS.white,
-    width: '100%'
+    color: COLORS.mint,
+    width: '100%',
+    height: '100%'
   },
   pickerItem: {
-    color: COLORS.deepBlue,
+    color: COLORS.mint,
     fontSize: 16,
-    height: 160
+    height: 132
   },
   generateButton: {
     marginTop: 16,
