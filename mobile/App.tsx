@@ -33,6 +33,7 @@ const COLORS = {
 };
 
 const API_BASE_URL = 'https://endpoints.chatorbit.com/api';
+const MOBILE_CLIENT_IDENTITY = 'mobile-app-host';
 
 const TERMS_TEXT = `Welcome to ChatOrbit!\n\nBefore generating secure session tokens, please take a moment to review these highlights:\n\n• Tokens are valid only for the duration selected during creation.\n• Share your token only with trusted participants.\n• Generated sessions may be monitored for quality and abuse prevention.\n• Using the token implies that you agree to abide by ChatOrbit community guidelines.\n\nThis preview app is designed for rapid testing of the ChatOrbit realtime experience. By continuing you acknowledge that:\n\n1. You are authorised to request access tokens on behalf of your organisation or team.\n2. All interactions facilitated by the token must respect local regulations regarding recorded communication.\n3. ChatOrbit may contact you for product feedback using the email or account associated with your workspace.\n4. Abuse of the system, including sharing illicit content, will result in automatic suspension of the workspace.\n\nScroll to the bottom of this message to enable the Accept button. Thank you for helping us keep the orbit safe and collaborative!`;
 
@@ -52,6 +53,16 @@ type TokenResponse = {
   session_ttl_seconds: number;
   message_char_limit: number;
   created_at: string;
+};
+
+type JoinResponse = {
+  token: string;
+  participant_id: string;
+  role: string;
+  session_active: boolean;
+  session_started_at: string | null;
+  session_expires_at: string | null;
+  message_char_limit: number;
 };
 
 type ValidityOption = {
@@ -305,6 +316,8 @@ const TokenResultCard: React.FC<{
   const shareMessage = useMemo(() => `Join my ChatOrbit session using this token: ${token.token}`, [token.token]);
   const sessionMinutes = Math.max(1, Math.round(token.session_ttl_seconds / 60));
   const messageLimit = token.message_char_limit.toLocaleString();
+  const [launchingWeb, setLaunchingWeb] = useState(false);
+  const [storedParticipantId, setStoredParticipantId] = useState<string | null>(null);
 
   const copyToClipboard = async () => {
     await Clipboard.setStringAsync(token.token);
@@ -320,12 +333,70 @@ const TokenResultCard: React.FC<{
   };
 
   const startSessionOnWeb = async () => {
-    const sessionUrl = `https://chatorbit.com/session/${encodeURIComponent(token.token)}`;
-    const supported = await Linking.canOpenURL(sessionUrl);
-    if (supported) {
-      await Linking.openURL(sessionUrl);
-    } else {
-      Alert.alert('Cannot open session', 'Your device cannot open the ChatOrbit session URL.');
+    if (launchingWeb) {
+      return;
+    }
+
+    try {
+      setLaunchingWeb(true);
+      let participantId = storedParticipantId;
+
+      if (!participantId) {
+        const response = await fetch(`${API_BASE_URL}/sessions/join`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            token: token.token.trim(),
+            participant_id: storedParticipantId ?? undefined,
+            client_identity: MOBILE_CLIENT_IDENTITY
+          })
+        });
+
+        const rawBody = await response.text();
+
+        if (!response.ok) {
+          let friendlyMessage = rawBody || 'Unable to start a web session.';
+          try {
+            const parsed = JSON.parse(rawBody);
+            if (typeof parsed?.detail === 'string') {
+              friendlyMessage = parsed.detail;
+            } else if (Array.isArray(parsed?.detail)) {
+              friendlyMessage = parsed.detail.map((item: any) => item?.msg).filter(Boolean).join('\n');
+            }
+          } catch {
+            // Ignore JSON parsing issues and fall back to the raw response text.
+          }
+          throw new Error(friendlyMessage);
+        }
+
+        try {
+          const payload = JSON.parse(rawBody) as JoinResponse;
+          participantId = payload?.participant_id ?? null;
+          if (participantId) {
+            setStoredParticipantId(participantId);
+          }
+        } catch {
+          throw new Error('Received an unexpected response from the session join API.');
+        }
+      }
+
+      if (!participantId) {
+        throw new Error('Missing participant details for launching the web session.');
+      }
+
+      const sessionUrl = `https://chatorbit.com/session/${encodeURIComponent(token.token)}?participant=${encodeURIComponent(participantId)}`;
+      const supported = await Linking.canOpenURL(sessionUrl);
+      if (supported) {
+        await Linking.openURL(sessionUrl);
+      } else {
+        throw new Error('Your device cannot open the ChatOrbit session URL.');
+      }
+    } catch (error: any) {
+      Alert.alert('Cannot open session', error?.message ?? 'Unexpected error while launching the session.');
+    } finally {
+      setLaunchingWeb(false);
     }
   };
 
@@ -356,9 +427,23 @@ const TokenResultCard: React.FC<{
           <MaterialCommunityIcons name="tablet-cellphone" size={20} color={COLORS.midnight} />
           <Text style={[styles.resultButtonLabel, styles.primaryResultButtonLabel]}>In app</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.resultButton, styles.primaryResultButton]} onPress={startSessionOnWeb}>
-          <MaterialCommunityIcons name="rocket-launch-outline" size={20} color={COLORS.midnight} />
-          <Text style={[styles.resultButtonLabel, styles.primaryResultButtonLabel]}>On web</Text>
+        <TouchableOpacity
+          style={[
+            styles.resultButton,
+            styles.primaryResultButton,
+            launchingWeb && styles.primaryResultButtonDisabled
+          ]}
+          onPress={startSessionOnWeb}
+          disabled={launchingWeb}
+        >
+          {launchingWeb ? (
+            <ActivityIndicator color={COLORS.midnight} />
+          ) : (
+            <MaterialCommunityIcons name="rocket-launch-outline" size={20} color={COLORS.midnight} />
+          )}
+          <Text style={[styles.resultButtonLabel, styles.primaryResultButtonLabel]}>
+            {launchingWeb ? 'Opening…' : 'On web'}
+          </Text>
         </TouchableOpacity>
       </View>
       <TouchableOpacity style={styles.resetButton} onPress={onReset}>
@@ -737,6 +822,9 @@ const styles = StyleSheet.create({
   },
   primaryResultButtonLabel: {
     color: COLORS.midnight
+  },
+  primaryResultButtonDisabled: {
+    opacity: 0.6
   },
   startSessionLabel: {
     marginTop: 20,
