@@ -17,6 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useFonts } from 'expo-font';
 
 const COLORS = {
   midnight: '#071B2F',
@@ -339,7 +340,20 @@ const MainScreen: React.FC = () => {
 };
 
 export default function App() {
+  const [fontsLoaded] = useFonts({
+    ...Ionicons.font,
+    ...MaterialCommunityIcons.font
+  });
   const [accepted, setAccepted] = useState(false);
+
+  if (!fontsLoaded) {
+    return (
+      <LinearGradient colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean]} style={styles.loadingContainer}>
+        <StatusBar style="light" />
+        <ActivityIndicator color={COLORS.mint} size="large" />
+      </LinearGradient>
+    );
+  }
 
   if (!accepted) {
     return <AcceptScreen onAccept={() => setAccepted(true)} />;
@@ -349,6 +363,11 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
   container: {
     flex: 1,
     alignItems: 'center',
