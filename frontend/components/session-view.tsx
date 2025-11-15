@@ -2457,7 +2457,24 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         console.error("Unable to parse data channel payload", cause);
       }
     },
-    [ensureEncryptionKey, sendCapabilities, supportsEncryption, token],
+    [
+      attachLocalMedia,
+      callState,
+      ensureEncryptionKey,
+      participantRole,
+      renegotiate,
+      requestRenegotiation,
+      sendCapabilities,
+      sendCallMessage,
+      setCallDialogOpen,
+      setCallState,
+      setIncomingCallFrom,
+      showCallNotice,
+      stopLocalMediaTracks,
+      supportsEncryption,
+      teardownCall,
+      token,
+    ],
   );
 
   const attachDataChannel = useCallback(
@@ -3075,7 +3092,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     }
 
     bootstrap();
-  }, [participantId, sessionEnded, token]);
+  }, [participantId, sessionEnded, termsAccepted, token]);
 
   useEffect(() => {
     if (!participantId || !sessionStatus) {
