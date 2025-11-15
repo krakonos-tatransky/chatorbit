@@ -737,7 +737,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24
   },
   containerInSession: {
-    paddingTop: 24
+    paddingTop: 24,
+    paddingHorizontal: 12
   },
   termsCard: {
     borderRadius: 28,
@@ -1018,8 +1019,8 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 520,
     borderRadius: 28,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     marginBottom: 32,
     borderWidth: 1,
     borderColor: COLORS.glowEdge,
