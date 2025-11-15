@@ -7,7 +7,7 @@ This Expo + React Native application prototypes the ChatOrbit iPhone experience 
 - Scroll-to-accept onboarding gate before using the app.
 - Bold hero screen with "Need token" and "Got token" actions inspired by the ChatOrbit website.
 - Slide-up native form to choose token duration and experience tier using iOS pickers.
-- Calls the production API at `https://endpoints.chatorbit.com/token` to request session tokens.
+- Calls the API defined by `EXPO_PUBLIC_API_BASE_URL` (defaults to `https://endpoints.chatorbit.com/api`) to request session tokens.
 - Presents the issued token with copy, share, and quick start controls.
 - Vibrant blue-forward gradient theme that mirrors the ChatOrbit visual identity.
 
@@ -23,6 +23,21 @@ npm run ios # requires Xcode / iOS simulator
 > workspace-local entry points and configuration correctly.
 
 You can also run `npm run start` to choose the desired platform from the Expo CLI interface.
+
+### Configure environment variables
+
+The Expo app reads the same ICE/STUN/TURN settings as the web client via `EXPO_PUBLIC_*` variables.
+Copy `.env.example` to `.env` and tweak the values to point at your API, websocket, and TURN
+infrastructure:
+
+```bash
+cd mobile
+cp .env.example .env
+# edit .env to match your endpoints and credentials
+```
+
+If you already maintain a `.env.local` for the Next.js frontend, you can reuse the same STUN/TURN
+values here (the mobile helper automatically falls back to `NEXT_PUBLIC_*` keys when present).
 
 ### Configure your default editor for Expo Go
 
