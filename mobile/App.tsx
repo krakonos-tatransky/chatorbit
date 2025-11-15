@@ -879,11 +879,7 @@ const InAppSessionScreen: React.FC<{
             <Text style={styles.inAppSubtitle}>Keep this screen open while participants join.</Text>
           </View>
         </View>
-        <ScrollView
-          style={styles.sessionScrollContainer}
-          contentContainerStyle={styles.sessionScrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
+        <View style={styles.sessionContent}>
           <View style={styles.sessionStatusCard}>
             <View style={styles.sessionCardHeader}>
               <Text style={styles.sessionCardTitle}>Session status</Text>
@@ -1036,7 +1032,7 @@ const InAppSessionScreen: React.FC<{
               </Text>
             </View>
           </View>
-        </ScrollView>
+        </View>
       </SafeAreaView>
     </LinearGradient>
   );
@@ -1542,10 +1538,8 @@ const styles = StyleSheet.create({
     color: 'rgba(219, 237, 255, 0.78)',
     lineHeight: 20
   },
-  sessionScrollContainer: {
-    flex: 1
-  },
-  sessionScrollContent: {
+  sessionContent: {
+    flex: 1,
     paddingBottom: 28,
     gap: 18
   },
@@ -1706,12 +1700,12 @@ const styles = StyleSheet.create({
     fontWeight: '600'
   },
   messageList: {
-    flexGrow: 0,
-    marginTop: 16,
-    maxHeight: 260
+    flex: 1,
+    marginTop: 16
   },
   messageListContent: {
-    paddingBottom: 12
+    paddingBottom: 12,
+    flexGrow: 1
   },
   messageBubble: {
     paddingHorizontal: 14,
