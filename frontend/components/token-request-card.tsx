@@ -298,7 +298,7 @@ export function TokenRequestCard() {
     } finally {
       setStartSessionLoading(false);
     }
-    }, [result?.token, router, tokenCard.tokenJoinError, tokenCard.unknownError]);
+  }, [result?.token, router]);
 
   return (
     <div className="card card--cyan">

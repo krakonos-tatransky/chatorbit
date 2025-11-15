@@ -1,4 +1,3 @@
-/* eslint-disable react/no-unescaped-entities */
 import type { ReactNode } from "react";
 
 export type LanguageCode = "en" | "sk";
