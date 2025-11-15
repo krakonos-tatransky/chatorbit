@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   Linking,
   Modal,
   SafeAreaView,
@@ -9,6 +10,7 @@ import {
   Share,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
@@ -18,7 +20,6 @@ import * as Clipboard from 'expo-clipboard';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { useFonts } from 'expo-font';
-import { WebView } from 'react-native-webview';
 
 const COLORS = {
   midnight: '#020B1F',
@@ -103,6 +104,37 @@ const SESSION_TTL_MINUTES: Record<string, number> = {
 
 const DEFAULT_MESSAGE_CHAR_LIMIT = 2000;
 
+type SessionParticipant = {
+  participant_id: string;
+  role: string;
+  joined_at: string;
+};
+
+type SessionStatus = {
+  token: string;
+  status: string;
+  validity_expires_at: string;
+  session_started_at: string | null;
+  session_expires_at: string | null;
+  message_char_limit: number;
+  participants: SessionParticipant[];
+  remaining_seconds: number | null;
+};
+
+type SessionStatusSocketPayload = SessionStatus & {
+  type: string;
+  connected_participants?: string[];
+};
+
+type ChatMessage = {
+  id: string;
+  sender: 'self' | 'peer' | 'system';
+  body: string;
+  timestamp: number;
+};
+
+const SESSION_POLL_INTERVAL_MS = 12000;
+
 const extractFriendlyError = (rawBody: string): string => {
   if (!rawBody) {
     return 'Unexpected response from the server.';
@@ -163,6 +195,101 @@ const joinSession = async (
       throw error;
     }
     throw new Error('Received an unexpected response from the session join API.');
+  }
+};
+
+const fetchSessionStatus = async (
+  tokenValue: string,
+  signal?: AbortSignal
+): Promise<SessionStatus> => {
+  const response = await fetch(`${API_BASE_URL}/sessions/${encodeURIComponent(tokenValue)}/status`, {
+    method: 'GET',
+    signal
+  });
+
+  const rawBody = await response.text();
+
+  if (!response.ok) {
+    throw new Error(extractFriendlyError(rawBody) || 'Unable to load the session status.');
+  }
+
+  try {
+    return JSON.parse(rawBody) as SessionStatus;
+  } catch (error) {
+    console.error('Failed to parse session status payload', error);
+    throw new Error('Received an invalid session status payload.');
+  }
+};
+
+const createMessageId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+const formatRemainingTime = (seconds: number | null) => {
+  if (seconds == null) {
+    return 'Session will begin once a guest joins.';
+  }
+  if (seconds <= 0) {
+    return 'Session timer elapsed.';
+  }
+  const rounded = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const secs = rounded % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes.toString().padStart(2, '0')}m remaining`;
+  }
+  return `${minutes}m ${secs.toString().padStart(2, '0')}s remaining`;
+};
+
+const formatJoinedAt = (isoString: string) => {
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) {
+    return 'Joined time unavailable';
+  }
+  return `Joined ${date.toLocaleString()}`;
+};
+
+const mapStatusLabel = (status: string | undefined) => {
+  switch (status) {
+    case 'active':
+      return 'Active';
+    case 'issued':
+      return 'Waiting';
+    case 'closed':
+      return 'Closed';
+    case 'expired':
+      return 'Expired';
+    case 'deleted':
+      return 'Deleted';
+    default:
+      return 'Unknown';
+  }
+};
+
+const mapStatusDescription = (status: string | undefined) => {
+  switch (status) {
+    case 'active':
+      return 'Both participants are connected to the live session.';
+    case 'issued':
+      return 'Share the token with your guest to begin the session.';
+    case 'closed':
+      return 'This session has been closed.';
+    case 'expired':
+      return 'This session expired before both participants connected.';
+    case 'deleted':
+      return 'This session is no longer available.';
+    default:
+      return 'Session status is being determined.';
+  }
+};
+
+const statusVariant = (status: string | undefined) => {
+  switch (status) {
+    case 'active':
+      return 'success';
+    case 'issued':
+      return 'waiting';
+    default:
+      return 'inactive';
   }
 };
 
@@ -519,16 +646,220 @@ const InAppSessionScreen: React.FC<{
   participantId: string;
   onExit: () => void;
 }> = ({ token, participantId, onExit }) => {
-  const [webViewLoaded, setWebViewLoaded] = useState(false);
-  const sessionUrl = useMemo(
-    () =>
-      `https://chatorbit.com/session/${encodeURIComponent(token.token)}?participant=${encodeURIComponent(participantId)}&source=mobile`,
-    [token.token, participantId]
-  );
+  const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
+  const [connectedParticipantIds, setConnectedParticipantIds] = useState<string[]>([]);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    {
+      id: createMessageId(),
+      sender: 'system',
+      body: 'Session cockpit ready. Waiting for participants to join the conversation.',
+      timestamp: Date.now()
+    }
+  ]);
+  const [draft, setDraft] = useState('');
+  const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
+  const messageListRef = useRef<FlatList<ChatMessage> | null>(null);
+  const socketRef = useRef<WebSocket | null>(null);
+  const lastParticipantIdsRef = useRef<string[]>([]);
 
   useEffect(() => {
-    setWebViewLoaded(false);
-  }, [sessionUrl]);
+    let isMounted = true;
+    const controller = new AbortController();
+    const loadStatus = async (showSpinner: boolean) => {
+      if (showSpinner) {
+        setStatusLoading(true);
+        setStatusError(null);
+      }
+      try {
+        const status = await fetchSessionStatus(token.token, controller.signal);
+        if (isMounted) {
+          setSessionStatus(status);
+          setRemainingSeconds(status.remaining_seconds ?? null);
+          lastParticipantIdsRef.current = status.participants.map((participant) => participant.participant_id);
+          setConnectedParticipantIds((prev) => {
+            if (!prev.length) {
+              return prev;
+            }
+            const allowed = new Set(status.participants.map((participant) => participant.participant_id));
+            return prev.filter((id) => allowed.has(id));
+          });
+          setStatusError(null);
+        }
+      } catch (error: any) {
+        if (isMounted && !controller.signal.aborted) {
+          setStatusError(error?.message ?? 'Unable to load the session status.');
+        }
+      } finally {
+        if (isMounted && showSpinner) {
+          setStatusLoading(false);
+        }
+      }
+    };
+    loadStatus(true);
+
+    const interval = setInterval(() => {
+      loadStatus(false);
+    }, SESSION_POLL_INTERVAL_MS);
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+      clearInterval(interval);
+    };
+  }, [token.token]);
+
+  useEffect(() => {
+    if (!participantId) {
+      return;
+    }
+
+    const url = `wss://endpoints.chatorbit.com/ws/sessions/${encodeURIComponent(token.token)}?participantId=${encodeURIComponent(participantId)}`;
+    let closedByEffect = false;
+    let socket: WebSocket | null = null;
+
+    try {
+      socket = new WebSocket(url);
+      socketRef.current = socket;
+    } catch (error) {
+      console.warn('Unable to open realtime session socket', error);
+      setStatusError('Unable to open realtime connection. Some updates may be delayed.');
+      return;
+    }
+
+    socket.onopen = () => {
+      setStatusError(null);
+    };
+
+    socket.onerror = () => {
+      setStatusError('Realtime connection interrupted. Attempting to reconnect…');
+    };
+
+    socket.onclose = () => {
+      socketRef.current = null;
+      if (!closedByEffect) {
+        setStatusError((prev) => prev ?? 'Realtime connection closed.');
+      }
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data) as SessionStatusSocketPayload | { type: string };
+        if (payload.type === 'status') {
+          const { connected_participants, type: _ignoredType, ...rest } = payload as SessionStatusSocketPayload;
+          setSessionStatus(rest);
+          setRemainingSeconds(rest.remaining_seconds ?? null);
+          setConnectedParticipantIds(Array.isArray(connected_participants) ? connected_participants : []);
+          if (statusLoading) {
+            setStatusLoading(false);
+          }
+        } else if (payload.type === 'session_closed') {
+          setStatusError('The session has been closed.');
+        } else if (payload.type === 'session_expired') {
+          setStatusError('The session has expired.');
+        } else if (payload.type === 'session_deleted') {
+          setStatusError('The session is no longer available.');
+        }
+      } catch (error) {
+        console.warn('Unable to process websocket payload', error);
+      }
+    };
+
+    return () => {
+      closedByEffect = true;
+      if (socketRef.current) {
+        try {
+          socketRef.current.close();
+        } catch (error) {
+          console.warn('Failed to close session socket', error);
+        }
+      }
+      socketRef.current = null;
+    };
+  }, [participantId, token.token]);
+
+  useEffect(() => {
+    if (sessionStatus) {
+      const nextRemaining = sessionStatus.remaining_seconds ?? null;
+      setRemainingSeconds(nextRemaining);
+    }
+  }, [sessionStatus?.remaining_seconds]);
+
+  useEffect(() => {
+    if (remainingSeconds == null) {
+      return;
+    }
+    if (remainingSeconds <= 0) {
+      return;
+    }
+    const timeout = setTimeout(() => {
+      setRemainingSeconds((prev) => (prev == null || prev <= 0 ? prev : prev - 1));
+    }, 1000);
+    return () => clearTimeout(timeout);
+  }, [remainingSeconds]);
+
+  useEffect(() => {
+    if (!sessionStatus) {
+      return;
+    }
+    const currentIds = sessionStatus.participants.map((participant) => participant.participant_id);
+    const previousIds = lastParticipantIdsRef.current;
+    if (previousIds.length === 0) {
+      lastParticipantIdsRef.current = currentIds;
+      return;
+    }
+    const newlyJoined = sessionStatus.participants.filter(
+      (participant) => !previousIds.includes(participant.participant_id)
+    );
+    if (newlyJoined.length > 0) {
+      setMessages((prev) => [
+        ...prev,
+        ...newlyJoined.map((participant) => ({
+          id: createMessageId(),
+          sender: 'system',
+          body: `${participant.role === 'host' ? 'Host' : 'Guest'} joined the session.`,
+          timestamp: Date.now()
+        }))
+      ]);
+    }
+    lastParticipantIdsRef.current = currentIds;
+  }, [sessionStatus]);
+
+  useEffect(() => {
+    if (!messageListRef.current) {
+      return;
+    }
+    messageListRef.current.scrollToEnd({ animated: true });
+  }, [messages]);
+
+  const handleSendMessage = () => {
+    const trimmed = draft.trim();
+    if (!trimmed) {
+      return;
+    }
+    if (sessionStatus?.message_char_limit && trimmed.length > sessionStatus.message_char_limit) {
+      Alert.alert('Message too long', `Messages are limited to ${sessionStatus.message_char_limit} characters.`);
+      return;
+    }
+    const nextMessage: ChatMessage = {
+      id: createMessageId(),
+      sender: 'self',
+      body: trimmed,
+      timestamp: Date.now()
+    };
+    setMessages((prev) => [...prev, nextMessage]);
+    setDraft('');
+  };
+
+  const sessionStatusLabel = mapStatusLabel(sessionStatus?.status);
+  const sessionStatusDescription = mapStatusDescription(sessionStatus?.status);
+  const statusIndicatorVariant = statusVariant(sessionStatus?.status);
+  const messageLimit = sessionStatus?.message_char_limit ?? token.message_char_limit ?? DEFAULT_MESSAGE_CHAR_LIMIT;
+  const canSendMessage = sessionStatus?.status === 'active';
+  const sendDisabled = !canSendMessage || !draft.trim();
+  const connectedCount = connectedParticipantIds.length;
+  const participants = sessionStatus?.participants ?? [];
 
   return (
     <LinearGradient
@@ -548,23 +879,164 @@ const InAppSessionScreen: React.FC<{
             <Text style={styles.inAppSubtitle}>Keep this screen open while participants join.</Text>
           </View>
         </View>
-        <View style={styles.sessionWebViewWrapper}>
-          {!webViewLoaded && (
-            <View style={styles.webViewLoadingOverlay}>
-              <ActivityIndicator color={COLORS.aurora} size="large" />
-              <Text style={styles.webViewLoadingText}>Preparing realtime channel…</Text>
+        <ScrollView
+          style={styles.sessionScrollContainer}
+          contentContainerStyle={styles.sessionScrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.sessionStatusCard}>
+            <View style={styles.sessionCardHeader}>
+              <Text style={styles.sessionCardTitle}>Session status</Text>
+              <View
+                style={[
+                  styles.statusPill,
+                  statusIndicatorVariant === 'success'
+                    ? styles.statusPillSuccess
+                    : statusIndicatorVariant === 'waiting'
+                      ? styles.statusPillWaiting
+                      : styles.statusPillInactive
+                ]}
+              >
+                <View style={styles.statusPillIndicator} />
+                <Text style={styles.statusPillLabel}>{sessionStatusLabel}</Text>
+              </View>
             </View>
-          )}
-          <WebView
-            originWhitelist={["*"]}
-            source={{ uri: sessionUrl }}
-            style={styles.sessionWebView}
-            onLoadEnd={() => setWebViewLoaded(true)}
-            allowsInlineMediaPlayback
-            mediaPlaybackRequiresUserAction={false}
-            allowsFullscreenVideo
-          />
-        </View>
+            <Text style={styles.sessionCardDescription}>{sessionStatusDescription}</Text>
+            {statusLoading ? (
+              <View style={styles.statusLoadingRow}>
+                <ActivityIndicator color={COLORS.aurora} />
+                <Text style={styles.statusLoadingLabel}>Loading session details…</Text>
+              </View>
+            ) : statusError ? (
+              <View style={styles.statusErrorBanner}>
+                <Ionicons name="alert-circle" size={18} color={COLORS.danger} />
+                <Text style={styles.statusErrorLabel}>{statusError}</Text>
+              </View>
+            ) : (
+              <View style={styles.statusMetricsContainer}>
+                <View style={styles.statusMetricRow}>
+                  <Text style={styles.statusMetricLabel}>Timer</Text>
+                  <Text style={styles.statusMetricValue}>{formatRemainingTime(remainingSeconds)}</Text>
+                </View>
+                <View style={styles.statusMetricRow}>
+                  <Text style={styles.statusMetricLabel}>Message limit</Text>
+                  <Text style={styles.statusMetricValue}>{messageLimit.toLocaleString()} characters</Text>
+                </View>
+                <View style={styles.statusMetricRow}>
+                  <Text style={styles.statusMetricLabel}>Connected</Text>
+                  <Text style={styles.statusMetricValue}>
+                    {connectedCount}/{Math.max(participants.length, 2)} participants
+                  </Text>
+                </View>
+                <View style={styles.participantList}>
+                  {participants.length === 0 ? (
+                    <Text style={styles.participantEmpty}>Waiting for participants to join…</Text>
+                  ) : (
+                    participants.map((participant) => {
+                      const isConnected = connectedParticipantIds.includes(participant.participant_id);
+                      return (
+                        <View key={participant.participant_id} style={styles.participantRow}>
+                          <View style={styles.participantDetails}>
+                            <Text style={styles.participantRoleLabel}>
+                              {participant.role === 'host' ? 'Host' : 'Guest'}
+                            </Text>
+                            <Text style={styles.participantMeta}>{formatJoinedAt(participant.joined_at)}</Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.participantBadge,
+                              isConnected ? styles.participantBadgeOnline : styles.participantBadgeOffline
+                            ]}
+                          >
+                            <Text style={styles.participantBadgeLabel}>
+                              {isConnected ? 'Connected' : 'Awaiting connection'}
+                            </Text>
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.sessionChatCard}>
+            <View style={styles.sessionCardHeader}>
+              <Text style={styles.sessionCardTitle}>Messages</Text>
+              <Text style={styles.chatMetaLabel}>
+                {canSendMessage ? 'Live' : 'Waiting for both participants'}
+              </Text>
+            </View>
+            <FlatList
+              ref={(ref) => {
+                messageListRef.current = ref;
+              }}
+              data={messages}
+              keyExtractor={(item) => item.id}
+              style={styles.messageList}
+              contentContainerStyle={styles.messageListContent}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item }) => (
+                <View
+                  style={[
+                    styles.messageBubble,
+                    item.sender === 'self'
+                      ? styles.messageBubbleSelf
+                      : item.sender === 'peer'
+                        ? styles.messageBubblePeer
+                        : styles.messageBubbleSystem
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.messageText,
+                      item.sender === 'system' && styles.messageTextSystem,
+                      item.sender === 'peer' && styles.messageTextPeer
+                    ]}
+                  >
+                    {item.body}
+                  </Text>
+                  <Text style={styles.messageTimestamp}>
+                    {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                </View>
+              )}
+              ListEmptyComponent={
+                <Text style={styles.messageEmptyState}>No messages yet. Say hello once everyone is ready!</Text>
+              }
+            />
+            <View style={styles.messageComposer}>
+              {!canSendMessage && (
+                <Text style={styles.messageComposerHint}>
+                  Messages can be sent once both participants are connected.
+                </Text>
+              )}
+              <View style={styles.messageComposerRow}>
+                <TextInput
+                  style={styles.messageInput}
+                  placeholder="Type a message"
+                  placeholderTextColor="rgba(219, 237, 255, 0.55)"
+                  multiline
+                  value={draft}
+                  onChangeText={setDraft}
+                  editable={canSendMessage}
+                  maxLength={messageLimit}
+                />
+                <TouchableOpacity
+                  style={[styles.messageSendButton, sendDisabled && styles.messageSendButtonDisabled]}
+                  onPress={handleSendMessage}
+                  disabled={sendDisabled}
+                >
+                  <Ionicons name="send" size={18} color={sendDisabled ? 'rgba(2, 11, 31, 0.6)' : COLORS.midnight} />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.messageLimitLabel}>
+                {draft.length}/{messageLimit} characters
+              </Text>
+            </View>
+          </View>
+        </ScrollView>
       </SafeAreaView>
     </LinearGradient>
   );
@@ -1070,29 +1542,269 @@ const styles = StyleSheet.create({
     color: 'rgba(219, 237, 255, 0.78)',
     lineHeight: 20
   },
-  sessionWebViewWrapper: {
-    flex: 1,
-    borderRadius: 22,
-    overflow: 'hidden',
+  sessionScrollContainer: {
+    flex: 1
+  },
+  sessionScrollContent: {
+    paddingBottom: 28,
+    gap: 18
+  },
+  sessionStatusCard: {
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: 'rgba(111, 214, 255, 0.4)',
+    borderColor: 'rgba(111, 214, 255, 0.45)',
+    backgroundColor: 'rgba(2, 11, 31, 0.78)',
+    padding: 20,
+    gap: 14
+  },
+  sessionChatCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.38)',
+    backgroundColor: 'rgba(6, 36, 92, 0.66)',
+    padding: 20,
+    flex: 1,
+    minHeight: 320
+  },
+  sessionCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  sessionCardTitle: {
+    color: COLORS.ice,
+    fontSize: 18,
+    fontWeight: '700'
+  },
+  sessionCardDescription: {
+    color: 'rgba(219, 237, 255, 0.78)',
+    lineHeight: 20
+  },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999
+  },
+  statusPillIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: COLORS.ice
+  },
+  statusPillLabel: {
+    color: COLORS.midnight,
+    fontWeight: '600',
+    fontSize: 13
+  },
+  statusPillSuccess: {
+    backgroundColor: COLORS.aurora
+  },
+  statusPillWaiting: {
+    backgroundColor: '#FFD166'
+  },
+  statusPillInactive: {
+    backgroundColor: 'rgba(219, 237, 255, 0.68)'
+  },
+  statusLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10
+  },
+  statusLoadingLabel: {
+    color: 'rgba(219, 237, 255, 0.82)',
+    fontWeight: '600'
+  },
+  statusErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(239, 71, 111, 0.16)',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 71, 111, 0.32)'
+  },
+  statusErrorLabel: {
+    color: COLORS.danger,
+    flex: 1,
+    fontWeight: '600'
+  },
+  statusMetricsContainer: {
+    gap: 12
+  },
+  statusMetricRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  statusMetricLabel: {
+    color: 'rgba(219, 237, 255, 0.7)',
+    fontWeight: '600'
+  },
+  statusMetricValue: {
+    color: COLORS.ice,
+    fontWeight: '600'
+  },
+  participantList: {
+    marginTop: 12,
+    gap: 12
+  },
+  participantRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    backgroundColor: 'rgba(4, 23, 60, 0.66)',
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.24)'
+  },
+  participantDetails: {
+    flex: 1,
+    marginRight: 12
+  },
+  participantRoleLabel: {
+    color: COLORS.ice,
+    fontWeight: '700'
+  },
+  participantMeta: {
+    marginTop: 4,
+    color: 'rgba(219, 237, 255, 0.68)',
+    fontSize: 12
+  },
+  participantBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999
+  },
+  participantBadgeOnline: {
+    backgroundColor: 'rgba(136, 230, 255, 0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(136, 230, 255, 0.5)'
+  },
+  participantBadgeOffline: {
+    backgroundColor: 'rgba(255, 209, 102, 0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 209, 102, 0.4)'
+  },
+  participantBadgeLabel: {
+    color: COLORS.ice,
+    fontWeight: '600',
+    fontSize: 12
+  },
+  participantEmpty: {
+    color: 'rgba(219, 237, 255, 0.65)',
+    fontStyle: 'italic'
+  },
+  chatMetaLabel: {
+    color: 'rgba(219, 237, 255, 0.7)',
+    fontWeight: '600'
+  },
+  messageList: {
+    flexGrow: 0,
+    marginTop: 16,
+    maxHeight: 260
+  },
+  messageListContent: {
+    paddingBottom: 12
+  },
+  messageBubble: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 18,
+    marginBottom: 10,
+    maxWidth: '85%',
+    alignSelf: 'flex-start'
+  },
+  messageBubbleSelf: {
+    alignSelf: 'flex-end',
+    backgroundColor: COLORS.aurora
+  },
+  messageBubblePeer: {
+    backgroundColor: 'rgba(2, 11, 31, 0.72)',
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.28)'
+  },
+  messageBubbleSystem: {
+    alignSelf: 'center',
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.32)'
+  },
+  messageText: {
+    color: COLORS.midnight,
+    fontWeight: '600'
+  },
+  messageTextSystem: {
+    color: 'rgba(219, 237, 255, 0.85)'
+  },
+  messageTextPeer: {
+    color: 'rgba(219, 237, 255, 0.9)'
+  },
+  messageTimestamp: {
+    marginTop: 6,
+    fontSize: 11,
+    color: 'rgba(2, 11, 31, 0.64)',
+    fontWeight: '600'
+  },
+  messageEmptyState: {
+    color: 'rgba(219, 237, 255, 0.68)',
+    textAlign: 'center',
+    marginTop: 12
+  },
+  messageComposer: {
+    marginTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(111, 214, 255, 0.26)',
+    paddingTop: 12
+  },
+  messageComposerHint: {
+    color: 'rgba(219, 237, 255, 0.65)',
+    marginBottom: 10
+  },
+  messageComposerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 12
+  },
+  messageInput: {
+    flex: 1,
+    minHeight: 42,
+    maxHeight: 140,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.36)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: COLORS.ice,
     backgroundColor: 'rgba(2, 11, 31, 0.7)'
   },
-  sessionWebView: {
-    flex: 1,
-    backgroundColor: 'transparent'
-  },
-  webViewLoadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+  messageSendButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(2, 11, 31, 0.72)',
-    gap: 12,
-    zIndex: 10
+    backgroundColor: COLORS.aurora,
+    shadowColor: COLORS.cobaltShadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.24,
+    shadowRadius: 12,
+    elevation: 4
   },
-  webViewLoadingText: {
-    color: 'rgba(219, 237, 255, 0.86)',
-    fontWeight: '600'
+  messageSendButtonDisabled: {
+    backgroundColor: 'rgba(219, 237, 255, 0.42)'
+  },
+  messageLimitLabel: {
+    marginTop: 8,
+    color: 'rgba(219, 237, 255, 0.6)',
+    fontSize: 12,
+    alignSelf: 'flex-end'
   },
   sessionFallbackCard: {
     width: '100%',
