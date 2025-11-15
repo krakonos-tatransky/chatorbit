@@ -1018,7 +1018,8 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 520,
     borderRadius: 28,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     marginBottom: 32,
     borderWidth: 1,
     borderColor: COLORS.glowEdge,
@@ -1037,7 +1038,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16
+    marginBottom: 8
   },
   inAppBackButton: {
     flexDirection: 'row',
