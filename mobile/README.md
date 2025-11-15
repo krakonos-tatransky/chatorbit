@@ -9,6 +9,8 @@ This Expo + React Native application prototypes the ChatOrbit iPhone experience 
 - Slide-up native form to choose token duration and experience tier using iOS pickers.
 - Calls the API defined by `EXPO_PUBLIC_API_BASE_URL` (defaults to `https://endpoints.chatorbit.com/api`) to request session tokens.
 - Presents the issued token with copy, share, and quick start controls.
+- Join an existing session by pasting a shared token directly inside the "Got token" flow.
+- Native in-app cockpit that mirrors the browser experience with live session status, ICE diagnostics, and a WebRTC data-channel chat surface.
 - Vibrant blue-forward gradient theme that mirrors the ChatOrbit visual identity.
 
 ## Getting started
@@ -27,8 +29,8 @@ You can also run `npm run start` to choose the desired platform from the Expo CL
 ### Configure environment variables
 
 The Expo app reads the same ICE/STUN/TURN settings as the web client via `EXPO_PUBLIC_*` variables.
-Copy `.env.example` to `.env` and tweak the values to point at your API, websocket, TURN
-infrastructure, and the hosted session experience (`EXPO_PUBLIC_WEB_BASE_URL`):
+Copy `.env.example` to `.env` and tweak the values to point at your API, websocket, and TURN
+infrastructure:
 
 ```bash
 cd mobile
@@ -69,4 +71,4 @@ launch screens while exploring the prototype, you can place the appropriate PNG 
 
 ## Next steps
 
-Future milestones include adding the WebRTC messaging and video experience plus a "Got token" join flow.
+Future milestones include layering in the WebRTC video call controls, camera/microphone previews, and richer moderation tooling that already exists in the desktop cockpit.
