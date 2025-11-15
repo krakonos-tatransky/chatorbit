@@ -3448,6 +3448,23 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     sessionStatus?.status === "closed" ||
     sessionStatus?.status === "expired" ||
     sessionStatus?.status === "deleted";
+  const connectedParticipantCount = useMemo(() => {
+    const connectedIds = new Set(sessionStatus?.connectedParticipants ?? []);
+    if (connected) {
+      if (participantId) {
+        connectedIds.add(participantId);
+      }
+      for (const participant of sessionStatus?.participants ?? []) {
+        connectedIds.add(participant.participantId);
+      }
+    }
+    return Math.min(connectedIds.size, MAX_PARTICIPANTS);
+  }, [connected, participantId, sessionStatus?.connectedParticipants, sessionStatus?.participants]);
+
+  const allParticipantsReady =
+    sessionStatus?.status === "active" && connectedParticipantCount >= MAX_PARTICIPANTS;
+  const shouldShowConnectedState = connected || allParticipantsReady;
+
   const sessionStatusLabel = hasSessionEnded
     ? sessionTranslations.statusCard.statusLabel.ended
     : shouldShowConnectedState
@@ -3829,23 +3846,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     },
     [],
   );
-
-  const connectedParticipantCount = useMemo(() => {
-    const connectedIds = new Set(sessionStatus?.connectedParticipants ?? []);
-    if (connected) {
-      if (participantId) {
-        connectedIds.add(participantId);
-      }
-      for (const participant of sessionStatus?.participants ?? []) {
-        connectedIds.add(participant.participantId);
-      }
-    }
-    return Math.min(connectedIds.size, MAX_PARTICIPANTS);
-  }, [connected, participantId, sessionStatus?.connectedParticipants, sessionStatus?.participants]);
-
-  const allParticipantsReady =
-    sessionStatus?.status === "active" && connectedParticipantCount >= MAX_PARTICIPANTS;
-  const shouldShowConnectedState = connected || allParticipantsReady;
 
   const connectedParticipantsText = sessionTranslations.statusCard.connectedParticipants
     .replace("{current}", connectedParticipantCount.toString())
