@@ -41,6 +41,20 @@ cp .env.example .env
 If you already maintain a `.env.local` for the Next.js frontend, you can reuse the same STUN/TURN
 values here (the mobile helper automatically falls back to `NEXT_PUBLIC_*` keys when present).
 
+### Build with the WebRTC native module
+
+The in-app cockpit relies on the `react-native-webrtc` native module, which Expo Go does not
+bundle. To actually join sessions inside the app, create an Expo development build and install it on
+your device or simulator:
+
+```bash
+cd mobile
+npx expo run:ios    # or: npx expo run:android
+```
+
+Expo documents the full dev-build workflow here:
+https://docs.expo.dev/development/introduction/
+
 ### Configure your default editor for Expo Go
 
 Expo CLI can open the project in your preferred editor (handy when you press `o` in the

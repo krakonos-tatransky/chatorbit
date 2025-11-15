@@ -6,6 +6,7 @@ import {
   KeyboardAvoidingView,
   Linking,
   Modal,
+  NativeModules,
   Platform,
   SafeAreaView,
   ScrollView,
@@ -23,10 +24,48 @@ import * as Clipboard from 'expo-clipboard';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { useFonts } from 'expo-font';
-import { RTCPeerConnection, RTCIceCandidate, RTCSessionDescription } from 'react-native-webrtc';
+import type { RTCPeerConnection as NativeRTCPeerConnection } from 'react-native-webrtc';
 import { getIceServers, hasRelayIceServers } from './webrtc';
 
 const env = typeof process !== 'undefined' && process.env ? process.env : undefined;
+const EXPO_DEV_BUILD_DOCS_URL = 'https://docs.expo.dev/development/introduction/';
+
+type WebRtcBindings = {
+  RTCPeerConnection: typeof import('react-native-webrtc').RTCPeerConnection;
+  RTCIceCandidate: typeof import('react-native-webrtc').RTCIceCandidate;
+  RTCSessionDescription: typeof import('react-native-webrtc').RTCSessionDescription;
+};
+
+const WEBRTC_NATIVE_MODULE_CANDIDATES = ['WebRTCModule', 'WebRTC'];
+let cachedWebRtcBindings: WebRtcBindings | null | undefined;
+
+const getWebRtcBindings = (): WebRtcBindings | null => {
+  if (cachedWebRtcBindings !== undefined) {
+    return cachedWebRtcBindings;
+  }
+
+  try {
+    const nativeModules = NativeModules as Record<string, unknown> | null;
+    const hasNativeModule = WEBRTC_NATIVE_MODULE_CANDIDATES.some((name) => Boolean(nativeModules?.[name]));
+
+    if (!hasNativeModule) {
+      cachedWebRtcBindings = null;
+      return null;
+    }
+
+    cachedWebRtcBindings = require('react-native-webrtc') as WebRtcBindings;
+    return cachedWebRtcBindings;
+  } catch (error) {
+    console.warn(
+      'Unable to load react-native-webrtc. Build a development client to enable native session connectivity.',
+      error
+    );
+    cachedWebRtcBindings = null;
+    return null;
+  }
+};
+
+const isWebRtcSupported = (): boolean => getWebRtcBindings() !== null;
 
 const readEnvValue = (...keys: string[]): string | undefined => {
   if (!env) {
@@ -168,7 +207,7 @@ type Message = {
 
 type DataChannelState = 'connecting' | 'open' | 'closing' | 'closed';
 
-type PeerDataChannel = ReturnType<RTCPeerConnection['createDataChannel']> & {
+type PeerDataChannel = ReturnType<NativeRTCPeerConnection['createDataChannel']> & {
   onopen: (() => void) | null;
   onclose: (() => void) | null;
   onerror: (() => void) | null;
@@ -862,11 +901,13 @@ const statusVariant = (status: string | undefined) => {
     visible: boolean;
     onClose: () => void;
     onJoined: (result: JoinTokenFormResult) => void;
+    webRtcAvailable: boolean;
   };
   const JoinTokenForm: React.FC<JoinTokenFormProps> = ({
     visible,
     onClose,
-    onJoined
+    onJoined,
+    webRtcAvailable
   }: JoinTokenFormProps) => {
   const [tokenValue, setTokenValue] = useState('');
   const [loading, setLoading] = useState(false);
@@ -907,6 +948,15 @@ const statusVariant = (status: string | undefined) => {
             </TouchableOpacity>
           </View>
           <Text style={styles.joinHelper}>Paste or type the token you received to join the live session natively.</Text>
+          {!webRtcAvailable && (
+            <View style={styles.joinInfoBanner}>
+              <Ionicons name="warning" size={18} color={COLORS.danger} />
+              <Text style={styles.joinInfoBannerText}>
+                Expo Go doesn’t include the WebRTC native module. Install the Expo dev build (run “npx expo run:ios” or “npx expo
+                run:android”) to join in-app, or tap “On web” to continue in the browser.
+              </Text>
+            </View>
+          )}
           <TextInput
             style={styles.joinInput}
             placeholder="CHAT-XXXX-XXXX"
@@ -935,18 +985,21 @@ const statusVariant = (status: string | undefined) => {
     onReset: () => void;
     onStartInApp: () => void | Promise<void>;
     joiningInApp: boolean;
+    webRtcAvailable: boolean;
   };
   const TokenResultCard: React.FC<TokenResultCardProps> = ({
     token,
     onReset,
     onStartInApp,
-    joiningInApp
+    joiningInApp,
+    webRtcAvailable
   }: TokenResultCardProps) => {
   const shareMessage = useMemo(() => `Join my ChatOrbit session using this token: ${token.token}`, [token.token]);
   const sessionMinutes = Math.max(1, Math.round(token.session_ttl_seconds / 60));
   const messageLimit = token.message_char_limit.toLocaleString();
   const [launchingWeb, setLaunchingWeb] = useState(false);
   const [storedParticipantId, setStoredParticipantId] = useState<string | null>(null);
+  const inAppDisabled = joiningInApp || !webRtcAvailable;
 
   const copyToClipboard = async () => {
     await Clipboard.setStringAsync(token.token);
@@ -1019,10 +1072,10 @@ const statusVariant = (status: string | undefined) => {
           style={[
             styles.resultButton,
             styles.primaryResultButton,
-            joiningInApp && styles.primaryResultButtonDisabled
+            inAppDisabled && styles.primaryResultButtonDisabled
           ]}
           onPress={onStartInApp}
-          disabled={joiningInApp}
+          disabled={inAppDisabled}
         >
           {joiningInApp ? (
             <ActivityIndicator color={COLORS.midnight} />
@@ -1030,7 +1083,7 @@ const statusVariant = (status: string | undefined) => {
             <MaterialCommunityIcons name="tablet-cellphone" size={20} color={COLORS.midnight} />
           )}
           <Text style={[styles.resultButtonLabel, styles.primaryResultButtonLabel]}>
-            {joiningInApp ? 'Connecting…' : 'In app'}
+            {joiningInApp ? 'Connecting…' : webRtcAvailable ? 'In app' : 'Dev build only'}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -1052,6 +1105,20 @@ const statusVariant = (status: string | undefined) => {
           </Text>
         </TouchableOpacity>
       </View>
+      {!webRtcAvailable && (
+        <View style={styles.webrtcNotice}>
+          <Ionicons name="warning" size={18} color={COLORS.danger} />
+          <View style={styles.webrtcNoticeContent}>
+            <Text style={styles.webrtcNoticeText}>
+              Expo Go doesn’t bundle the WebRTC native module. Install the Expo dev build (run “npx expo run:ios” or “npx expo
+              run:android”) to launch sessions here, or choose “On web” to continue in the browser.
+            </Text>
+            <TouchableOpacity style={styles.webrtcNoticeLink} onPress={() => void Linking.openURL(EXPO_DEV_BUILD_DOCS_URL)}>
+              <Text style={styles.webrtcNoticeLinkLabel}>View setup guide</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
       <TouchableOpacity style={styles.resetButton} onPress={onReset}>
         <Text style={styles.resetButtonLabel}>Generate another token</Text>
       </TouchableOpacity>
@@ -1090,7 +1157,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const peerConnectionRef = useRef<NativeRTCPeerConnection | null>(null);
   const dataChannelRef = useRef<PeerDataChannel | null>(null);
   const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
   const pendingSignalsRef = useRef<any[]>([]);
@@ -1102,6 +1169,34 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const socketReconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
   const hasSentOfferRef = useRef(false);
+
+  const webRtcBindings = useMemo(() => getWebRtcBindings(), []);
+
+  if (!webRtcBindings) {
+    return (
+      <LinearGradient
+        colors={[COLORS.glowSoft, COLORS.glowWarm, COLORS.glowSoft]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.sessionFallbackCard}
+      >
+        <Text style={styles.sessionFallbackTitle}>Development build required</Text>
+        <Text style={styles.sessionFallbackBody}>
+          Expo Go doesn’t include the WebRTC native module. Run “npx expo run:ios” or “npx expo run:android” to install the Expo
+          dev build with WebRTC support, then reopen this session.
+        </Text>
+        <TouchableOpacity style={styles.resetButton} onPress={onExit}>
+          <Text style={styles.resetButtonLabel}>Back to token</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.sessionFallbackLink} onPress={() => void Linking.openURL(EXPO_DEV_BUILD_DOCS_URL)}>
+          <Text style={styles.sessionFallbackLinkLabel}>View setup guide</Text>
+        </TouchableOpacity>
+      </LinearGradient>
+    );
+  }
+
+  const { RTCPeerConnection: RTCPeerConnectionCtor, RTCIceCandidate: RTCIceCandidateCtor, RTCSessionDescription: RTCSessionDescriptionCtor } =
+    webRtcBindings;
 
   const iceServers = useMemo(() => getIceServers(), []);
   const hasRelaySupport = useMemo(() => hasRelayIceServers(iceServers), [iceServers]);
@@ -1311,32 +1406,35 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     [token.token]
   );
 
-  const flushPendingCandidates = useCallback(async (pc: RTCPeerConnection) => {
-    if (!pc.remoteDescription) {
-      return;
-    }
-    const backlog = pendingCandidatesRef.current.splice(0);
-    for (const candidate of backlog) {
-      try {
-        await pc.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (err) {
-        console.warn('Failed to apply buffered ICE candidate', err);
+  const flushPendingCandidates = useCallback(
+    async (pc: NativeRTCPeerConnection) => {
+      if (!pc.remoteDescription) {
+        return;
       }
-    }
-  }, []);
+      const backlog = pendingCandidatesRef.current.splice(0);
+      for (const candidate of backlog) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidateCtor(candidate));
+        } catch (err) {
+          console.warn('Failed to apply buffered ICE candidate', err);
+        }
+      }
+    },
+    [RTCIceCandidateCtor]
+  );
 
   const processSignalPayload = useCallback(
-    async (pc: RTCPeerConnection, payload: any) => {
+    async (pc: NativeRTCPeerConnection, payload: any) => {
       const signalType = payload.signalType as string;
       const detail = payload.payload;
       if (signalType === 'offer' && detail) {
-        await pc.setRemoteDescription(new RTCSessionDescription(detail));
+        await pc.setRemoteDescription(new RTCSessionDescriptionCtor(detail));
         await flushPendingCandidates(pc);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         sendSignal('answer', answer);
       } else if (signalType === 'answer' && detail) {
-        await pc.setRemoteDescription(new RTCSessionDescription(detail));
+        await pc.setRemoteDescription(new RTCSessionDescriptionCtor(detail));
         await flushPendingCandidates(pc);
       } else if (signalType === 'iceCandidate') {
         if (!detail) {
@@ -1352,13 +1450,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           return;
         }
         try {
-          await pc.addIceCandidate(new RTCIceCandidate(detail));
+          await pc.addIceCandidate(new RTCIceCandidateCtor(detail));
         } catch (err) {
           console.warn('Failed to process ICE candidate', err);
         }
       }
     },
-    [flushPendingCandidates, sendSignal]
+    [RTCIceCandidateCtor, RTCSessionDescriptionCtor, flushPendingCandidates, sendSignal]
   );
 
     const handleSignal = useCallback(
@@ -1526,7 +1624,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   );
 
     const attachDataChannel = useCallback(
-      (channel: PeerDataChannel, owner: RTCPeerConnection | null) => {
+      (channel: PeerDataChannel, owner: NativeRTCPeerConnection | null) => {
       dataChannelRef.current = channel;
       setDataChannelState(channel.readyState as DataChannelState);
       channel.onopen = () => {
@@ -1565,7 +1663,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     if (!participantId) {
       return;
     }
-    const peerConnection = new RTCPeerConnection({ iceServers });
+    const peerConnection = new RTCPeerConnectionCtor({ iceServers });
     peerConnectionRef.current = peerConnection;
 
     const handleIceCandidate = (event: RTCPeerConnectionIceEvent) => {
@@ -1598,7 +1696,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         attachDataChannel(event.channel as unknown as PeerDataChannel, peerConnection);
       };
 
-    const peerConnectionAny = peerConnection as RTCPeerConnection & {
+    const peerConnectionAny = peerConnection as NativeRTCPeerConnection & {
       onicecandidate?: ((event: RTCPeerConnectionIceEvent) => void) | null;
       onconnectionstatechange?: (() => void) | null;
       ondatachannel?: ((event: RTCDataChannelEvent) => void) | null;
@@ -1650,7 +1748,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         }
       }
     };
-  }, [attachDataChannel, participantId, participantRole, processSignalPayload, sendSignal, iceServers]);
+  }, [RTCPeerConnectionCtor, attachDataChannel, iceServers, participantId, participantRole, processSignalPayload, sendSignal]);
 
   const sessionStatusLabel = mapStatusLabel(sessionStatus?.status);
   const sessionStatusDescription = mapStatusDescription(sessionStatus?.status);
@@ -1893,6 +1991,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
 };
 
 const MainScreen: React.FC = () => {
+  const webRtcAvailable = isWebRtcSupported();
   const [showForm, setShowForm] = useState(false);
   const [showJoinForm, setShowJoinForm] = useState(false);
   const [tokenResponse, setTokenResponse] = useState<TokenResponse | null>(null);
@@ -1915,6 +2014,13 @@ const MainScreen: React.FC = () => {
     if (!tokenResponse || joiningInApp) {
       return;
     }
+    if (!webRtcAvailable) {
+      Alert.alert(
+        'Development build required',
+        'Expo Go does not include the WebRTC native module. Run “npx expo run:ios” or “npx expo run:android” to install the Expo dev build before launching sessions here, or use “On web”.'
+      );
+      return;
+    }
 
     try {
       setJoiningInApp(true);
@@ -1932,6 +2038,28 @@ const MainScreen: React.FC = () => {
 
   const renderContent = () => {
     if (tokenResponse && inAppSession) {
+      if (!webRtcAvailable) {
+        return (
+          <LinearGradient
+            colors={[COLORS.glowSoft, COLORS.glowWarm, COLORS.glowSoft]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.sessionFallbackCard}
+          >
+            <Text style={styles.sessionFallbackTitle}>Development build required</Text>
+            <Text style={styles.sessionFallbackBody}>
+              Expo Go doesn’t ship the WebRTC native module. Install the Expo dev build (run “npx expo run:ios” or “npx expo
+              run:android”) and relaunch the app to continue hosting sessions natively.
+            </Text>
+            <TouchableOpacity style={styles.resetButton} onPress={() => setInAppSession(false)}>
+              <Text style={styles.resetButtonLabel}>Back to token</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.sessionFallbackLink} onPress={() => void Linking.openURL(EXPO_DEV_BUILD_DOCS_URL)}>
+              <Text style={styles.sessionFallbackLinkLabel}>View setup guide</Text>
+            </TouchableOpacity>
+          </LinearGradient>
+        );
+      }
       if (!inAppParticipantId || !participantRole) {
         return (
           <LinearGradient
@@ -1968,6 +2096,7 @@ const MainScreen: React.FC = () => {
           onReset={handleReset}
           onStartInApp={handleStartInApp}
           joiningInApp={joiningInApp}
+          webRtcAvailable={webRtcAvailable}
         />
       );
     }
@@ -2047,6 +2176,7 @@ const MainScreen: React.FC = () => {
           setInAppSession(true);
           setJoiningInApp(false);
         }}
+          webRtcAvailable={webRtcAvailable}
       />
     </LinearGradient>
   );
@@ -2361,6 +2491,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     marginTop: 12
+  },
+  webrtcNotice: {
+    flexDirection: 'row',
+    gap: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 71, 111, 0.4)',
+    backgroundColor: 'rgba(239, 71, 111, 0.1)',
+    padding: 14,
+    marginBottom: 12
+  },
+  webrtcNoticeContent: {
+    flex: 1,
+    gap: 8
+  },
+  webrtcNoticeText: {
+    color: 'rgba(219, 237, 255, 0.9)',
+    lineHeight: 18,
+    fontSize: 13
+  },
+  webrtcNoticeLink: {
+    alignSelf: 'flex-start'
+  },
+  webrtcNoticeLinkLabel: {
+    color: COLORS.aurora,
+    fontWeight: '700',
+    textDecorationLine: 'underline'
   },
   resetButton: {
     marginTop: 24,
@@ -2746,6 +2903,14 @@ const styles = StyleSheet.create({
     color: 'rgba(219, 237, 255, 0.78)',
     lineHeight: 20
   },
+  sessionFallbackLink: {
+    alignItems: 'center'
+  },
+  sessionFallbackLinkLabel: {
+    color: COLORS.aurora,
+    fontWeight: '600',
+    textDecorationLine: 'underline'
+  },
   joinOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -2765,6 +2930,23 @@ const styles = StyleSheet.create({
   joinHelper: {
     color: 'rgba(219, 237, 255, 0.78)',
     lineHeight: 20
+  },
+  joinInfoBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 71, 111, 0.4)',
+    backgroundColor: 'rgba(239, 71, 111, 0.12)',
+    padding: 12,
+    marginBottom: 4
+  },
+  joinInfoBannerText: {
+    flex: 1,
+    color: 'rgba(219, 237, 255, 0.85)',
+    lineHeight: 18,
+    fontSize: 13
   },
   joinInput: {
     borderRadius: 18,
