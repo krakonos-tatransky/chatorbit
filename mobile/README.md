@@ -27,8 +27,8 @@ You can also run `npm run start` to choose the desired platform from the Expo CL
 ### Configure environment variables
 
 The Expo app reads the same ICE/STUN/TURN settings as the web client via `EXPO_PUBLIC_*` variables.
-Copy `.env.example` to `.env` and tweak the values to point at your API, websocket, and TURN
-infrastructure:
+Copy `.env.example` to `.env` and tweak the values to point at your API, websocket, TURN
+infrastructure, and the hosted session experience (`EXPO_PUBLIC_WEB_BASE_URL`):
 
 ```bash
 cd mobile

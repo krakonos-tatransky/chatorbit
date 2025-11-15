@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   Linking,
   Modal,
   SafeAreaView,
@@ -10,7 +9,6 @@ import {
   Share,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
@@ -20,6 +18,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { useFonts } from 'expo-font';
+import { WebView } from 'react-native-webview';
 import { getIceServers, hasRelayIceServers } from './webrtc';
 
 const env = typeof process !== 'undefined' && process.env ? process.env : undefined;
@@ -46,6 +45,10 @@ const API_BASE_URL = stripTrailingSlash(
 const WS_BASE_URL = stripTrailingSlash(
   readEnvValue('EXPO_PUBLIC_WS_BASE_URL', 'NEXT_PUBLIC_WS_BASE_URL', 'WS_BASE_URL') ||
     'wss://endpoints.chatorbit.com'
+);
+const WEB_BASE_URL = stripTrailingSlash(
+  readEnvValue('EXPO_PUBLIC_WEB_BASE_URL', 'NEXT_PUBLIC_WEB_BASE_URL', 'WEB_BASE_URL') ||
+    'https://chatorbit.com'
 );
 
 const COLORS = {
@@ -152,13 +155,6 @@ type SessionStatusSocketPayload = SessionStatus & {
   connected_participants?: string[];
 };
 
-type ChatMessage = {
-  id: string;
-  sender: 'self' | 'peer' | 'system';
-  body: string;
-  timestamp: number;
-};
-
 const SESSION_POLL_INTERVAL_MS = 12000;
 
 const extractFriendlyError = (rawBody: string): string => {
@@ -246,8 +242,6 @@ const fetchSessionStatus = async (
     throw new Error('Received an invalid session status payload.');
   }
 };
-
-const createMessageId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
 const formatRemainingTime = (seconds: number | null) => {
   if (seconds == null) {
@@ -676,19 +670,9 @@ const InAppSessionScreen: React.FC<{
   const [connectedParticipantIds, setConnectedParticipantIds] = useState<string[]>([]);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: createMessageId(),
-      sender: 'system',
-      body: 'Session cockpit ready. Waiting for participants to join the conversation.',
-      timestamp: Date.now()
-    }
-  ]);
-  const [draft, setDraft] = useState('');
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
-  const messageListRef = useRef<FlatList<ChatMessage> | null>(null);
+  const [webViewLoaded, setWebViewLoaded] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
-  const lastParticipantIdsRef = useRef<string[]>([]);
   const iceServers = useMemo(() => getIceServers(), []);
   const hasRelaySupport = useMemo(() => hasRelayIceServers(iceServers), [iceServers]);
   const connectivityVariant = hasRelaySupport ? 'relay' : iceServers.length > 0 ? 'stun' : 'none';
@@ -716,6 +700,15 @@ const InAppSessionScreen: React.FC<{
       : connectivityVariant === 'stun'
         ? 'alert-circle-outline'
         : 'close-circle-outline';
+  const sessionUrl = useMemo(
+    () =>
+      `${WEB_BASE_URL}/session/${encodeURIComponent(token.token)}?participant=${encodeURIComponent(participantId)}&source=mobile`,
+    [participantId, token.token]
+  );
+
+  useEffect(() => {
+    setWebViewLoaded(false);
+  }, [sessionUrl]);
 
   useEffect(() => {
     let isMounted = true;
@@ -730,7 +723,6 @@ const InAppSessionScreen: React.FC<{
         if (isMounted) {
           setSessionStatus(status);
           setRemainingSeconds(status.remaining_seconds ?? null);
-          lastParticipantIdsRef.current = status.participants.map((participant) => participant.participant_id);
           setConnectedParticipantIds((prev) => {
             if (!prev.length) {
               return prev;
@@ -852,65 +844,10 @@ const InAppSessionScreen: React.FC<{
     return () => clearTimeout(timeout);
   }, [remainingSeconds]);
 
-  useEffect(() => {
-    if (!sessionStatus) {
-      return;
-    }
-    const currentIds = sessionStatus.participants.map((participant) => participant.participant_id);
-    const previousIds = lastParticipantIdsRef.current;
-    if (previousIds.length === 0) {
-      lastParticipantIdsRef.current = currentIds;
-      return;
-    }
-    const newlyJoined = sessionStatus.participants.filter(
-      (participant) => !previousIds.includes(participant.participant_id)
-    );
-    if (newlyJoined.length > 0) {
-      setMessages((prev) => [
-        ...prev,
-        ...newlyJoined.map((participant) => ({
-          id: createMessageId(),
-          sender: 'system',
-          body: `${participant.role === 'host' ? 'Host' : 'Guest'} joined the session.`,
-          timestamp: Date.now()
-        }))
-      ]);
-    }
-    lastParticipantIdsRef.current = currentIds;
-  }, [sessionStatus]);
-
-  useEffect(() => {
-    if (!messageListRef.current) {
-      return;
-    }
-    messageListRef.current.scrollToEnd({ animated: true });
-  }, [messages]);
-
-  const handleSendMessage = () => {
-    const trimmed = draft.trim();
-    if (!trimmed) {
-      return;
-    }
-    if (sessionStatus?.message_char_limit && trimmed.length > sessionStatus.message_char_limit) {
-      Alert.alert('Message too long', `Messages are limited to ${sessionStatus.message_char_limit} characters.`);
-      return;
-    }
-    const nextMessage: ChatMessage = {
-      id: createMessageId(),
-      sender: 'self',
-      body: trimmed,
-      timestamp: Date.now()
-    };
-    setMessages((prev) => [...prev, nextMessage]);
-    setDraft('');
-  };
-
   const sessionStatusLabel = mapStatusLabel(sessionStatus?.status);
   const sessionStatusDescription = mapStatusDescription(sessionStatus?.status);
   const statusIndicatorVariant = statusVariant(sessionStatus?.status);
-  const messageLimit = sessionStatus?.message_char_limit ?? token.message_char_limit ?? DEFAULT_MESSAGE_CHAR_LIMIT;
-  const canSendMessage = sessionStatus?.status === 'active';
-  const sendDisabled = !canSendMessage || !draft.trim();
+  const sessionMessageLimit = sessionStatus?.message_char_limit ?? token.message_char_limit ?? DEFAULT_MESSAGE_CHAR_LIMIT;
   const connectedCount = connectedParticipantIds.length;
   const participants = sessionStatus?.participants ?? [];
 
@@ -976,7 +913,7 @@ const InAppSessionScreen: React.FC<{
                 </View>
                 <View style={styles.statusMetricRow}>
                   <Text style={styles.statusMetricLabel}>Message limit</Text>
-                  <Text style={styles.statusMetricValue}>{messageLimit.toLocaleString()} characters</Text>
+                  <Text style={styles.statusMetricValue}>{sessionMessageLimit.toLocaleString()} characters</Text>
                 </View>
                 <View style={styles.statusMetricRow}>
                   <Text style={styles.statusMetricLabel}>Connected</Text>
@@ -1017,79 +954,32 @@ const InAppSessionScreen: React.FC<{
             )}
           </View>
 
-          <View style={styles.sessionChatCard}>
+          <View style={styles.sessionWebCard}>
             <View style={styles.sessionCardHeader}>
-              <Text style={styles.sessionCardTitle}>Messages</Text>
+              <Text style={styles.sessionCardTitle}>Live cockpit</Text>
               <Text style={styles.chatMetaLabel}>
-                {canSendMessage ? 'Live' : 'Waiting for both participants'}
+                {webViewLoaded ? 'Connected to realtime view' : 'Loading session UI'}
               </Text>
             </View>
-            <FlatList
-              ref={(ref) => {
-                messageListRef.current = ref;
-              }}
-              data={messages}
-              keyExtractor={(item) => item.id}
-              style={styles.messageList}
-              contentContainerStyle={styles.messageListContent}
-              keyboardShouldPersistTaps="handled"
-              renderItem={({ item }) => (
-                <View
-                  style={[
-                    styles.messageBubble,
-                    item.sender === 'self'
-                      ? styles.messageBubbleSelf
-                      : item.sender === 'peer'
-                        ? styles.messageBubblePeer
-                        : styles.messageBubbleSystem
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.messageText,
-                      item.sender === 'system' && styles.messageTextSystem,
-                      item.sender === 'peer' && styles.messageTextPeer
-                    ]}
-                  >
-                    {item.body}
-                  </Text>
-                  <Text style={styles.messageTimestamp}>
-                    {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </Text>
+            <Text style={styles.sessionCardDescription}>
+              Messaging, video, and moderation tools run inside the embedded session experience below.
+            </Text>
+            <View style={styles.sessionWebViewWrapper}>
+              {!webViewLoaded && (
+                <View style={styles.webViewLoadingOverlay}>
+                  <ActivityIndicator color={COLORS.aurora} size="large" />
+                  <Text style={styles.webViewLoadingText}>Preparing realtime channel…</Text>
                 </View>
               )}
-              ListEmptyComponent={
-                <Text style={styles.messageEmptyState}>No messages yet. Say hello once everyone is ready!</Text>
-              }
-            />
-            <View style={styles.messageComposer}>
-              {!canSendMessage && (
-                <Text style={styles.messageComposerHint}>
-                  Messages can be sent once both participants are connected.
-                </Text>
-              )}
-              <View style={styles.messageComposerRow}>
-                <TextInput
-                  style={styles.messageInput}
-                  placeholder="Type a message"
-                  placeholderTextColor="rgba(219, 237, 255, 0.55)"
-                  multiline
-                  value={draft}
-                  onChangeText={setDraft}
-                  editable={canSendMessage}
-                  maxLength={messageLimit}
-                />
-                <TouchableOpacity
-                  style={[styles.messageSendButton, sendDisabled && styles.messageSendButtonDisabled]}
-                  onPress={handleSendMessage}
-                  disabled={sendDisabled}
-                >
-                  <Ionicons name="send" size={18} color={sendDisabled ? 'rgba(2, 11, 31, 0.6)' : COLORS.midnight} />
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.messageLimitLabel}>
-                {draft.length}/{messageLimit} characters
-              </Text>
+              <WebView
+                originWhitelist={['*']}
+                source={{ uri: sessionUrl }}
+                style={styles.sessionWebView}
+                onLoadEnd={() => setWebViewLoaded(true)}
+                allowsInlineMediaPlayback
+                mediaPlaybackRequiresUserAction={false}
+                allowsFullscreenVideo
+              />
             </View>
           </View>
         </View>
@@ -1122,6 +1012,7 @@ const MainScreen: React.FC = () => {
       setJoiningInApp(true);
       const payload = await joinSession(tokenResponse.token, inAppParticipantId);
       setInAppParticipantId(payload.participant_id);
+      setTokenResponse((prev) => (prev ? { ...prev, token: payload.token || prev.token } : prev));
       setInAppSession(true);
     } catch (error: any) {
       Alert.alert('Cannot start session', error?.message ?? 'Unexpected error while launching the in-app session.');
@@ -1611,7 +1502,7 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 14
   },
-  sessionChatCard: {
+  sessionWebCard: {
     borderRadius: 24,
     borderWidth: 1,
     borderColor: 'rgba(111, 214, 255, 0.38)',
@@ -1633,6 +1524,18 @@ const styles = StyleSheet.create({
   sessionCardDescription: {
     color: 'rgba(219, 237, 255, 0.78)',
     lineHeight: 20
+  },
+  sessionWebViewWrapper: {
+    marginTop: 16,
+    borderRadius: 18,
+    overflow: 'hidden',
+    flex: 1,
+    minHeight: 360,
+    backgroundColor: 'rgba(2, 11, 31, 0.85)'
+  },
+  sessionWebView: {
+    flex: 1,
+    minHeight: 360
   },
   connectivityBanner: {
     marginTop: 6,
@@ -1792,106 +1695,17 @@ const styles = StyleSheet.create({
     color: 'rgba(219, 237, 255, 0.7)',
     fontWeight: '600'
   },
-  messageList: {
-    flex: 1,
-    marginTop: 16
-  },
-  messageListContent: {
-    paddingBottom: 12,
-    flexGrow: 1
-  },
-  messageBubble: {
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 18,
-    marginBottom: 10,
-    maxWidth: '85%',
-    alignSelf: 'flex-start'
-  },
-  messageBubbleSelf: {
-    alignSelf: 'flex-end',
-    backgroundColor: COLORS.aurora
-  },
-  messageBubblePeer: {
+  webViewLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(2, 11, 31, 0.72)',
-    borderWidth: 1,
-    borderColor: 'rgba(111, 214, 255, 0.28)'
-  },
-  messageBubbleSystem: {
-    alignSelf: 'center',
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: 'rgba(111, 214, 255, 0.32)'
-  },
-  messageText: {
-    color: COLORS.midnight,
-    fontWeight: '600'
-  },
-  messageTextSystem: {
-    color: 'rgba(219, 237, 255, 0.85)'
-  },
-  messageTextPeer: {
-    color: 'rgba(219, 237, 255, 0.9)'
-  },
-  messageTimestamp: {
-    marginTop: 6,
-    fontSize: 11,
-    color: 'rgba(2, 11, 31, 0.64)',
-    fontWeight: '600'
-  },
-  messageEmptyState: {
-    color: 'rgba(219, 237, 255, 0.68)',
-    textAlign: 'center',
-    marginTop: 12
-  },
-  messageComposer: {
-    marginTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(111, 214, 255, 0.26)',
-    paddingTop: 12
-  },
-  messageComposerHint: {
-    color: 'rgba(219, 237, 255, 0.65)',
-    marginBottom: 10
-  },
-  messageComposerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 12
-  },
-  messageInput: {
-    flex: 1,
-    minHeight: 42,
-    maxHeight: 140,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(111, 214, 255, 0.36)',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    color: COLORS.ice,
-    backgroundColor: 'rgba(2, 11, 31, 0.7)'
-  },
-  messageSendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 999,
-    alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.aurora,
-    shadowColor: COLORS.cobaltShadow,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.24,
-    shadowRadius: 12,
-    elevation: 4
+    alignItems: 'center',
+    gap: 12,
+    padding: 16
   },
-  messageSendButtonDisabled: {
-    backgroundColor: 'rgba(219, 237, 255, 0.42)'
-  },
-  messageLimitLabel: {
-    marginTop: 8,
-    color: 'rgba(219, 237, 255, 0.6)',
-    fontSize: 12,
-    alignSelf: 'flex-end'
+  webViewLoadingText: {
+    color: COLORS.ice,
+    fontWeight: '600'
   },
   sessionFallbackCard: {
     width: '100%',
