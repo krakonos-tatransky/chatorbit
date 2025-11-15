@@ -21,17 +21,18 @@ import { useFonts } from 'expo-font';
 
 const COLORS = {
   midnight: '#020B1F',
+  abyss: '#041335',
   deepBlue: '#06255E',
   ocean: '#0A4A89',
   lagoon: '#0F6FBA',
+  aurora: '#6FE7FF',
   ice: '#F4F9FF',
   mint: '#88E6FF',
-  solar: '#FFD763',
   white: '#FFFFFF',
-  glowSoft: 'rgba(255, 255, 255, 0.92)',
-  glowWarm: 'rgba(255, 223, 140, 0.78)',
-  glowEdge: 'rgba(255, 255, 255, 0.55)',
-  cobaltShadow: 'rgba(3, 20, 46, 0.55)',
+  glowSoft: 'rgba(4, 23, 60, 0.96)',
+  glowWarm: 'rgba(9, 54, 120, 0.88)',
+  glowEdge: 'rgba(111, 214, 255, 0.55)',
+  cobaltShadow: 'rgba(3, 20, 46, 0.6)',
   danger: '#EF476F'
 };
 
@@ -121,7 +122,7 @@ const AcceptScreen: React.FC<{ onAccept: () => void }> = ({ onAccept }) => {
     >
       <StatusBar style="light" />
       <LinearGradient
-        colors={[COLORS.glowSoft, COLORS.glowWarm]}
+        colors={[COLORS.glowSoft, COLORS.glowWarm, COLORS.glowSoft]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.termsCard}
@@ -266,7 +267,7 @@ const NeedTokenForm: React.FC<{
                 <Picker
                   selectedValue={selectedDuration}
                   onValueChange={(value) => setSelectedDuration(value.toString())}
-                  dropdownIconColor={COLORS.mint}
+                  dropdownIconColor={COLORS.aurora}
                   style={styles.picker}
                   itemStyle={styles.pickerItem}
                 >
@@ -282,7 +283,7 @@ const NeedTokenForm: React.FC<{
                 <Picker
                   selectedValue={selectedValidity}
                   onValueChange={(value) => setSelectedValidity(value as ValidityOption['value'])}
-                  dropdownIconColor={COLORS.mint}
+                  dropdownIconColor={COLORS.aurora}
                   style={styles.picker}
                   itemStyle={styles.pickerItem}
                 >
@@ -298,7 +299,7 @@ const NeedTokenForm: React.FC<{
                 <Picker
                   selectedValue={selectedTier}
                   onValueChange={(value) => setSelectedTier(value.toString())}
-                  dropdownIconColor={COLORS.mint}
+                  dropdownIconColor={COLORS.aurora}
                   style={styles.picker}
                   itemStyle={styles.pickerItem}
                 >
@@ -420,7 +421,7 @@ const TokenResultCard: React.FC<{
 
   return (
     <LinearGradient
-      colors={[COLORS.glowSoft, COLORS.glowWarm]}
+      colors={[COLORS.glowSoft, COLORS.glowWarm, COLORS.glowSoft]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={styles.resultCard}
@@ -436,11 +437,11 @@ const TokenResultCard: React.FC<{
       <Text style={styles.resultMeta}>Messages are limited to {messageLimit} characters.</Text>
       <View style={styles.resultButtonRow}>
         <TouchableOpacity style={styles.resultButton} onPress={copyToClipboard}>
-          <Ionicons name="copy-outline" size={20} color={COLORS.midnight} />
+          <Ionicons name="copy-outline" size={20} color={COLORS.ice} />
           <Text style={styles.resultButtonLabel}>Copy</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.resultButton} onPress={shareToken}>
-          <Ionicons name="share-outline" size={20} color={COLORS.midnight} />
+          <Ionicons name="share-outline" size={20} color={COLORS.ice} />
           <Text style={styles.resultButtonLabel}>Share</Text>
         </TouchableOpacity>
       </View>
@@ -479,7 +480,7 @@ const TokenResultCard: React.FC<{
 const InAppSessionScreen: React.FC<{ token: TokenResponse; onExit: () => void }> = ({ token, onExit }) => {
   return (
     <LinearGradient
-      colors={[COLORS.glowSoft, COLORS.glowWarm]}
+      colors={[COLORS.glowSoft, COLORS.glowWarm, COLORS.glowSoft]}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={styles.inAppSessionContainer}
@@ -536,15 +537,15 @@ const MainScreen: React.FC = () => {
           title="Need token"
           description="Create a secure pass with custom duration."
           onPress={() => setShowForm(true)}
-          background="rgba(255, 255, 255, 0.18)"
-          icon={<Ionicons name="planet" size={42} color={COLORS.deepBlue} />}
+          background="rgba(8, 47, 112, 0.72)"
+          icon={<Ionicons name="planet" size={42} color={COLORS.aurora} />}
         />
         <BigActionButton
           title="Got token"
           description="Coming soon: instantly jump into live orbit."
           onPress={() => Alert.alert('Coming soon', 'Session join will arrive with the WebRTC update!')}
-          background="rgba(255, 215, 99, 0.22)"
-          icon={<MaterialCommunityIcons name="shield-check" size={42} color={COLORS.deepBlue} />}
+          background="rgba(6, 36, 92, 0.78)"
+          icon={<MaterialCommunityIcons name="shield-check" size={42} color={COLORS.aurora} />}
         />
       </View>
     );
@@ -636,7 +637,7 @@ const styles = StyleSheet.create({
   logoText: {
     fontSize: 22,
     fontWeight: '700',
-    color: COLORS.midnight,
+    color: COLORS.ice,
     textAlign: 'center',
     marginBottom: 24,
     letterSpacing: 1.2
@@ -644,25 +645,25 @@ const styles = StyleSheet.create({
   termsScroll: {
     flex: 1,
     borderRadius: 16,
-    backgroundColor: 'rgba(15, 111, 186, 0.08)'
+    backgroundColor: 'rgba(15, 83, 170, 0.2)'
   },
   termsContent: {
     padding: 16
   },
   termsText: {
-    color: COLORS.deepBlue,
+    color: 'rgba(232, 244, 255, 0.92)',
     fontSize: 16,
     lineHeight: 24
   },
   acceptButton: {
     marginTop: 20,
-    backgroundColor: COLORS.solar,
+    backgroundColor: COLORS.aurora,
     borderRadius: 16,
     paddingVertical: 16,
     alignItems: 'center'
   },
   acceptButtonDisabled: {
-    backgroundColor: 'rgba(255, 215, 99, 0.4)'
+    backgroundColor: 'rgba(111, 231, 255, 0.3)'
   },
   acceptButtonLabel: {
     color: COLORS.midnight,
@@ -710,19 +711,19 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(9, 59, 120, 0.12)'
+    backgroundColor: 'rgba(79, 183, 255, 0.16)'
   },
   bigActionTextContainer: {
     flex: 1,
     marginLeft: 16
   },
   bigActionTitle: {
-    color: COLORS.midnight,
+    color: COLORS.ice,
     fontSize: 22,
     fontWeight: '700'
   },
   bigActionDescription: {
-    color: 'rgba(2, 11, 31, 0.7)',
+    color: 'rgba(219, 237, 255, 0.76)',
     fontSize: 14,
     marginTop: 6
   },
@@ -756,7 +757,7 @@ const styles = StyleSheet.create({
     paddingBottom: 32
   },
   formSubtitle: {
-    color: 'rgba(244, 249, 255, 0.78)',
+    color: 'rgba(224, 239, 255, 0.82)',
     marginBottom: 16,
     lineHeight: 20
   },
@@ -772,16 +773,16 @@ const styles = StyleSheet.create({
   pickerWrapper: {
     borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: 'rgba(244, 249, 255, 0.22)',
+    backgroundColor: 'rgba(9, 64, 140, 0.42)',
     height: 132
   },
   picker: {
-    color: COLORS.mint,
+    color: COLORS.aurora,
     width: '100%',
     height: '100%'
   },
   pickerItem: {
-    color: COLORS.mint,
+    color: COLORS.aurora,
     fontSize: 16,
     height: 132
   },
@@ -817,19 +818,19 @@ const styles = StyleSheet.create({
   resultTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: COLORS.midnight,
+    color: COLORS.ice,
     marginBottom: 12
   },
   tokenText: {
     fontSize: 22,
     fontWeight: '700',
-    color: COLORS.solar,
+    color: COLORS.aurora,
     letterSpacing: 1.1,
     marginTop: 4
   },
   expiryText: {
     marginTop: 6,
-    color: COLORS.deepBlue,
+    color: 'rgba(219, 237, 255, 0.78)',
     fontSize: 14
   },
   resultButtonRow: {
@@ -840,7 +841,7 @@ const styles = StyleSheet.create({
   },
   resultMeta: {
     marginTop: 8,
-    color: COLORS.deepBlue,
+    color: 'rgba(219, 237, 255, 0.78)',
     fontSize: 14,
     lineHeight: 20
   },
@@ -849,7 +850,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    backgroundColor: 'rgba(5, 32, 80, 0.78)',
     borderRadius: 16,
     paddingVertical: 12,
     gap: 8,
@@ -857,12 +858,13 @@ const styles = StyleSheet.create({
     borderColor: COLORS.glowEdge
   },
   resultButtonLabel: {
-    color: COLORS.midnight,
+    color: COLORS.ice,
     fontWeight: '700'
   },
   primaryResultButton: {
-    backgroundColor: COLORS.solar,
-    alignSelf: 'stretch'
+    backgroundColor: COLORS.aurora,
+    alignSelf: 'stretch',
+    borderColor: 'transparent'
   },
   primaryResultButtonLabel: {
     color: COLORS.midnight
@@ -872,7 +874,7 @@ const styles = StyleSheet.create({
   },
   startSessionLabel: {
     marginTop: 20,
-    color: COLORS.midnight,
+    color: COLORS.ice,
     fontSize: 14,
     fontWeight: '600',
     textAlign: 'center'
@@ -887,7 +889,7 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   resetButtonLabel: {
-    color: COLORS.midnight,
+    color: COLORS.aurora,
     fontSize: 15,
     textDecorationLine: 'underline',
     fontWeight: '600'
@@ -912,15 +914,15 @@ const styles = StyleSheet.create({
   inAppTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: COLORS.midnight
+    color: COLORS.ice
   },
   inAppSubtitle: {
     marginTop: 8,
-    color: COLORS.deepBlue,
+    color: 'rgba(219, 237, 255, 0.78)',
     lineHeight: 20
   },
   inAppCard: {
-    backgroundColor: COLORS.white,
+    backgroundColor: 'rgba(5, 32, 80, 0.64)',
     borderRadius: 20,
     padding: 20,
     marginBottom: 16,
@@ -933,16 +935,16 @@ const styles = StyleSheet.create({
   inAppCardTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: COLORS.midnight
+    color: COLORS.ice
   },
   inAppCardBody: {
     marginTop: 8,
-    color: COLORS.deepBlue,
+    color: 'rgba(219, 237, 255, 0.78)',
     lineHeight: 20
   },
   inAppTokenLabel: {
     marginTop: 16,
-    color: COLORS.deepBlue,
+    color: 'rgba(219, 237, 255, 0.7)',
     fontSize: 12,
     textTransform: 'uppercase',
     fontWeight: '700',
@@ -952,20 +954,20 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 18,
     fontWeight: '700',
-    color: COLORS.solar,
+    color: COLORS.aurora,
     letterSpacing: 1.1
   },
   chatCard: {
     borderStyle: 'dashed',
     borderWidth: 1.5,
-    borderColor: 'rgba(6, 37, 94, 0.18)'
+    borderColor: 'rgba(111, 214, 255, 0.6)'
   },
   exitSessionButton: {
     marginTop: 8,
     alignSelf: 'center'
   },
   exitSessionButtonLabel: {
-    color: COLORS.midnight,
+    color: COLORS.aurora,
     fontSize: 15,
     textDecorationLine: 'underline',
     fontWeight: '600'
