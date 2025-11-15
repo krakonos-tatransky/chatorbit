@@ -1,10 +1,10 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Animated,
-  Dimensions,
   Linking,
+  Modal,
+  SafeAreaView,
   ScrollView,
   Share,
   StyleSheet,
@@ -15,23 +15,30 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
-import { Picker } from '@react-native-picker/picker';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { Picker } from '@react-native-picker/picker';
 import { useFonts } from 'expo-font';
+import { WebView } from 'react-native-webview';
 
 const COLORS = {
-  midnight: '#071B2F',
-  deepBlue: '#0E3059',
-  ocean: '#164A89',
-  lagoon: '#1C6BC7',
-  ice: '#E6F3FF',
-  mint: '#8EE7FF',
+  midnight: '#020B1F',
+  abyss: '#041335',
+  deepBlue: '#06255E',
+  ocean: '#0A4A89',
+  lagoon: '#0F6FBA',
+  aurora: '#6FE7FF',
+  ice: '#F4F9FF',
+  mint: '#88E6FF',
   white: '#FFFFFF',
-  lilac: '#B4C5FF',
+  glowSoft: 'rgba(4, 23, 60, 0.96)',
+  glowWarm: 'rgba(9, 54, 120, 0.88)',
+  glowEdge: 'rgba(111, 214, 255, 0.55)',
+  cobaltShadow: 'rgba(3, 20, 46, 0.6)',
   danger: '#EF476F'
 };
 
-const API_BASE_URL = 'https://endpoints.chatorbit.com';
+const API_BASE_URL = 'https://endpoints.chatorbit.com/api';
+const MOBILE_CLIENT_IDENTITY = 'mobile-app-host';
 
 const TERMS_TEXT = `Welcome to ChatOrbit!\n\nBefore generating secure session tokens, please take a moment to review these highlights:\n\n• Tokens are valid only for the duration selected during creation.\n• Share your token only with trusted participants.\n• Generated sessions may be monitored for quality and abuse prevention.\n• Using the token implies that you agree to abide by ChatOrbit community guidelines.\n\nThis preview app is designed for rapid testing of the ChatOrbit realtime experience. By continuing you acknowledge that:\n\n1. You are authorised to request access tokens on behalf of your organisation or team.\n2. All interactions facilitated by the token must respect local regulations regarding recorded communication.\n3. ChatOrbit may contact you for product feedback using the email or account associated with your workspace.\n4. Abuse of the system, including sharing illicit content, will result in automatic suspension of the workspace.\n\nScroll to the bottom of this message to enable the Accept button. Thank you for helping us keep the orbit safe and collaborative!`;
 
@@ -47,7 +54,25 @@ type TokenTierOption = {
 
 type TokenResponse = {
   token: string;
-  expiresAt?: string;
+  validity_expires_at: string;
+  session_ttl_seconds: number;
+  message_char_limit: number;
+  created_at: string;
+};
+
+type JoinResponse = {
+  token: string;
+  participant_id: string;
+  role: string;
+  session_active: boolean;
+  session_started_at: string | null;
+  session_expires_at: string | null;
+  message_char_limit: number;
+};
+
+type ValidityOption = {
+  label: string;
+  value: '1_day' | '1_week' | '1_month' | '1_year';
 };
 
 const durationOptions: DurationOption[] = [
@@ -62,19 +87,84 @@ const tokenTierOptions: TokenTierOption[] = [
   { label: 'Premium Session', value: 'premium' }
 ];
 
-function useSlideIn(visible: boolean) {
-  const translateY = useRef(new Animated.Value(Dimensions.get('window').height)).current;
+const validityOptions: ValidityOption[] = [
+  { label: 'Valid for 1 day', value: '1_day' },
+  { label: 'Valid for 1 week', value: '1_week' },
+  { label: 'Valid for 1 month', value: '1_month' },
+  { label: 'Valid for 1 year', value: '1_year' }
+];
 
-  React.useEffect(() => {
-    Animated.timing(translateY, {
-      toValue: visible ? 0 : Dimensions.get('window').height,
-      duration: 400,
-      useNativeDriver: true
-    }).start();
-  }, [translateY, visible]);
+const SESSION_TTL_MINUTES: Record<string, number> = {
+  '15m': 15,
+  '30m': 30,
+  '1h': 60,
+  '4h': 240
+};
 
-  return translateY;
-}
+const DEFAULT_MESSAGE_CHAR_LIMIT = 2000;
+
+const extractFriendlyError = (rawBody: string): string => {
+  if (!rawBody) {
+    return 'Unexpected response from the server.';
+  }
+
+  try {
+    const parsed = JSON.parse(rawBody);
+    if (typeof parsed?.detail === 'string') {
+      return parsed.detail;
+    }
+    if (Array.isArray(parsed?.detail)) {
+      const combined = parsed.detail
+        .map((item: any) => (typeof item?.msg === 'string' ? item.msg : null))
+        .filter(Boolean)
+        .join('\n');
+      if (combined) {
+        return combined;
+      }
+    }
+  } catch {
+    // Swallow JSON parsing issues and fall back to the raw payload below.
+  }
+
+  return rawBody;
+};
+
+const joinSession = async (
+  tokenValue: string,
+  existingParticipantId?: string | null
+): Promise<JoinResponse> => {
+  const trimmedToken = tokenValue.trim();
+  const response = await fetch(`${API_BASE_URL}/sessions/join`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      token: trimmedToken,
+      participant_id: existingParticipantId ?? undefined,
+      client_identity: MOBILE_CLIENT_IDENTITY
+    })
+  });
+
+  const rawBody = await response.text();
+
+  if (!response.ok) {
+    throw new Error(extractFriendlyError(rawBody) || 'Unable to join the session.');
+  }
+
+  try {
+    const payload = JSON.parse(rawBody) as JoinResponse;
+    if (!payload?.participant_id || !payload?.token) {
+      throw new Error('Missing participant details in the join response.');
+    }
+    return payload;
+  } catch (error: any) {
+    if (error instanceof Error && error.message === 'Missing participant details in the join response.') {
+      throw error;
+    }
+    throw new Error('Received an unexpected response from the session join API.');
+  }
+};
 
 const AcceptScreen: React.FC<{ onAccept: () => void }> = ({ onAccept }) => {
   const [acceptEnabled, setAcceptEnabled] = useState(false);
@@ -88,9 +178,19 @@ const AcceptScreen: React.FC<{ onAccept: () => void }> = ({ onAccept }) => {
   };
 
   return (
-    <LinearGradient colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean]} style={styles.container}>
+    <LinearGradient
+      colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean, COLORS.lagoon]}
+      start={{ x: 0.1, y: 0 }}
+      end={{ x: 0.9, y: 1 }}
+      style={styles.container}
+    >
       <StatusBar style="light" />
-      <View style={styles.termsCard}>
+      <LinearGradient
+        colors={[COLORS.glowSoft, COLORS.glowWarm, COLORS.glowSoft]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.termsCard}
+      >
         <Text style={styles.logoText}>ChatOrbit Token Lab</Text>
         <ScrollView
           style={styles.termsScroll}
@@ -108,7 +208,7 @@ const AcceptScreen: React.FC<{ onAccept: () => void }> = ({ onAccept }) => {
         >
           <Text style={styles.acceptButtonLabel}>{acceptEnabled ? 'Accept & Continue' : 'Scroll to accept'}</Text>
         </TouchableOpacity>
-      </View>
+      </LinearGradient>
     </LinearGradient>
   );
 };
@@ -136,28 +236,42 @@ const NeedTokenForm: React.FC<{
   onClose: () => void;
   onGenerated: (token: TokenResponse) => void;
 }> = ({ visible, onClose, onGenerated }) => {
-  const translateY = useSlideIn(visible);
   const [selectedDuration, setSelectedDuration] = useState(durationOptions[2].value);
   const [selectedTier, setSelectedTier] = useState(tokenTierOptions[0].value);
+  const [selectedValidity, setSelectedValidity] = useState<ValidityOption['value']>(validityOptions[0].value);
   const [loading, setLoading] = useState(false);
 
   const requestToken = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/token`, {
+      const sessionTtlMinutes = SESSION_TTL_MINUTES[selectedDuration] ?? SESSION_TTL_MINUTES['1h'];
+      const response = await fetch(`${API_BASE_URL}/tokens`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          duration: selectedDuration,
-          tokenType: selectedTier
+          validity_period: selectedValidity,
+          session_ttl_minutes: sessionTtlMinutes,
+          message_char_limit: DEFAULT_MESSAGE_CHAR_LIMIT,
+          client_identity: `mobile-${selectedTier}`
         })
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(errorText || 'Failed to generate token');
+        let friendlyMessage = errorText || 'Failed to generate token';
+        try {
+          const parsed = JSON.parse(errorText);
+          if (Array.isArray(parsed?.detail)) {
+            friendlyMessage = parsed.detail.map((item: any) => item?.msg).filter(Boolean).join('\n');
+          } else if (typeof parsed?.detail === 'string') {
+            friendlyMessage = parsed.detail;
+          }
+        } catch {
+          // Ignore JSON parsing errors and fall back to raw text.
+        }
+        throw new Error(friendlyMessage);
       }
 
       const data = (await response.json()) as TokenResponse;
@@ -174,66 +288,120 @@ const NeedTokenForm: React.FC<{
   };
 
   return (
-    <Animated.View style={[styles.sheetContainer, { transform: [{ translateY }] }]}> 
-      <View style={styles.sheetHeader}>
-        <Text style={styles.sheetTitle}>Need a token?</Text>
-        <TouchableOpacity onPress={onClose} accessibilityRole="button">
-          <Ionicons name="close" size={28} color={COLORS.ice} />
-        </TouchableOpacity>
-      </View>
-      <Text style={styles.sheetSubtitle}>
-        Choose how long your secure session should stay active and the experience tier you need.
-      </Text>
-      <View style={styles.pickerGroup}>
-        <Text style={styles.pickerLabel}>Duration</Text>
-        <View style={styles.pickerWrapper}>
-          <Picker
-            selectedValue={selectedDuration}
-            onValueChange={setSelectedDuration}
-            dropdownIconColor={COLORS.lagoon}
-            style={styles.picker}
-          >
-            {durationOptions.map((option) => (
-              <Picker.Item key={option.value} label={option.label} value={option.value} />
-            ))}
-          </Picker>
-        </View>
-      </View>
-      <View style={styles.pickerGroup}>
-        <Text style={styles.pickerLabel}>Token tier</Text>
-        <View style={styles.pickerWrapper}>
-          <Picker
-            selectedValue={selectedTier}
-            onValueChange={setSelectedTier}
-            dropdownIconColor={COLORS.lagoon}
-            style={styles.picker}
-          >
-            {tokenTierOptions.map((option) => (
-              <Picker.Item key={option.value} label={option.label} value={option.value} />
-            ))}
-          </Picker>
-        </View>
-      </View>
-      <TouchableOpacity
-        style={[styles.generateButton, loading && styles.generateButtonDisabled]}
-        onPress={requestToken}
-        disabled={loading}
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={() => {
+        if (!loading) {
+          onClose();
+        }
+      }}
+    >
+      <LinearGradient
+        colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean, COLORS.lagoon]}
+        start={{ x: 0.1, y: 0 }}
+        end={{ x: 0.9, y: 1 }}
+        style={styles.formContainer}
       >
-        {loading ? (
-          <ActivityIndicator color={COLORS.white} />
-        ) : (
-          <Text style={styles.generateButtonLabel}>Generate token</Text>
-        )}
-      </TouchableOpacity>
-    </Animated.View>
+        <StatusBar style="light" />
+        <SafeAreaView style={styles.formSafeArea}>
+          <View style={styles.formHeader}>
+            <Text style={styles.formTitle}>Need a token?</Text>
+            <TouchableOpacity
+              onPress={onClose}
+              accessibilityRole="button"
+              disabled={loading}
+              style={[styles.formCloseButton, loading && styles.disabledClose]}
+            >
+              <Ionicons name="close" size={28} color={COLORS.ice} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView
+            contentContainerStyle={styles.formContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={styles.formSubtitle}>
+              Set how long the live session runs, how long the token stays claimable, and the experience tier you need.
+            </Text>
+            <View style={styles.pickerGroup}>
+              <Text style={styles.pickerLabel}>Session duration</Text>
+              <View style={styles.pickerWrapper}>
+                <Picker
+                  selectedValue={selectedDuration}
+                  onValueChange={(value) => setSelectedDuration(value.toString())}
+                  dropdownIconColor={COLORS.aurora}
+                  style={styles.picker}
+                  itemStyle={styles.pickerItem}
+                >
+                  {durationOptions.map((option) => (
+                    <Picker.Item key={option.value} label={option.label} value={option.value} />
+                  ))}
+                </Picker>
+              </View>
+            </View>
+            <View style={styles.pickerGroup}>
+              <Text style={styles.pickerLabel}>Validity window</Text>
+              <View style={styles.pickerWrapper}>
+                <Picker
+                  selectedValue={selectedValidity}
+                  onValueChange={(value) => setSelectedValidity(value as ValidityOption['value'])}
+                  dropdownIconColor={COLORS.aurora}
+                  style={styles.picker}
+                  itemStyle={styles.pickerItem}
+                >
+                  {validityOptions.map((option) => (
+                    <Picker.Item key={option.value} label={option.label} value={option.value} />
+                  ))}
+                </Picker>
+              </View>
+            </View>
+            <View style={styles.pickerGroup}>
+              <Text style={styles.pickerLabel}>Token tier</Text>
+              <View style={styles.pickerWrapper}>
+                <Picker
+                  selectedValue={selectedTier}
+                  onValueChange={(value) => setSelectedTier(value.toString())}
+                  dropdownIconColor={COLORS.aurora}
+                  style={styles.picker}
+                  itemStyle={styles.pickerItem}
+                >
+                  {tokenTierOptions.map((option) => (
+                    <Picker.Item key={option.value} label={option.label} value={option.value} />
+                  ))}
+                </Picker>
+              </View>
+            </View>
+            <TouchableOpacity
+              style={[styles.generateButton, loading && styles.generateButtonDisabled]}
+              onPress={requestToken}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color={COLORS.white} />
+              ) : (
+                <Text style={styles.generateButtonLabel}>Generate token</Text>
+              )}
+            </TouchableOpacity>
+          </ScrollView>
+        </SafeAreaView>
+      </LinearGradient>
+    </Modal>
   );
 };
 
 const TokenResultCard: React.FC<{
   token: TokenResponse;
   onReset: () => void;
-}> = ({ token, onReset }) => {
+  onStartInApp: () => void | Promise<void>;
+  joiningInApp: boolean;
+}> = ({ token, onReset, onStartInApp, joiningInApp }) => {
   const shareMessage = useMemo(() => `Join my ChatOrbit session using this token: ${token.token}`, [token.token]);
+  const sessionMinutes = Math.max(1, Math.round(token.session_ttl_seconds / 60));
+  const messageLimit = token.message_char_limit.toLocaleString();
+  const [launchingWeb, setLaunchingWeb] = useState(false);
+  const [storedParticipantId, setStoredParticipantId] = useState<string | null>(null);
 
   const copyToClipboard = async () => {
     await Clipboard.setStringAsync(token.token);
@@ -248,93 +416,281 @@ const TokenResultCard: React.FC<{
     }
   };
 
-  const startSession = async () => {
-    const sessionUrl = `https://chatorbit.com/session/${encodeURIComponent(token.token)}`;
-    const supported = await Linking.canOpenURL(sessionUrl);
-    if (supported) {
-      await Linking.openURL(sessionUrl);
-    } else {
-      Alert.alert('Cannot open session', 'Your device cannot open the ChatOrbit session URL.');
+  const startSessionOnWeb = async () => {
+    if (launchingWeb) {
+      return;
+    }
+
+    try {
+      setLaunchingWeb(true);
+      const payload = await joinSession(token.token, storedParticipantId);
+      const participantId = payload.participant_id;
+      setStoredParticipantId(participantId);
+
+      const canonicalToken = payload.token || token.token;
+      const sessionUrl = `https://chatorbit.com/session/${encodeURIComponent(canonicalToken)}?participant=${encodeURIComponent(participantId)}`;
+      const supported = await Linking.canOpenURL(sessionUrl);
+      if (supported) {
+        await Linking.openURL(sessionUrl);
+      } else {
+        throw new Error('Your device cannot open the ChatOrbit session URL.');
+      }
+    } catch (error: any) {
+      Alert.alert('Cannot open session', error?.message ?? 'Unexpected error while launching the session.');
+    } finally {
+      setLaunchingWeb(false);
     }
   };
 
   return (
-    <View style={styles.resultCard}>
+    <LinearGradient
+      colors={[COLORS.glowSoft, COLORS.glowWarm, COLORS.glowSoft]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.resultCard}
+    >
       <Text style={styles.resultTitle}>Your token is ready!</Text>
       <Text style={styles.tokenText}>{token.token}</Text>
-      {token.expiresAt ? <Text style={styles.expiryText}>Expires {token.expiresAt}</Text> : null}
+      {token.validity_expires_at ? (
+        <Text style={styles.expiryText}>
+          Valid until {new Date(token.validity_expires_at).toLocaleString()}
+        </Text>
+      ) : null}
+      <Text style={styles.resultMeta}>Session stays live for {sessionMinutes} minutes after everyone joins.</Text>
+      <Text style={styles.resultMeta}>Messages are limited to {messageLimit} characters.</Text>
       <View style={styles.resultButtonRow}>
         <TouchableOpacity style={styles.resultButton} onPress={copyToClipboard}>
-          <Ionicons name="copy-outline" size={20} color={COLORS.deepBlue} />
+          <Ionicons name="copy-outline" size={20} color={COLORS.ice} />
           <Text style={styles.resultButtonLabel}>Copy</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.resultButton} onPress={shareToken}>
-          <Ionicons name="share-outline" size={20} color={COLORS.deepBlue} />
+          <Ionicons name="share-outline" size={20} color={COLORS.ice} />
           <Text style={styles.resultButtonLabel}>Share</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.resultButton} onPress={startSession}>
-          <MaterialCommunityIcons name="rocket-launch-outline" size={20} color={COLORS.deepBlue} />
-          <Text style={styles.resultButtonLabel}>Start session</Text>
+      </View>
+      <Text style={styles.startSessionLabel}>Start session</Text>
+      <View style={styles.sessionButtonsRow}>
+        <TouchableOpacity
+          style={[
+            styles.resultButton,
+            styles.primaryResultButton,
+            joiningInApp && styles.primaryResultButtonDisabled
+          ]}
+          onPress={onStartInApp}
+          disabled={joiningInApp}
+        >
+          {joiningInApp ? (
+            <ActivityIndicator color={COLORS.midnight} />
+          ) : (
+            <MaterialCommunityIcons name="tablet-cellphone" size={20} color={COLORS.midnight} />
+          )}
+          <Text style={[styles.resultButtonLabel, styles.primaryResultButtonLabel]}>
+            {joiningInApp ? 'Connecting…' : 'In app'}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.resultButton,
+            styles.primaryResultButton,
+            launchingWeb && styles.primaryResultButtonDisabled
+          ]}
+          onPress={startSessionOnWeb}
+          disabled={launchingWeb}
+        >
+          {launchingWeb ? (
+            <ActivityIndicator color={COLORS.midnight} />
+          ) : (
+            <MaterialCommunityIcons name="rocket-launch-outline" size={20} color={COLORS.midnight} />
+          )}
+          <Text style={[styles.resultButtonLabel, styles.primaryResultButtonLabel]}>
+            {launchingWeb ? 'Opening…' : 'On web'}
+          </Text>
         </TouchableOpacity>
       </View>
       <TouchableOpacity style={styles.resetButton} onPress={onReset}>
         <Text style={styles.resetButtonLabel}>Generate another token</Text>
       </TouchableOpacity>
-    </View>
+    </LinearGradient>
   );
 };
 
-const GotTokenCard: React.FC = () => (
-  <View style={styles.gotTokenCard}>
-    <Text style={styles.gotTokenTitle}>Already have a token?</Text>
-    <Text style={styles.gotTokenSubtitle}>
-      We will soon add secure chat, video and collaborative boards powered by WebRTC. Stay tuned!
-    </Text>
-  </View>
-);
+const InAppSessionScreen: React.FC<{
+  token: TokenResponse;
+  participantId: string;
+  onExit: () => void;
+}> = ({ token, participantId, onExit }) => {
+  const [webViewLoaded, setWebViewLoaded] = useState(false);
+  const sessionUrl = useMemo(
+    () =>
+      `https://chatorbit.com/session/${encodeURIComponent(token.token)}?participant=${encodeURIComponent(participantId)}&source=mobile`,
+    [token.token, participantId]
+  );
+
+  useEffect(() => {
+    setWebViewLoaded(false);
+  }, [sessionUrl]);
+
+  return (
+    <LinearGradient
+      colors={[COLORS.glowSoft, COLORS.glowWarm, COLORS.glowSoft]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.inAppSessionContainer}
+    >
+      <SafeAreaView style={styles.inAppSessionSafeArea}>
+        <View style={styles.inAppHeaderRow}>
+          <TouchableOpacity accessibilityRole="button" style={styles.inAppBackButton} onPress={onExit}>
+            <Ionicons name="arrow-back" size={20} color={COLORS.ice} />
+            <Text style={styles.inAppBackLabel}>Back</Text>
+          </TouchableOpacity>
+          <View style={styles.inAppHeaderTextGroup}>
+            <Text style={styles.inAppTitle}>Live session cockpit</Text>
+            <Text style={styles.inAppSubtitle}>Keep this screen open while participants join.</Text>
+          </View>
+        </View>
+        <View style={styles.sessionWebViewWrapper}>
+          {!webViewLoaded && (
+            <View style={styles.webViewLoadingOverlay}>
+              <ActivityIndicator color={COLORS.aurora} size="large" />
+              <Text style={styles.webViewLoadingText}>Preparing realtime channel…</Text>
+            </View>
+          )}
+          <WebView
+            originWhitelist={["*"]}
+            source={{ uri: sessionUrl }}
+            style={styles.sessionWebView}
+            onLoadEnd={() => setWebViewLoaded(true)}
+            allowsInlineMediaPlayback
+            mediaPlaybackRequiresUserAction={false}
+            allowsFullscreenVideo
+          />
+        </View>
+      </SafeAreaView>
+    </LinearGradient>
+  );
+};
 
 const MainScreen: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [tokenResponse, setTokenResponse] = useState<TokenResponse | null>(null);
+  const [inAppSession, setInAppSession] = useState(false);
+  const [joiningInApp, setJoiningInApp] = useState(false);
+  const [inAppParticipantId, setInAppParticipantId] = useState<string | null>(null);
+  const isInAppSessionActive = Boolean(tokenResponse && inAppSession);
+
+  const handleReset = () => {
+    setTokenResponse(null);
+    setInAppSession(false);
+    setInAppParticipantId(null);
+    setJoiningInApp(false);
+  };
+
+  const handleStartInApp = async () => {
+    if (!tokenResponse || joiningInApp) {
+      return;
+    }
+
+    try {
+      setJoiningInApp(true);
+      const payload = await joinSession(tokenResponse.token, inAppParticipantId);
+      setInAppParticipantId(payload.participant_id);
+      setInAppSession(true);
+    } catch (error: any) {
+      Alert.alert('Cannot start session', error?.message ?? 'Unexpected error while launching the in-app session.');
+    } finally {
+      setJoiningInApp(false);
+    }
+  };
+
+  const renderContent = () => {
+    if (tokenResponse && inAppSession) {
+      if (!inAppParticipantId) {
+        return (
+          <LinearGradient
+            colors={[COLORS.glowSoft, COLORS.glowWarm, COLORS.glowSoft]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.sessionFallbackCard}
+          >
+            <Text style={styles.sessionFallbackTitle}>Session connection lost</Text>
+            <Text style={styles.sessionFallbackBody}>
+              We couldn't recover your participant link. Return to the token screen and try launching the in-app session again.
+            </Text>
+            <TouchableOpacity style={styles.resetButton} onPress={() => setInAppSession(false)}>
+              <Text style={styles.resetButtonLabel}>Back to token</Text>
+            </TouchableOpacity>
+          </LinearGradient>
+        );
+      }
+
+      return (
+        <InAppSessionScreen
+          token={tokenResponse}
+          participantId={inAppParticipantId}
+          onExit={() => setInAppSession(false)}
+        />
+      );
+    }
+
+    if (tokenResponse) {
+      return (
+        <TokenResultCard
+          token={tokenResponse}
+          onReset={handleReset}
+          onStartInApp={handleStartInApp}
+          joiningInApp={joiningInApp}
+        />
+      );
+    }
+
+    return (
+      <View style={styles.actionRow}>
+        <BigActionButton
+          title="Need token"
+          description="Create a secure pass with custom duration."
+          onPress={() => setShowForm(true)}
+          background="rgba(8, 47, 112, 0.72)"
+          icon={<Ionicons name="planet" size={42} color={COLORS.aurora} />}
+        />
+        <BigActionButton
+          title="Got token"
+          description="Coming soon: instantly jump into live orbit."
+          onPress={() => Alert.alert('Coming soon', 'Session join will arrive with the WebRTC update!')}
+          background="rgba(6, 36, 92, 0.78)"
+          icon={<MaterialCommunityIcons name="shield-check" size={42} color={COLORS.aurora} />}
+        />
+      </View>
+    );
+  };
 
   return (
-    <LinearGradient colors={[COLORS.deepBlue, COLORS.ocean, COLORS.lagoon]} style={styles.container}>
+    <LinearGradient
+      colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean, COLORS.lagoon]}
+      start={{ x: 0.1, y: 0 }}
+      end={{ x: 0.9, y: 1 }}
+      style={[styles.container, isInAppSessionActive && styles.containerInSession]}
+    >
       <StatusBar style="light" />
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Launch a ChatOrbit session</Text>
-        <Text style={styles.headerSubtitle}>
-          Generate a one-time secure token or prepare to join an existing session with a single tap.
-        </Text>
-      </View>
-      {tokenResponse ? (
-        <TokenResultCard token={tokenResponse} onReset={() => setTokenResponse(null)} />
-      ) : (
-        <View style={styles.actionRow}>
-          <BigActionButton
-            title="Need token"
-            description="Create a secure pass with custom duration."
-            onPress={() => setShowForm(true)}
-            background={COLORS.ice}
-            icon={<Ionicons name="planet" size={42} color={COLORS.deepBlue} />}
-          />
-          <BigActionButton
-            title="Got token"
-            description="Coming soon: instantly jump into live orbit."
-            onPress={() => Alert.alert('Coming soon', 'Session join will arrive with the WebRTC update!')}
-            background={COLORS.lilac}
-            icon={<MaterialCommunityIcons name="shield-check" size={42} color={COLORS.deepBlue} />}
-          />
+      {!isInAppSessionActive && (
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Launch a ChatOrbit session</Text>
+          <Text style={styles.headerSubtitle}>
+            Generate a one-time secure token or prepare to join an existing session with a single tap.
+          </Text>
         </View>
       )}
+      {renderContent()}
       <NeedTokenForm
         visible={showForm && !tokenResponse}
         onClose={() => setShowForm(false)}
         onGenerated={(token) => {
           setShowForm(false);
           setTokenResponse(token);
+          setInAppParticipantId(null);
+          setInAppSession(false);
+          setJoiningInApp(false);
         }}
       />
-      <GotTokenCard />
     </LinearGradient>
   );
 };
@@ -348,7 +704,12 @@ export default function App() {
 
   if (!fontsLoaded) {
     return (
-      <LinearGradient colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean]} style={styles.loadingContainer}>
+      <LinearGradient
+        colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean, COLORS.lagoon]}
+        start={{ x: 0.1, y: 0 }}
+        end={{ x: 0.9, y: 1 }}
+        style={styles.loadingContainer}
+      >
         <StatusBar style="light" />
         <ActivityIndicator color={COLORS.mint} size="large" />
       </LinearGradient>
@@ -375,23 +736,29 @@ const styles = StyleSheet.create({
     paddingTop: 64,
     paddingHorizontal: 24
   },
+  containerInSession: {
+    paddingTop: 24,
+    paddingHorizontal: 12
+  },
   termsCard: {
-    backgroundColor: 'rgba(7, 27, 47, 0.72)',
     borderRadius: 28,
     padding: 24,
     paddingTop: 48,
     width: '100%',
     maxWidth: 420,
     flex: 1,
-    shadowColor: COLORS.lagoon,
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.24,
-    shadowRadius: 24
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge,
+    shadowColor: COLORS.cobaltShadow,
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.35,
+    shadowRadius: 32,
+    elevation: 12
   },
   logoText: {
     fontSize: 22,
     fontWeight: '700',
-    color: COLORS.mint,
+    color: COLORS.ice,
     textAlign: 'center',
     marginBottom: 24,
     letterSpacing: 1.2
@@ -399,28 +766,28 @@ const styles = StyleSheet.create({
   termsScroll: {
     flex: 1,
     borderRadius: 16,
-    backgroundColor: 'rgba(230, 243, 255, 0.08)'
+    backgroundColor: 'rgba(15, 83, 170, 0.2)'
   },
   termsContent: {
     padding: 16
   },
   termsText: {
-    color: COLORS.ice,
+    color: 'rgba(232, 244, 255, 0.92)',
     fontSize: 16,
     lineHeight: 24
   },
   acceptButton: {
     marginTop: 20,
-    backgroundColor: COLORS.lagoon,
+    backgroundColor: COLORS.aurora,
     borderRadius: 16,
     paddingVertical: 16,
     alignItems: 'center'
   },
   acceptButtonDisabled: {
-    backgroundColor: 'rgba(28, 107, 199, 0.4)'
+    backgroundColor: 'rgba(111, 231, 255, 0.3)'
   },
   acceptButtonLabel: {
-    color: COLORS.white,
+    color: COLORS.midnight,
     fontSize: 16,
     fontWeight: '600'
   },
@@ -436,7 +803,7 @@ const styles = StyleSheet.create({
     marginBottom: 8
   },
   headerSubtitle: {
-    color: 'rgba(230, 243, 255, 0.75)',
+    color: 'rgba(244, 249, 255, 0.78)',
     fontSize: 16,
     lineHeight: 22
   },
@@ -451,10 +818,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    shadowColor: COLORS.midnight,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.3,
-    shadowRadius: 18,
+    shadowColor: COLORS.cobaltShadow,
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.32,
+    shadowRadius: 24,
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge,
     elevation: 8
   },
   bigActionIcon: {
@@ -463,65 +832,80 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(22, 74, 137, 0.1)'
+    backgroundColor: 'rgba(79, 183, 255, 0.16)'
   },
   bigActionTextContainer: {
     flex: 1,
     marginLeft: 16
   },
   bigActionTitle: {
-    color: COLORS.deepBlue,
+    color: COLORS.ice,
     fontSize: 22,
     fontWeight: '700'
   },
   bigActionDescription: {
-    color: COLORS.deepBlue,
+    color: 'rgba(219, 237, 255, 0.76)',
     fontSize: 14,
-    opacity: 0.7,
     marginTop: 6
   },
-  sheetContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: COLORS.midnight,
-    padding: 24,
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    borderWidth: 1,
-    borderColor: 'rgba(140, 194, 255, 0.3)'
+  disabledClose: {
+    opacity: 0.4
   },
-  sheetHeader: {
+  formContainer: {
+    flex: 1,
+    justifyContent: 'flex-start'
+  },
+  formSafeArea: {
+    flex: 1,
+    paddingHorizontal: 20
+  },
+  formHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12
+    paddingTop: 8,
+    marginBottom: 16
   },
-  sheetTitle: {
-    color: COLORS.mint,
-    fontSize: 20,
+  formTitle: {
+    color: COLORS.white,
+    fontSize: 24,
     fontWeight: '700'
   },
-  sheetSubtitle: {
-    color: 'rgba(230, 243, 255, 0.78)',
-    marginBottom: 12,
+  formCloseButton: {
+    padding: 4
+  },
+  formContent: {
+    paddingBottom: 32
+  },
+  formSubtitle: {
+    color: 'rgba(224, 239, 255, 0.82)',
+    marginBottom: 16,
     lineHeight: 20
   },
   pickerGroup: {
-    marginBottom: 12
+    marginBottom: 24
   },
   pickerLabel: {
     color: COLORS.ice,
-    fontSize: 14,
-    marginBottom: 6
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 12
   },
   pickerWrapper: {
-    borderRadius: 16,
-    backgroundColor: 'rgba(230, 243, 255, 0.14)'
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: 'rgba(9, 64, 140, 0.42)',
+    height: 132
   },
   picker: {
-    color: COLORS.white
+    color: COLORS.aurora,
+    width: '100%',
+    height: '100%'
+  },
+  pickerItem: {
+    color: COLORS.aurora,
+    fontSize: 16,
+    height: 132
   },
   generateButton: {
     marginTop: 16,
@@ -541,79 +925,197 @@ const styles = StyleSheet.create({
   resultCard: {
     width: '100%',
     maxWidth: 520,
-    backgroundColor: 'rgba(230, 243, 255, 0.92)',
     borderRadius: 28,
     padding: 24,
     marginBottom: 32,
-    shadowColor: COLORS.midnight,
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 10
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge,
+    shadowColor: COLORS.cobaltShadow,
+    shadowOffset: { width: 0, height: 22 },
+    shadowOpacity: 0.35,
+    shadowRadius: 34,
+    elevation: 12
   },
   resultTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: COLORS.deepBlue,
+    color: COLORS.ice,
     marginBottom: 12
   },
   tokenText: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '700',
-    color: COLORS.midnight,
-    letterSpacing: 1.1
+    color: COLORS.aurora,
+    letterSpacing: 1.1,
+    marginTop: 4
   },
   expiryText: {
     marginTop: 6,
-    color: COLORS.ocean,
+    color: 'rgba(219, 237, 255, 0.78)',
     fontSize: 14
   },
   resultButtonRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     marginTop: 20,
-    gap: 8
+    gap: 12
+  },
+  resultMeta: {
+    marginTop: 8,
+    color: 'rgba(219, 237, 255, 0.78)',
+    fontSize: 14,
+    lineHeight: 20
   },
   resultButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.mint,
+    backgroundColor: 'rgba(5, 32, 80, 0.78)',
     borderRadius: 16,
     paddingVertical: 12,
-    gap: 8
+    gap: 8,
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge
   },
   resultButtonLabel: {
-    color: COLORS.deepBlue,
+    color: COLORS.ice,
     fontWeight: '700'
+  },
+  primaryResultButton: {
+    backgroundColor: COLORS.aurora,
+    alignSelf: 'stretch',
+    borderColor: 'transparent'
+  },
+  primaryResultButtonLabel: {
+    color: COLORS.midnight
+  },
+  primaryResultButtonDisabled: {
+    opacity: 0.6
+  },
+  startSessionLabel: {
+    marginTop: 20,
+    color: COLORS.ice,
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center'
+  },
+  sessionButtonsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 12
   },
   resetButton: {
     marginTop: 24,
     alignItems: 'center'
   },
   resetButtonLabel: {
-    color: COLORS.deepBlue,
+    color: COLORS.aurora,
     fontSize: 15,
     textDecorationLine: 'underline',
     fontWeight: '600'
   },
-  gotTokenCard: {
-    marginTop: 24,
-    backgroundColor: 'rgba(230, 243, 255, 0.2)',
-    borderRadius: 24,
-    padding: 20,
+  inAppSessionContainer: {
     width: '100%',
-    maxWidth: 520
+    maxWidth: 520,
+    borderRadius: 28,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginBottom: 32,
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge,
+    shadowColor: COLORS.cobaltShadow,
+    shadowOffset: { width: 0, height: 22 },
+    shadowOpacity: 0.35,
+    shadowRadius: 34,
+    elevation: 12,
+    flex: 1,
+    overflow: 'hidden'
   },
-  gotTokenTitle: {
-    color: COLORS.white,
-    fontSize: 18,
+  inAppSessionSafeArea: {
+    flex: 1
+  },
+  inAppHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8
+  },
+  inAppBackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(6, 36, 92, 0.64)',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge
+  },
+  inAppBackLabel: {
+    color: COLORS.ice,
+    fontWeight: '600'
+  },
+  inAppHeaderTextGroup: {
+    flex: 1,
+    marginLeft: 16
+  },
+  inAppTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: COLORS.ice
+  },
+  inAppSubtitle: {
+    marginTop: 6,
+    color: 'rgba(219, 237, 255, 0.78)',
+    lineHeight: 20
+  },
+  sessionWebViewWrapper: {
+    flex: 1,
+    borderRadius: 22,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.4)',
+    backgroundColor: 'rgba(2, 11, 31, 0.7)'
+  },
+  sessionWebView: {
+    flex: 1,
+    backgroundColor: 'transparent'
+  },
+  webViewLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(2, 11, 31, 0.72)',
+    gap: 12,
+    zIndex: 10
+  },
+  webViewLoadingText: {
+    color: 'rgba(219, 237, 255, 0.86)',
+    fontWeight: '600'
+  },
+  sessionFallbackCard: {
+    width: '100%',
+    maxWidth: 520,
+    borderRadius: 28,
+    padding: 24,
+    marginBottom: 32,
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge,
+    shadowColor: COLORS.cobaltShadow,
+    shadowOffset: { width: 0, height: 22 },
+    shadowOpacity: 0.35,
+    shadowRadius: 34,
+    elevation: 12,
+    gap: 16
+  },
+  sessionFallbackTitle: {
+    color: COLORS.ice,
+    fontSize: 20,
     fontWeight: '700'
   },
-  gotTokenSubtitle: {
-    color: 'rgba(230, 243, 255, 0.75)',
-    marginTop: 8,
+  sessionFallbackBody: {
+    color: 'rgba(219, 237, 255, 0.78)',
     lineHeight: 20
   }
 });
