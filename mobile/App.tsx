@@ -20,6 +20,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { useFonts } from 'expo-font';
+import { getIceServers, hasRelayIceServers } from './webrtc';
 
 const COLORS = {
   midnight: '#020B1F',
@@ -663,6 +664,33 @@ const InAppSessionScreen: React.FC<{
   const messageListRef = useRef<FlatList<ChatMessage> | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const lastParticipantIdsRef = useRef<string[]>([]);
+  const iceServers = useMemo(() => getIceServers(), []);
+  const hasRelaySupport = useMemo(() => hasRelayIceServers(iceServers), [iceServers]);
+  const connectivityVariant = hasRelaySupport ? 'relay' : iceServers.length > 0 ? 'stun' : 'none';
+  const connectivityLabel =
+    connectivityVariant === 'relay'
+      ? 'TURN ready'
+      : connectivityVariant === 'stun'
+        ? 'STUN only'
+        : 'No ICE servers';
+  const connectivityMessage =
+    connectivityVariant === 'relay'
+      ? 'Relay routing enabled for restrictive networks.'
+      : connectivityVariant === 'stun'
+        ? 'Basic STUN available; relay fallback is not configured yet.'
+        : 'Configure STUN or TURN servers to complete the WebRTC flow.';
+  const connectivityBadgeStyle =
+    connectivityVariant === 'relay'
+      ? styles.connectivityBadgeReady
+      : connectivityVariant === 'stun'
+        ? styles.connectivityBadgeLimited
+        : styles.connectivityBadgeWarning;
+  const connectivityIcon =
+    connectivityVariant === 'relay'
+      ? 'radio-outline'
+      : connectivityVariant === 'stun'
+        ? 'alert-circle-outline'
+        : 'close-circle-outline';
 
   useEffect(() => {
     let isMounted = true;
@@ -898,6 +926,13 @@ const InAppSessionScreen: React.FC<{
               </View>
             </View>
             <Text style={styles.sessionCardDescription}>{sessionStatusDescription}</Text>
+            <View style={[styles.connectivityBanner, connectivityBadgeStyle]}>
+              <Ionicons name={connectivityIcon as any} size={18} color={COLORS.ice} />
+              <View style={styles.connectivityBannerText}>
+                <Text style={styles.connectivityBannerLabel}>{connectivityLabel}</Text>
+                <Text style={styles.connectivityBannerMessage}>{connectivityMessage}</Text>
+              </View>
+            </View>
             {statusLoading ? (
               <View style={styles.statusLoadingRow}>
                 <ActivityIndicator color={COLORS.aurora} />
@@ -1573,6 +1608,39 @@ const styles = StyleSheet.create({
   sessionCardDescription: {
     color: 'rgba(219, 237, 255, 0.78)',
     lineHeight: 20
+  },
+  connectivityBanner: {
+    marginTop: 6,
+    padding: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12
+  },
+  connectivityBadgeReady: {
+    backgroundColor: 'rgba(111, 231, 255, 0.12)',
+    borderColor: 'rgba(111, 231, 255, 0.6)'
+  },
+  connectivityBadgeLimited: {
+    backgroundColor: 'rgba(255, 209, 102, 0.12)',
+    borderColor: 'rgba(255, 209, 102, 0.6)'
+  },
+  connectivityBadgeWarning: {
+    backgroundColor: 'rgba(239, 71, 111, 0.14)',
+    borderColor: 'rgba(239, 71, 111, 0.55)'
+  },
+  connectivityBannerText: {
+    flex: 1
+  },
+  connectivityBannerLabel: {
+    color: COLORS.ice,
+    fontWeight: '700'
+  },
+  connectivityBannerMessage: {
+    color: 'rgba(219, 237, 255, 0.78)',
+    fontSize: 12,
+    marginTop: 2
   },
   statusPill: {
     flexDirection: 'row',
