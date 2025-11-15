@@ -576,6 +576,7 @@ const MainScreen: React.FC = () => {
   const [inAppSession, setInAppSession] = useState(false);
   const [joiningInApp, setJoiningInApp] = useState(false);
   const [inAppParticipantId, setInAppParticipantId] = useState<string | null>(null);
+  const isInAppSessionActive = Boolean(tokenResponse && inAppSession);
 
   const handleReset = () => {
     setTokenResponse(null);
@@ -667,15 +668,17 @@ const MainScreen: React.FC = () => {
       colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean, COLORS.lagoon]}
       start={{ x: 0.1, y: 0 }}
       end={{ x: 0.9, y: 1 }}
-      style={styles.container}
+      style={[styles.container, isInAppSessionActive && styles.containerInSession]}
     >
       <StatusBar style="light" />
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Launch a ChatOrbit session</Text>
-        <Text style={styles.headerSubtitle}>
-          Generate a one-time secure token or prepare to join an existing session with a single tap.
-        </Text>
-      </View>
+      {!isInAppSessionActive && (
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Launch a ChatOrbit session</Text>
+          <Text style={styles.headerSubtitle}>
+            Generate a one-time secure token or prepare to join an existing session with a single tap.
+          </Text>
+        </View>
+      )}
       {renderContent()}
       <NeedTokenForm
         visible={showForm && !tokenResponse}
@@ -732,6 +735,9 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingTop: 64,
     paddingHorizontal: 24
+  },
+  containerInSession: {
+    paddingTop: 24
   },
   termsCard: {
     borderRadius: 28,
