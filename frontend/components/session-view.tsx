@@ -3450,12 +3450,12 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     sessionStatus?.status === "deleted";
   const sessionStatusLabel = hasSessionEnded
     ? sessionTranslations.statusCard.statusLabel.ended
-    : connected
+    : shouldShowConnectedState
       ? sessionTranslations.statusCard.statusLabel.connected
       : sessionTranslations.statusCard.statusLabel.waiting;
   const sessionStatusIndicatorClass = hasSessionEnded
     ? " status-indicator--ended"
-    : connected
+    : shouldShowConnectedState
       ? " status-indicator--active"
       : "";
 
@@ -3842,6 +3842,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     }
     return Math.min(connectedIds.size, MAX_PARTICIPANTS);
   }, [connected, participantId, sessionStatus?.connectedParticipants, sessionStatus?.participants]);
+
+  const allParticipantsReady =
+    sessionStatus?.status === "active" && connectedParticipantCount >= MAX_PARTICIPANTS;
+  const shouldShowConnectedState = connected || allParticipantsReady;
 
   const connectedParticipantsText = sessionTranslations.statusCard.connectedParticipants
     .replace("{current}", connectedParticipantCount.toString())
