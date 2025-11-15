@@ -20,15 +20,18 @@ import { Picker } from '@react-native-picker/picker';
 import { useFonts } from 'expo-font';
 
 const COLORS = {
-  midnight: '#071B2F',
-  deepBlue: '#0E3059',
-  ocean: '#164A89',
-  lagoon: '#1C6BC7',
-  ice: '#E6F3FF',
-  mint: '#8EE7FF',
-  solar: '#FFB86C',
+  midnight: '#020B1F',
+  deepBlue: '#06255E',
+  ocean: '#0A4A89',
+  lagoon: '#0F6FBA',
+  ice: '#F4F9FF',
+  mint: '#88E6FF',
+  solar: '#FFD763',
   white: '#FFFFFF',
-  lilac: '#B4C5FF',
+  glowSoft: 'rgba(255, 255, 255, 0.92)',
+  glowWarm: 'rgba(255, 223, 140, 0.78)',
+  glowEdge: 'rgba(255, 255, 255, 0.55)',
+  cobaltShadow: 'rgba(3, 20, 46, 0.55)',
   danger: '#EF476F'
 };
 
@@ -110,9 +113,19 @@ const AcceptScreen: React.FC<{ onAccept: () => void }> = ({ onAccept }) => {
   };
 
   return (
-    <LinearGradient colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean]} style={styles.container}>
+    <LinearGradient
+      colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean, COLORS.lagoon]}
+      start={{ x: 0.1, y: 0 }}
+      end={{ x: 0.9, y: 1 }}
+      style={styles.container}
+    >
       <StatusBar style="light" />
-      <View style={styles.termsCard}>
+      <LinearGradient
+        colors={[COLORS.glowSoft, COLORS.glowWarm]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.termsCard}
+      >
         <Text style={styles.logoText}>ChatOrbit Token Lab</Text>
         <ScrollView
           style={styles.termsScroll}
@@ -130,7 +143,7 @@ const AcceptScreen: React.FC<{ onAccept: () => void }> = ({ onAccept }) => {
         >
           <Text style={styles.acceptButtonLabel}>{acceptEnabled ? 'Accept & Continue' : 'Scroll to accept'}</Text>
         </TouchableOpacity>
-      </View>
+      </LinearGradient>
     </LinearGradient>
   );
 };
@@ -220,7 +233,12 @@ const NeedTokenForm: React.FC<{
         }
       }}
     >
-      <LinearGradient colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean]} style={styles.formContainer}>
+      <LinearGradient
+        colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean, COLORS.lagoon]}
+        start={{ x: 0.1, y: 0 }}
+        end={{ x: 0.9, y: 1 }}
+        style={styles.formContainer}
+      >
         <StatusBar style="light" />
         <SafeAreaView style={styles.formSafeArea}>
           <View style={styles.formHeader}>
@@ -401,7 +419,12 @@ const TokenResultCard: React.FC<{
   };
 
   return (
-    <View style={styles.resultCard}>
+    <LinearGradient
+      colors={[COLORS.glowSoft, COLORS.glowWarm]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.resultCard}
+    >
       <Text style={styles.resultTitle}>Your token is ready!</Text>
       <Text style={styles.tokenText}>{token.token}</Text>
       {token.validity_expires_at ? (
@@ -413,11 +436,11 @@ const TokenResultCard: React.FC<{
       <Text style={styles.resultMeta}>Messages are limited to {messageLimit} characters.</Text>
       <View style={styles.resultButtonRow}>
         <TouchableOpacity style={styles.resultButton} onPress={copyToClipboard}>
-          <Ionicons name="copy-outline" size={20} color={COLORS.deepBlue} />
+          <Ionicons name="copy-outline" size={20} color={COLORS.midnight} />
           <Text style={styles.resultButtonLabel}>Copy</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.resultButton} onPress={shareToken}>
-          <Ionicons name="share-outline" size={20} color={COLORS.deepBlue} />
+          <Ionicons name="share-outline" size={20} color={COLORS.midnight} />
           <Text style={styles.resultButtonLabel}>Share</Text>
         </TouchableOpacity>
       </View>
@@ -449,13 +472,18 @@ const TokenResultCard: React.FC<{
       <TouchableOpacity style={styles.resetButton} onPress={onReset}>
         <Text style={styles.resetButtonLabel}>Generate another token</Text>
       </TouchableOpacity>
-    </View>
+    </LinearGradient>
   );
 };
 
 const InAppSessionScreen: React.FC<{ token: TokenResponse; onExit: () => void }> = ({ token, onExit }) => {
   return (
-    <View style={styles.inAppSessionContainer}>
+    <LinearGradient
+      colors={[COLORS.glowSoft, COLORS.glowWarm]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.inAppSessionContainer}
+    >
       <View style={styles.inAppHeader}>
         <Text style={styles.inAppTitle}>Session cockpit</Text>
         <Text style={styles.inAppSubtitle}>You're hosting directly from the app. Participants can join with the token below.</Text>
@@ -473,7 +501,7 @@ const InAppSessionScreen: React.FC<{ token: TokenResponse; onExit: () => void }>
       <TouchableOpacity style={styles.exitSessionButton} onPress={onExit}>
         <Text style={styles.exitSessionButtonLabel}>Back to token details</Text>
       </TouchableOpacity>
-    </View>
+    </LinearGradient>
   );
 };
 
@@ -508,14 +536,14 @@ const MainScreen: React.FC = () => {
           title="Need token"
           description="Create a secure pass with custom duration."
           onPress={() => setShowForm(true)}
-          background={COLORS.ice}
+          background="rgba(255, 255, 255, 0.18)"
           icon={<Ionicons name="planet" size={42} color={COLORS.deepBlue} />}
         />
         <BigActionButton
           title="Got token"
           description="Coming soon: instantly jump into live orbit."
           onPress={() => Alert.alert('Coming soon', 'Session join will arrive with the WebRTC update!')}
-          background={COLORS.lilac}
+          background="rgba(255, 215, 99, 0.22)"
           icon={<MaterialCommunityIcons name="shield-check" size={42} color={COLORS.deepBlue} />}
         />
       </View>
@@ -523,7 +551,12 @@ const MainScreen: React.FC = () => {
   };
 
   return (
-    <LinearGradient colors={[COLORS.deepBlue, COLORS.ocean, COLORS.lagoon]} style={styles.container}>
+    <LinearGradient
+      colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean, COLORS.lagoon]}
+      start={{ x: 0.1, y: 0 }}
+      end={{ x: 0.9, y: 1 }}
+      style={styles.container}
+    >
       <StatusBar style="light" />
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Launch a ChatOrbit session</Text>
@@ -553,7 +586,12 @@ export default function App() {
 
   if (!fontsLoaded) {
     return (
-      <LinearGradient colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean]} style={styles.loadingContainer}>
+      <LinearGradient
+        colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean, COLORS.lagoon]}
+        start={{ x: 0.1, y: 0 }}
+        end={{ x: 0.9, y: 1 }}
+        style={styles.loadingContainer}
+      >
         <StatusBar style="light" />
         <ActivityIndicator color={COLORS.mint} size="large" />
       </LinearGradient>
@@ -581,22 +619,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24
   },
   termsCard: {
-    backgroundColor: 'rgba(7, 27, 47, 0.72)',
     borderRadius: 28,
     padding: 24,
     paddingTop: 48,
     width: '100%',
     maxWidth: 420,
     flex: 1,
-    shadowColor: COLORS.lagoon,
-    shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.24,
-    shadowRadius: 24
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge,
+    shadowColor: COLORS.cobaltShadow,
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.35,
+    shadowRadius: 32,
+    elevation: 12
   },
   logoText: {
     fontSize: 22,
     fontWeight: '700',
-    color: COLORS.mint,
+    color: COLORS.midnight,
     textAlign: 'center',
     marginBottom: 24,
     letterSpacing: 1.2
@@ -604,28 +644,28 @@ const styles = StyleSheet.create({
   termsScroll: {
     flex: 1,
     borderRadius: 16,
-    backgroundColor: 'rgba(230, 243, 255, 0.08)'
+    backgroundColor: 'rgba(15, 111, 186, 0.08)'
   },
   termsContent: {
     padding: 16
   },
   termsText: {
-    color: COLORS.ice,
+    color: COLORS.deepBlue,
     fontSize: 16,
     lineHeight: 24
   },
   acceptButton: {
     marginTop: 20,
-    backgroundColor: COLORS.lagoon,
+    backgroundColor: COLORS.solar,
     borderRadius: 16,
     paddingVertical: 16,
     alignItems: 'center'
   },
   acceptButtonDisabled: {
-    backgroundColor: 'rgba(28, 107, 199, 0.4)'
+    backgroundColor: 'rgba(255, 215, 99, 0.4)'
   },
   acceptButtonLabel: {
-    color: COLORS.white,
+    color: COLORS.midnight,
     fontSize: 16,
     fontWeight: '600'
   },
@@ -641,7 +681,7 @@ const styles = StyleSheet.create({
     marginBottom: 8
   },
   headerSubtitle: {
-    color: 'rgba(230, 243, 255, 0.75)',
+    color: 'rgba(244, 249, 255, 0.78)',
     fontSize: 16,
     lineHeight: 22
   },
@@ -656,10 +696,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    shadowColor: COLORS.midnight,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.3,
-    shadowRadius: 18,
+    shadowColor: COLORS.cobaltShadow,
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.32,
+    shadowRadius: 24,
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge,
     elevation: 8
   },
   bigActionIcon: {
@@ -668,21 +710,20 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(22, 74, 137, 0.1)'
+    backgroundColor: 'rgba(9, 59, 120, 0.12)'
   },
   bigActionTextContainer: {
     flex: 1,
     marginLeft: 16
   },
   bigActionTitle: {
-    color: COLORS.deepBlue,
+    color: COLORS.midnight,
     fontSize: 22,
     fontWeight: '700'
   },
   bigActionDescription: {
-    color: COLORS.deepBlue,
+    color: 'rgba(2, 11, 31, 0.7)',
     fontSize: 14,
-    opacity: 0.7,
     marginTop: 6
   },
   disabledClose: {
@@ -715,7 +756,7 @@ const styles = StyleSheet.create({
     paddingBottom: 32
   },
   formSubtitle: {
-    color: 'rgba(230, 243, 255, 0.8)',
+    color: 'rgba(244, 249, 255, 0.78)',
     marginBottom: 16,
     lineHeight: 20
   },
@@ -731,7 +772,7 @@ const styles = StyleSheet.create({
   pickerWrapper: {
     borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: 'rgba(230, 243, 255, 0.12)',
+    backgroundColor: 'rgba(244, 249, 255, 0.22)',
     height: 132
   },
   picker: {
@@ -762,20 +803,21 @@ const styles = StyleSheet.create({
   resultCard: {
     width: '100%',
     maxWidth: 520,
-    backgroundColor: 'rgba(230, 243, 255, 0.92)',
     borderRadius: 28,
     padding: 24,
     marginBottom: 32,
-    shadowColor: COLORS.midnight,
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 10
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge,
+    shadowColor: COLORS.cobaltShadow,
+    shadowOffset: { width: 0, height: 22 },
+    shadowOpacity: 0.35,
+    shadowRadius: 34,
+    elevation: 12
   },
   resultTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: COLORS.deepBlue,
+    color: COLORS.midnight,
     marginBottom: 12
   },
   tokenText: {
@@ -787,7 +829,7 @@ const styles = StyleSheet.create({
   },
   expiryText: {
     marginTop: 6,
-    color: COLORS.ocean,
+    color: COLORS.deepBlue,
     fontSize: 14
   },
   resultButtonRow: {
@@ -798,7 +840,7 @@ const styles = StyleSheet.create({
   },
   resultMeta: {
     marginTop: 8,
-    color: COLORS.ocean,
+    color: COLORS.deepBlue,
     fontSize: 14,
     lineHeight: 20
   },
@@ -807,13 +849,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: COLORS.mint,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
     borderRadius: 16,
     paddingVertical: 12,
-    gap: 8
+    gap: 8,
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge
   },
   resultButtonLabel: {
-    color: COLORS.deepBlue,
+    color: COLORS.midnight,
     fontWeight: '700'
   },
   primaryResultButton: {
@@ -828,7 +872,7 @@ const styles = StyleSheet.create({
   },
   startSessionLabel: {
     marginTop: 20,
-    color: COLORS.deepBlue,
+    color: COLORS.midnight,
     fontSize: 14,
     fontWeight: '600',
     textAlign: 'center'
@@ -843,7 +887,7 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   resetButtonLabel: {
-    color: COLORS.deepBlue,
+    color: COLORS.midnight,
     fontSize: 15,
     textDecorationLine: 'underline',
     fontWeight: '600'
@@ -851,15 +895,16 @@ const styles = StyleSheet.create({
   inAppSessionContainer: {
     width: '100%',
     maxWidth: 520,
-    backgroundColor: 'rgba(230, 243, 255, 0.92)',
     borderRadius: 28,
     padding: 24,
     marginBottom: 32,
-    shadowColor: COLORS.midnight,
-    shadowOffset: { width: 0, height: 18 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 10
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge,
+    shadowColor: COLORS.cobaltShadow,
+    shadowOffset: { width: 0, height: 22 },
+    shadowOpacity: 0.35,
+    shadowRadius: 34,
+    elevation: 12
   },
   inAppHeader: {
     marginBottom: 20
@@ -867,11 +912,11 @@ const styles = StyleSheet.create({
   inAppTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: COLORS.deepBlue
+    color: COLORS.midnight
   },
   inAppSubtitle: {
     marginTop: 8,
-    color: COLORS.ocean,
+    color: COLORS.deepBlue,
     lineHeight: 20
   },
   inAppCard: {
@@ -879,7 +924,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 20,
     marginBottom: 16,
-    shadowColor: COLORS.midnight,
+    shadowColor: COLORS.cobaltShadow,
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.1,
     shadowRadius: 14,
@@ -888,11 +933,11 @@ const styles = StyleSheet.create({
   inAppCardTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: COLORS.deepBlue
+    color: COLORS.midnight
   },
   inAppCardBody: {
     marginTop: 8,
-    color: COLORS.ocean,
+    color: COLORS.deepBlue,
     lineHeight: 20
   },
   inAppTokenLabel: {
@@ -913,14 +958,14 @@ const styles = StyleSheet.create({
   chatCard: {
     borderStyle: 'dashed',
     borderWidth: 1.5,
-    borderColor: 'rgba(7, 27, 47, 0.18)'
+    borderColor: 'rgba(6, 37, 94, 0.18)'
   },
   exitSessionButton: {
     marginTop: 8,
     alignSelf: 'center'
   },
   exitSessionButtonLabel: {
-    color: COLORS.deepBlue,
+    color: COLORS.midnight,
     fontSize: 15,
     textDecorationLine: 'underline',
     fontWeight: '600'
