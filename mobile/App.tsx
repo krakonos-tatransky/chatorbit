@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +18,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { useFonts } from 'expo-font';
+import { WebView } from 'react-native-webview';
 
 const COLORS = {
   midnight: '#020B1F',
@@ -101,6 +102,69 @@ const SESSION_TTL_MINUTES: Record<string, number> = {
 };
 
 const DEFAULT_MESSAGE_CHAR_LIMIT = 2000;
+
+const extractFriendlyError = (rawBody: string): string => {
+  if (!rawBody) {
+    return 'Unexpected response from the server.';
+  }
+
+  try {
+    const parsed = JSON.parse(rawBody);
+    if (typeof parsed?.detail === 'string') {
+      return parsed.detail;
+    }
+    if (Array.isArray(parsed?.detail)) {
+      const combined = parsed.detail
+        .map((item: any) => (typeof item?.msg === 'string' ? item.msg : null))
+        .filter(Boolean)
+        .join('\n');
+      if (combined) {
+        return combined;
+      }
+    }
+  } catch {
+    // Swallow JSON parsing issues and fall back to the raw payload below.
+  }
+
+  return rawBody;
+};
+
+const joinSession = async (
+  tokenValue: string,
+  existingParticipantId?: string | null
+): Promise<JoinResponse> => {
+  const trimmedToken = tokenValue.trim();
+  const response = await fetch(`${API_BASE_URL}/sessions/join`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      token: trimmedToken,
+      participant_id: existingParticipantId ?? undefined,
+      client_identity: MOBILE_CLIENT_IDENTITY
+    })
+  });
+
+  const rawBody = await response.text();
+
+  if (!response.ok) {
+    throw new Error(extractFriendlyError(rawBody) || 'Unable to join the session.');
+  }
+
+  try {
+    const payload = JSON.parse(rawBody) as JoinResponse;
+    if (!payload?.participant_id || !payload?.token) {
+      throw new Error('Missing participant details in the join response.');
+    }
+    return payload;
+  } catch (error: any) {
+    if (error instanceof Error && error.message === 'Missing participant details in the join response.') {
+      throw error;
+    }
+    throw new Error('Received an unexpected response from the session join API.');
+  }
+};
 
 const AcceptScreen: React.FC<{ onAccept: () => void }> = ({ onAccept }) => {
   const [acceptEnabled, setAcceptEnabled] = useState(false);
@@ -330,8 +394,9 @@ const NeedTokenForm: React.FC<{
 const TokenResultCard: React.FC<{
   token: TokenResponse;
   onReset: () => void;
-  onStartInApp: () => void;
-}> = ({ token, onReset, onStartInApp }) => {
+  onStartInApp: () => void | Promise<void>;
+  joiningInApp: boolean;
+}> = ({ token, onReset, onStartInApp, joiningInApp }) => {
   const shareMessage = useMemo(() => `Join my ChatOrbit session using this token: ${token.token}`, [token.token]);
   const sessionMinutes = Math.max(1, Math.round(token.session_ttl_seconds / 60));
   const messageLimit = token.message_char_limit.toLocaleString();
@@ -358,54 +423,12 @@ const TokenResultCard: React.FC<{
 
     try {
       setLaunchingWeb(true);
-      let participantId = storedParticipantId;
+      const payload = await joinSession(token.token, storedParticipantId);
+      const participantId = payload.participant_id;
+      setStoredParticipantId(participantId);
 
-      if (!participantId) {
-        const response = await fetch(`${API_BASE_URL}/sessions/join`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            token: token.token.trim(),
-            participant_id: storedParticipantId ?? undefined,
-            client_identity: MOBILE_CLIENT_IDENTITY
-          })
-        });
-
-        const rawBody = await response.text();
-
-        if (!response.ok) {
-          let friendlyMessage = rawBody || 'Unable to start a web session.';
-          try {
-            const parsed = JSON.parse(rawBody);
-            if (typeof parsed?.detail === 'string') {
-              friendlyMessage = parsed.detail;
-            } else if (Array.isArray(parsed?.detail)) {
-              friendlyMessage = parsed.detail.map((item: any) => item?.msg).filter(Boolean).join('\n');
-            }
-          } catch {
-            // Ignore JSON parsing issues and fall back to the raw response text.
-          }
-          throw new Error(friendlyMessage);
-        }
-
-        try {
-          const payload = JSON.parse(rawBody) as JoinResponse;
-          participantId = payload?.participant_id ?? null;
-          if (participantId) {
-            setStoredParticipantId(participantId);
-          }
-        } catch {
-          throw new Error('Received an unexpected response from the session join API.');
-        }
-      }
-
-      if (!participantId) {
-        throw new Error('Missing participant details for launching the web session.');
-      }
-
-      const sessionUrl = `https://chatorbit.com/session/${encodeURIComponent(token.token)}?participant=${encodeURIComponent(participantId)}`;
+      const canonicalToken = payload.token || token.token;
+      const sessionUrl = `https://chatorbit.com/session/${encodeURIComponent(canonicalToken)}?participant=${encodeURIComponent(participantId)}`;
       const supported = await Linking.canOpenURL(sessionUrl);
       if (supported) {
         await Linking.openURL(sessionUrl);
@@ -447,9 +470,23 @@ const TokenResultCard: React.FC<{
       </View>
       <Text style={styles.startSessionLabel}>Start session</Text>
       <View style={styles.sessionButtonsRow}>
-        <TouchableOpacity style={[styles.resultButton, styles.primaryResultButton]} onPress={onStartInApp}>
-          <MaterialCommunityIcons name="tablet-cellphone" size={20} color={COLORS.midnight} />
-          <Text style={[styles.resultButtonLabel, styles.primaryResultButtonLabel]}>In app</Text>
+        <TouchableOpacity
+          style={[
+            styles.resultButton,
+            styles.primaryResultButton,
+            joiningInApp && styles.primaryResultButtonDisabled
+          ]}
+          onPress={onStartInApp}
+          disabled={joiningInApp}
+        >
+          {joiningInApp ? (
+            <ActivityIndicator color={COLORS.midnight} />
+          ) : (
+            <MaterialCommunityIcons name="tablet-cellphone" size={20} color={COLORS.midnight} />
+          )}
+          <Text style={[styles.resultButtonLabel, styles.primaryResultButtonLabel]}>
+            {joiningInApp ? 'Connecting…' : 'In app'}
+          </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[
@@ -477,7 +514,22 @@ const TokenResultCard: React.FC<{
   );
 };
 
-const InAppSessionScreen: React.FC<{ token: TokenResponse; onExit: () => void }> = ({ token, onExit }) => {
+const InAppSessionScreen: React.FC<{
+  token: TokenResponse;
+  participantId: string;
+  onExit: () => void;
+}> = ({ token, participantId, onExit }) => {
+  const [webViewLoaded, setWebViewLoaded] = useState(false);
+  const sessionUrl = useMemo(
+    () =>
+      `https://chatorbit.com/session/${encodeURIComponent(token.token)}?participant=${encodeURIComponent(participantId)}&source=mobile`,
+    [token.token, participantId]
+  );
+
+  useEffect(() => {
+    setWebViewLoaded(false);
+  }, [sessionUrl]);
+
   return (
     <LinearGradient
       colors={[COLORS.glowSoft, COLORS.glowWarm, COLORS.glowSoft]}
@@ -485,23 +537,35 @@ const InAppSessionScreen: React.FC<{ token: TokenResponse; onExit: () => void }>
       end={{ x: 1, y: 1 }}
       style={styles.inAppSessionContainer}
     >
-      <View style={styles.inAppHeader}>
-        <Text style={styles.inAppTitle}>Session cockpit</Text>
-        <Text style={styles.inAppSubtitle}>You're hosting directly from the app. Participants can join with the token below.</Text>
-      </View>
-      <View style={styles.inAppCard}>
-        <Text style={styles.inAppCardTitle}>Status</Text>
-        <Text style={styles.inAppCardBody}>Waiting for participants to connect…</Text>
-        <Text style={styles.inAppTokenLabel}>Session token</Text>
-        <Text style={styles.inAppToken}>{token.token}</Text>
-      </View>
-      <View style={[styles.inAppCard, styles.chatCard]}>
-        <Text style={styles.inAppCardTitle}>Chat preview</Text>
-        <Text style={styles.inAppCardBody}>Text chat will appear here once the realtime channel is active.</Text>
-      </View>
-      <TouchableOpacity style={styles.exitSessionButton} onPress={onExit}>
-        <Text style={styles.exitSessionButtonLabel}>Back to token details</Text>
-      </TouchableOpacity>
+      <SafeAreaView style={styles.inAppSessionSafeArea}>
+        <View style={styles.inAppHeaderRow}>
+          <TouchableOpacity accessibilityRole="button" style={styles.inAppBackButton} onPress={onExit}>
+            <Ionicons name="arrow-back" size={20} color={COLORS.ice} />
+            <Text style={styles.inAppBackLabel}>Back</Text>
+          </TouchableOpacity>
+          <View style={styles.inAppHeaderTextGroup}>
+            <Text style={styles.inAppTitle}>Live session cockpit</Text>
+            <Text style={styles.inAppSubtitle}>Keep this screen open while participants join.</Text>
+          </View>
+        </View>
+        <View style={styles.sessionWebViewWrapper}>
+          {!webViewLoaded && (
+            <View style={styles.webViewLoadingOverlay}>
+              <ActivityIndicator color={COLORS.aurora} size="large" />
+              <Text style={styles.webViewLoadingText}>Preparing realtime channel…</Text>
+            </View>
+          )}
+          <WebView
+            originWhitelist={["*"]}
+            source={{ uri: sessionUrl }}
+            style={styles.sessionWebView}
+            onLoadEnd={() => setWebViewLoaded(true)}
+            allowsInlineMediaPlayback
+            mediaPlaybackRequiresUserAction={false}
+            allowsFullscreenVideo
+          />
+        </View>
+      </SafeAreaView>
     </LinearGradient>
   );
 };
@@ -510,15 +574,61 @@ const MainScreen: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [tokenResponse, setTokenResponse] = useState<TokenResponse | null>(null);
   const [inAppSession, setInAppSession] = useState(false);
+  const [joiningInApp, setJoiningInApp] = useState(false);
+  const [inAppParticipantId, setInAppParticipantId] = useState<string | null>(null);
 
   const handleReset = () => {
     setTokenResponse(null);
     setInAppSession(false);
+    setInAppParticipantId(null);
+    setJoiningInApp(false);
+  };
+
+  const handleStartInApp = async () => {
+    if (!tokenResponse || joiningInApp) {
+      return;
+    }
+
+    try {
+      setJoiningInApp(true);
+      const payload = await joinSession(tokenResponse.token, inAppParticipantId);
+      setInAppParticipantId(payload.participant_id);
+      setInAppSession(true);
+    } catch (error: any) {
+      Alert.alert('Cannot start session', error?.message ?? 'Unexpected error while launching the in-app session.');
+    } finally {
+      setJoiningInApp(false);
+    }
   };
 
   const renderContent = () => {
     if (tokenResponse && inAppSession) {
-      return <InAppSessionScreen token={tokenResponse} onExit={() => setInAppSession(false)} />;
+      if (!inAppParticipantId) {
+        return (
+          <LinearGradient
+            colors={[COLORS.glowSoft, COLORS.glowWarm, COLORS.glowSoft]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.sessionFallbackCard}
+          >
+            <Text style={styles.sessionFallbackTitle}>Session connection lost</Text>
+            <Text style={styles.sessionFallbackBody}>
+              We couldn't recover your participant link. Return to the token screen and try launching the in-app session again.
+            </Text>
+            <TouchableOpacity style={styles.resetButton} onPress={() => setInAppSession(false)}>
+              <Text style={styles.resetButtonLabel}>Back to token</Text>
+            </TouchableOpacity>
+          </LinearGradient>
+        );
+      }
+
+      return (
+        <InAppSessionScreen
+          token={tokenResponse}
+          participantId={inAppParticipantId}
+          onExit={() => setInAppSession(false)}
+        />
+      );
     }
 
     if (tokenResponse) {
@@ -526,7 +636,8 @@ const MainScreen: React.FC = () => {
         <TokenResultCard
           token={tokenResponse}
           onReset={handleReset}
-          onStartInApp={() => setInAppSession(true)}
+          onStartInApp={handleStartInApp}
+          joiningInApp={joiningInApp}
         />
       );
     }
@@ -572,6 +683,9 @@ const MainScreen: React.FC = () => {
         onGenerated={(token) => {
           setShowForm(false);
           setTokenResponse(token);
+          setInAppParticipantId(null);
+          setInAppSession(false);
+          setJoiningInApp(false);
         }}
       />
     </LinearGradient>
@@ -898,6 +1012,84 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 520,
     borderRadius: 28,
+    padding: 20,
+    marginBottom: 32,
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge,
+    shadowColor: COLORS.cobaltShadow,
+    shadowOffset: { width: 0, height: 22 },
+    shadowOpacity: 0.35,
+    shadowRadius: 34,
+    elevation: 12,
+    flex: 1,
+    overflow: 'hidden'
+  },
+  inAppSessionSafeArea: {
+    flex: 1
+  },
+  inAppHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16
+  },
+  inAppBackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: 'rgba(6, 36, 92, 0.64)',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge
+  },
+  inAppBackLabel: {
+    color: COLORS.ice,
+    fontWeight: '600'
+  },
+  inAppHeaderTextGroup: {
+    flex: 1,
+    marginLeft: 16
+  },
+  inAppTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: COLORS.ice
+  },
+  inAppSubtitle: {
+    marginTop: 6,
+    color: 'rgba(219, 237, 255, 0.78)',
+    lineHeight: 20
+  },
+  sessionWebViewWrapper: {
+    flex: 1,
+    borderRadius: 22,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.4)',
+    backgroundColor: 'rgba(2, 11, 31, 0.7)'
+  },
+  sessionWebView: {
+    flex: 1,
+    backgroundColor: 'transparent'
+  },
+  webViewLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(2, 11, 31, 0.72)',
+    gap: 12,
+    zIndex: 10
+  },
+  webViewLoadingText: {
+    color: 'rgba(219, 237, 255, 0.86)',
+    fontWeight: '600'
+  },
+  sessionFallbackCard: {
+    width: '100%',
+    maxWidth: 520,
+    borderRadius: 28,
     padding: 24,
     marginBottom: 32,
     borderWidth: 1,
@@ -906,70 +1098,16 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 22 },
     shadowOpacity: 0.35,
     shadowRadius: 34,
-    elevation: 12
+    elevation: 12,
+    gap: 16
   },
-  inAppHeader: {
-    marginBottom: 20
-  },
-  inAppTitle: {
+  sessionFallbackTitle: {
+    color: COLORS.ice,
     fontSize: 20,
-    fontWeight: '700',
-    color: COLORS.ice
+    fontWeight: '700'
   },
-  inAppSubtitle: {
-    marginTop: 8,
+  sessionFallbackBody: {
     color: 'rgba(219, 237, 255, 0.78)',
     lineHeight: 20
-  },
-  inAppCard: {
-    backgroundColor: 'rgba(5, 32, 80, 0.64)',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 16,
-    shadowColor: COLORS.cobaltShadow,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 14,
-    elevation: 4
-  },
-  inAppCardTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: COLORS.ice
-  },
-  inAppCardBody: {
-    marginTop: 8,
-    color: 'rgba(219, 237, 255, 0.78)',
-    lineHeight: 20
-  },
-  inAppTokenLabel: {
-    marginTop: 16,
-    color: 'rgba(219, 237, 255, 0.7)',
-    fontSize: 12,
-    textTransform: 'uppercase',
-    fontWeight: '700',
-    letterSpacing: 1
-  },
-  inAppToken: {
-    marginTop: 8,
-    fontSize: 18,
-    fontWeight: '700',
-    color: COLORS.aurora,
-    letterSpacing: 1.1
-  },
-  chatCard: {
-    borderStyle: 'dashed',
-    borderWidth: 1.5,
-    borderColor: 'rgba(111, 214, 255, 0.6)'
-  },
-  exitSessionButton: {
-    marginTop: 8,
-    alignSelf: 'center'
-  },
-  exitSessionButtonLabel: {
-    color: COLORS.aurora,
-    fontSize: 15,
-    textDecorationLine: 'underline',
-    fontWeight: '600'
   }
 });
