@@ -7,8 +7,10 @@ This Expo + React Native application prototypes the ChatOrbit iPhone experience 
 - Scroll-to-accept onboarding gate before using the app.
 - Bold hero screen with "Need token" and "Got token" actions inspired by the ChatOrbit website.
 - Slide-up native form to choose token duration and experience tier using iOS pickers.
-- Calls the production API at `https://endpoints.chatorbit.com/token` to request session tokens.
+- Calls the API defined by `EXPO_PUBLIC_API_BASE_URL` (defaults to `https://endpoints.chatorbit.com/api`) to request session tokens.
 - Presents the issued token with copy, share, and quick start controls.
+- Join an existing session by pasting a shared token directly inside the "Got token" flow.
+- Native in-app cockpit that mirrors the browser experience with live session status, ICE diagnostics, and a WebRTC data-channel chat surface.
 - Vibrant blue-forward gradient theme that mirrors the ChatOrbit visual identity.
 
 ## Getting started
@@ -23,6 +25,51 @@ npm run ios # requires Xcode / iOS simulator
 > workspace-local entry points and configuration correctly.
 
 You can also run `npm run start` to choose the desired platform from the Expo CLI interface.
+
+### Configure environment variables
+
+The Expo app reads the same ICE/STUN/TURN settings as the web client via `EXPO_PUBLIC_*` variables.
+Copy `.env.example` to `.env` and tweak the values to point at your API, websocket, and TURN
+infrastructure:
+
+```bash
+cd mobile
+cp .env.example .env
+# edit .env to match your endpoints and credentials
+```
+
+If you already maintain a `.env.local` for the Next.js frontend, you can reuse the same STUN/TURN
+values here (the mobile helper automatically falls back to `NEXT_PUBLIC_*` keys when present).
+
+### Build with the WebRTC native module
+
+The in-app cockpit relies on the `react-native-webrtc` native module, which Expo Go does not
+bundle. To actually join sessions inside the app, create an Expo development build and install it on
+your device or simulator:
+
+```bash
+cd mobile
+npx expo run:ios    # or: npx expo run:android
+```
+
+Expo documents the full dev-build workflow here:
+https://docs.expo.dev/development/introduction/
+
+### Keep Xcode builds quiet (and stable)
+
+When you generate the native iOS project via `npx expo prebuild`/`npx expo run:ios`, Xcode warns
+about custom `[CP-User]` script phases that lack declared output files. The app now ships with a
+config plugin (`plugins/ensure-script-phase-outputs.js`) that adds derived-data stamp files for the
+Hermes, RNCore, and Expo Constants helper scripts so the warnings disappear automatically each time
+you prebuild. If you add new custom script phases in the future, mimic this pattern so every phase
+declares at least one output.
+
+The same plugin also forces `ENV['DISABLE_CODEGEN'] = '1'` in the generated Podfile *and* drops a
+stub `React-Codegen.podspec.json` inside `ios/build/generated/ios`. React Native's `React-Codegen`
+target has been intermittently failing on clean Expo development builds, so disabling it (while
+still providing the expected podspec) keeps `npx expo run:ios` reliable until we switch to the new
+architecture. Remove that line (or override the environment variable) if you specifically need to
+re-enable codegen for local experiments.
 
 ### Configure your default editor for Expo Go
 
@@ -54,4 +101,4 @@ launch screens while exploring the prototype, you can place the appropriate PNG 
 
 ## Next steps
 
-Future milestones include adding the WebRTC messaging and video experience plus a "Got token" join flow.
+Future milestones include layering in the WebRTC video call controls, camera/microphone previews, and richer moderation tooling that already exists in the desktop cockpit.
