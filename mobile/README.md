@@ -29,14 +29,16 @@ equivalent profile file for your setup.
 brew install watchman cocoapods node@20
 
 # Ensure the Node 20 toolchain is active for this shell session.
-echo 'export PATH="/opt/homebrew/opt/node@20/bin:$PATH"' >> ~/.zshrc
+# Use the Homebrew prefix dynamically so this works on both Apple silicon (/opt/homebrew)
+# and Intel (/usr/local) Macs.
+echo 'export PATH="$(brew --prefix node@20)/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 
 # (Optional) use nvm if you prefer isolated runtimes.
 brew install nvm
 mkdir -p ~/.nvm
 echo 'export NVM_DIR="$HOME/.nvm"' >> ~/.zshrc
-echo '[ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && . "/opt/homebrew/opt/nvm/nvm.sh"' >> ~/.zshrc
+echo '[ -s "$(brew --prefix nvm)/nvm.sh" ] && . "$(brew --prefix nvm)/nvm.sh"' >> ~/.zshrc
 source ~/.zshrc
 nvm install 20.19.5
 nvm use 20.19.5
