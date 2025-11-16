@@ -25,22 +25,25 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { useFonts } from 'expo-font';
 import type {
-  RTCPeerConnection as ExpoRTCPeerConnection,
-  RTCIceCandidate as ExpoRTCIceCandidate,
-  RTCSessionDescription as ExpoRTCSessionDescription
-} from 'expo-webrtc';
+  RTCPeerConnection as NativeRTCPeerConnection,
+  RTCIceCandidate as NativeRTCIceCandidate,
+  RTCSessionDescription as NativeRTCSessionDescription
+} from 'react-native-webrtc';
+type RTCPeerConnection = NativeRTCPeerConnection;
+type RTCIceCandidate = NativeRTCIceCandidate;
+type RTCSessionDescription = NativeRTCSessionDescription;
 import { getIceServers, hasRelayIceServers } from './webrtc';
 
 const env = typeof process !== 'undefined' && process.env ? process.env : undefined;
 const EXPO_DEV_BUILD_DOCS_URL = 'https://docs.expo.dev/development/introduction/';
 
 type WebRtcBindings = {
-  RTCPeerConnection: new (...args: any[]) => ExpoRTCPeerConnection;
-  RTCIceCandidate: new (...args: any[]) => ExpoRTCIceCandidate;
-  RTCSessionDescription: new (...args: any[]) => ExpoRTCSessionDescription;
+  RTCPeerConnection: new (...args: any[]) => NativeRTCPeerConnection;
+  RTCIceCandidate: new (...args: any[]) => NativeRTCIceCandidate;
+  RTCSessionDescription: new (...args: any[]) => NativeRTCSessionDescription;
 };
 
-const WEBRTC_NATIVE_MODULE_CANDIDATES = ['ExpoWebRTCModule', 'ExpoWebRTC', 'WebRTCModule', 'WebRTC'];
+const WEBRTC_NATIVE_MODULE_CANDIDATES = ['WebRTCModule', 'WebRTC'];
 let cachedWebRtcBindings: WebRtcBindings | null | undefined;
 
 const getWebRtcBindings = (): WebRtcBindings | null => {
@@ -49,7 +52,7 @@ const getWebRtcBindings = (): WebRtcBindings | null => {
   }
 
   try {
-    const bindings = require('expo-webrtc') as WebRtcBindings;
+    const bindings = require('react-native-webrtc') as WebRtcBindings;
     if (
       bindings?.RTCPeerConnection &&
       bindings?.RTCIceCandidate &&
@@ -60,7 +63,7 @@ const getWebRtcBindings = (): WebRtcBindings | null => {
     }
   } catch (error) {
     console.warn(
-      'Unable to load expo-webrtc. Build a development client to enable native session connectivity.',
+      'Unable to load react-native-webrtc. Build a development client to enable native session connectivity.',
       error
     );
     cachedWebRtcBindings = null;
@@ -72,7 +75,7 @@ const getWebRtcBindings = (): WebRtcBindings | null => {
 
   if (!hasNativeModule) {
     console.warn(
-      'expo-webrtc native module not detected. Install the Expo dev build to enable in-app sessions.',
+      'react-native-webrtc native module not detected. Install the Expo dev build to enable in-app sessions.',
       nativeModules
     );
   }
@@ -223,7 +226,7 @@ type Message = {
 
 type DataChannelState = 'connecting' | 'open' | 'closing' | 'closed';
 
-type PeerDataChannel = ReturnType<ExpoRTCPeerConnection['createDataChannel']> & {
+type PeerDataChannel = ReturnType<RTCPeerConnection['createDataChannel']> & {
   onopen: (() => void) | null;
   onclose: (() => void) | null;
   onerror: (() => void) | null;
@@ -1175,7 +1178,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
-  const peerConnectionRef = useRef<ExpoRTCPeerConnection | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<PeerDataChannel | null>(null);
   const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
   const pendingSignalsRef = useRef<any[]>([]);
@@ -1425,7 +1428,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   );
 
   const flushPendingCandidates = useCallback(
-    async (pc: ExpoRTCPeerConnection) => {
+    async (pc: RTCPeerConnection) => {
       if (!pc.remoteDescription) {
         return;
       }
@@ -1442,7 +1445,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   );
 
   const processSignalPayload = useCallback(
-    async (pc: ExpoRTCPeerConnection, payload: any) => {
+    async (pc: RTCPeerConnection, payload: any) => {
       const signalType = payload.signalType as string;
       const detail = payload.payload;
       if (signalType === 'offer' && detail) {
@@ -1642,7 +1645,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   );
 
     const attachDataChannel = useCallback(
-      (channel: PeerDataChannel, owner: ExpoRTCPeerConnection | null) => {
+      (channel: PeerDataChannel, owner: RTCPeerConnection | null) => {
       dataChannelRef.current = channel;
       setDataChannelState(channel.readyState as DataChannelState);
       channel.onopen = () => {
@@ -1714,7 +1717,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         attachDataChannel(event.channel as unknown as PeerDataChannel, peerConnection);
       };
 
-    const peerConnectionAny = peerConnection as ExpoRTCPeerConnection & {
+    const peerConnectionAny = peerConnection as RTCPeerConnection & {
       onicecandidate?: ((event: RTCPeerConnectionIceEvent) => void) | null;
       onconnectionstatechange?: (() => void) | null;
       ondatachannel?: ((event: RTCDataChannelEvent) => void) | null;
