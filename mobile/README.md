@@ -55,6 +55,15 @@ npx expo run:ios    # or: npx expo run:android
 Expo documents the full dev-build workflow here:
 https://docs.expo.dev/development/introduction/
 
+### Keep Xcode builds quiet
+
+When you generate the native iOS project via `npx expo prebuild`/`npx expo run:ios`, Xcode warns
+about custom `[CP-User]` script phases that lack declared output files. The app now ships with a
+config plugin (`plugins/ensure-script-phase-outputs.js`) that adds derived-data stamp files for the
+Hermes, RNCore, and Expo Constants helper scripts so the warnings disappear automatically each time
+you prebuild. If you add new custom script phases in the future, mimic this pattern so every phase
+declares at least one output.
+
 ### Configure your default editor for Expo Go
 
 Expo CLI can open the project in your preferred editor (handy when you press `o` in the
