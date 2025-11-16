@@ -8,7 +8,6 @@ import {
   Modal,
   NativeModules,
   Platform,
-  SafeAreaView,
   ScrollView,
   Share,
   StyleSheet,
@@ -18,6 +17,7 @@ import {
   View
 } from 'react-native';
 import type { ListRenderItem } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
