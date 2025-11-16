@@ -29,6 +29,6 @@ module.exports = ({ config }) => {
       bundler: 'metro',
       ...(baseConfig.web ?? {}),
     },
-    plugins: [...plugins, scriptPhaseWarningsPlugin],
+    plugins: [...plugins, 'expo-font', scriptPhaseWarningsPlugin],
   };
 };

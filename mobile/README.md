@@ -58,8 +58,9 @@ cd mobile
 npm install
 ```
 
-If you see dependency mismatch warnings, run `npx expo install --check` to have Expo re-pin the
-current SDK 51-compatible versions.
+If you see dependency mismatch warnings (for example peer dependency errors while installing), run
+`npx expo install --fix` so Expo reapplies the SDK 52-compatible versions and re-runs
+`npm install` with the corrected constraints.
 
 ### 3. Configure environment variables
 
@@ -139,7 +140,7 @@ npm run doctor
 ```
 
 This command will automatically rewrite `package.json` to the highest versions that match the Expo
-SDK in use (currently 51) and re-run `npm install` for you. Accept its prompts whenever you are
+SDK in use (currently 52) and re-run `npm install` for you. Accept its prompts whenever you are
 upgrading Node or when Apple ships a new simulator runtime.
 
 ## Reference
