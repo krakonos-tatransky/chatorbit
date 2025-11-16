@@ -55,7 +55,7 @@ npx expo run:ios    # or: npx expo run:android
 Expo documents the full dev-build workflow here:
 https://docs.expo.dev/development/introduction/
 
-### Keep Xcode builds quiet
+### Keep Xcode builds quiet (and stable)
 
 When you generate the native iOS project via `npx expo prebuild`/`npx expo run:ios`, Xcode warns
 about custom `[CP-User]` script phases that lack declared output files. The app now ships with a
@@ -63,6 +63,12 @@ config plugin (`plugins/ensure-script-phase-outputs.js`) that adds derived-data 
 Hermes, RNCore, and Expo Constants helper scripts so the warnings disappear automatically each time
 you prebuild. If you add new custom script phases in the future, mimic this pattern so every phase
 declares at least one output.
+
+The same plugin also forces `ENV['DISABLE_CODEGEN'] = '1'` in the generated Podfile. React Native's
+`React-Codegen` target has been intermittently failing on clean Expo development builds, so
+disabling it keeps `npx expo run:ios` reliable until we switch to the new architecture. Remove that
+line (or override the environment variable) if you specifically need to re-enable codegen for local
+experiments.
 
 ### Configure your default editor for Expo Go
 

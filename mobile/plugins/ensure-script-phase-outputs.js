@@ -1,10 +1,12 @@
-const { withXcodeProject } = require('@expo/config-plugins');
+const { withPodfile, withXcodeProject } = require('@expo/config-plugins');
 
 const SCRIPT_PHASE_NAMES = [
   '[CP-User] [Hermes] Replace Hermes for the right configuration, if needed',
   '[CP-User] [RN]Check rncore',
   '[CP-User] Generate app.config for prebuilt Constants.manifest',
 ];
+
+const DISABLE_CODEGEN_SNIPPET = "ENV['DISABLE_CODEGEN'] ||= '1'";
 
 const slugify = (name) =>
   name
@@ -23,7 +25,22 @@ const normalizeName = (phase) => {
   return rawName.replace(/"/g, '');
 };
 
-module.exports = (config) =>
+const ensureCodegenDisabled = (podfileContents) => {
+  if (!podfileContents || podfileContents.includes(DISABLE_CODEGEN_SNIPPET)) {
+    return podfileContents;
+  }
+
+  const envAnchor =
+    "ENV['EX_DEV_CLIENT_NETWORK_INSPECTOR'] = podfile_properties['EX_DEV_CLIENT_NETWORK_INSPECTOR']";
+
+  if (podfileContents.includes(envAnchor)) {
+    return podfileContents.replace(envAnchor, `${envAnchor}\n${DISABLE_CODEGEN_SNIPPET}`);
+  }
+
+  return `${DISABLE_CODEGEN_SNIPPET}\n${podfileContents}`;
+};
+
+const withScriptPhaseOutputs = (config) =>
   withXcodeProject(config, (cfg) => {
     const project = cfg.modResults;
     const phases = project?.hash?.project?.objects?.PBXShellScriptBuildPhase ?? {};
@@ -55,3 +72,14 @@ module.exports = (config) =>
 
     return cfg;
   });
+
+const withCodegenDisabled = (config) =>
+  withPodfile(config, (cfg) => {
+    if (cfg.modResults?.contents) {
+      cfg.modResults.contents = ensureCodegenDisabled(cfg.modResults.contents);
+    }
+
+    return cfg;
+  });
+
+module.exports = (config) => withCodegenDisabled(withScriptPhaseOutputs(config));
