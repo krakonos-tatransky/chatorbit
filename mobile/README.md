@@ -15,16 +15,131 @@ This Expo + React Native application prototypes the ChatOrbit iPhone experience 
 
 ## Getting started
 
+### 1. Prep your macOS environment
+
+All commands below assume the latest macOS Sonoma release with Xcode 15.4+.
+
+```bash
+# Install Homebrew if it is not already available.
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install build tooling used by Metro / React Native.
+brew install watchman cocoapods node@20
+
+# Ensure the Node 20 toolchain is active for this shell session.
+echo 'export PATH="/opt/homebrew/opt/node@20/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+
+# (Optional) use nvm if you prefer isolated runtimes.
+brew install nvm
+mkdir -p ~/.nvm
+echo 'export NVM_DIR="$HOME/.nvm"' >> ~/.zshrc
+echo '[ -s "/opt/homebrew/opt/nvm/nvm.sh" ] && . "/opt/homebrew/opt/nvm/nvm.sh"' >> ~/.zshrc
+source ~/.zshrc
+nvm install 20.19.5
+nvm use 20.19.5
+
+# Confirm CocoaPods is ready (installs into the system Ruby once).
+sudo gem install cocoapods
+pod --version
+```
+
+> **Tip:** If you upgrade Xcode, re-run `sudo xcode-select --switch /Applications/Xcode.app` so
+> the command-line tools match the GUI install.
+
+### 2. Install JavaScript dependencies
+
 ```bash
 cd mobile
 npm install
-npm run ios # requires Xcode / iOS simulator
 ```
+
+If you see dependency mismatch warnings, run `npx expo install --check` to have Expo re-pin the
+current SDK 51-compatible versions.
+
+### 3. Configure environment variables
+
+Copy `.env.example` to `.env` and tweak the REST, websocket, and TURN credentials. When you are
+working on a fork or local backend, point the base URLs at your machine or tunnel.
+
+```bash
+cd mobile
+cp .env.example .env
+```
+
+> The Expo CLI automatically loads `.env` before starting Metro so long as the file lives in the
+> `mobile/` directory.
+
+### 4. Produce a development build (required for WebRTC)
+
+Expo Go does **not** bundle `expo-webrtc`. Always create a dev client or simulator build before
+trying the in-app cockpit:
+
+```bash
+cd mobile
+npm run native:ios        # builds + launches the iOS simulator
+npm run native:android    # builds + installs on the Android emulator or connected device
+```
+
+Behind the scenes these commands execute `expo prebuild`, run `pod install`, and invoke
+`xcodebuild`/`gradlew`. The repository’s config plugin disables the fragile `React-Codegen` phase
+and adds derived-data marker files so you can repeatedly run `expo run` without touching the native
+projects manually.
+
+### 5. Launch Metro in dev-client mode
+
+Once the native dev client is installed, start Metro and connect to it from the installed app:
+
+```bash
+cd mobile
+npm run start     # or: npx expo start --dev-client
+```
+
+Press `i`, `a`, or scan the QR code to connect. The dev client will reuse the same bundle until you
+shake the device (or press `r`/`R`) to reload.
 
 > **Note:** Run all Expo CLI commands from inside the `mobile/` directory so Metro resolves the
 > workspace-local entry points and configuration correctly.
 
-You can also run `npm run start` to choose the desired platform from the Expo CLI interface.
+### 6. Force a pristine native rebuild (when things get stuck)
+
+If Xcode complains about stale pods, build scripts, or missing native modules, delete the generated
+projects and regenerate them:
+
+```bash
+cd mobile
+rm -rf ios android
+npx expo prebuild --clean
+npx expo run:ios --no-build-cache
+```
+
+For iOS-specific dependency hiccups you can also run:
+
+```bash
+cd mobile/ios
+rm -rf Pods Podfile.lock build
+pod install
+cd ..
+```
+
+### 7. Validate the toolchain
+
+Expo bundles a doctor utility that catches common setup problems. Run it whenever you change Node,
+CocoaPods, or Xcode:
+
+```bash
+cd mobile
+npm run doctor
+```
+
+This command will automatically rewrite `package.json` to the highest versions that match the Expo
+SDK in use (currently 51) and re-run `npm install` for you. Accept its prompts whenever you are
+upgrading Node or when Apple ships a new simulator runtime.
+
+## Reference
+
+The sections below preserve the original quick-start guidance so teams familiar with the previous
+README can still find the same headings.
 
 ### Configure environment variables
 
