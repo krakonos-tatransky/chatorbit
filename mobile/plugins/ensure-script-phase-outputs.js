@@ -144,9 +144,9 @@ const ensureReactCodegenStub = (config) =>
       const projectRoot = cfg.modRequest.projectRoot;
       const iosDir = path.join(projectRoot, 'ios');
 
-      if (!fs.existsSync(iosDir)) {
-        return cfg;
-      }
+      // Always ensure the native tree exists so prebuild runs on a clean
+      // workspace still get the stub before Podfile resolution.
+      fs.mkdirSync(iosDir, { recursive: true });
 
       const generatedDir = path.join(iosDir, 'build', 'generated', 'ios');
       fs.mkdirSync(generatedDir, { recursive: true });
