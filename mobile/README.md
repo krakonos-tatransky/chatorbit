@@ -26,6 +26,8 @@ equivalent profile file for your setup.
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
 # Install build tooling used by Metro / React Native.
+# CocoaPods comes from Homebrew for easier upgrades; only use the RubyGem
+# install if your environment cannot use Homebrew.
 brew install watchman cocoapods node@20
 
 # Ensure the Node 20 toolchain is active for this shell session.
@@ -43,8 +45,8 @@ source ~/.zshrc
 nvm install 20.19.5
 nvm use 20.19.5
 
-# Confirm CocoaPods is ready (installs into the system Ruby once).
-sudo gem install cocoapods
+# Confirm CocoaPods is ready. If you do not use Homebrew, replace the line
+# above with `sudo gem install cocoapods` instead of installing both.
 pod --version
 ```
 
