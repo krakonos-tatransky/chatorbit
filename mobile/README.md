@@ -43,7 +43,7 @@ values here (the mobile helper automatically falls back to `NEXT_PUBLIC_*` keys 
 
 ### Build with the WebRTC native module
 
-The in-app cockpit relies on the `react-native-webrtc` native module, which Expo Go does not
+The in-app cockpit relies on the `expo-webrtc` native module, which Expo Go does not
 bundle. To actually join sessions inside the app, create an Expo development build and install it on
 your device or simulator:
 

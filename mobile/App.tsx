@@ -24,19 +24,23 @@ import * as Clipboard from 'expo-clipboard';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { useFonts } from 'expo-font';
-import type { RTCPeerConnection as NativeRTCPeerConnection } from 'react-native-webrtc';
+import type {
+  RTCPeerConnection as ExpoRTCPeerConnection,
+  RTCIceCandidate as ExpoRTCIceCandidate,
+  RTCSessionDescription as ExpoRTCSessionDescription
+} from 'expo-webrtc';
 import { getIceServers, hasRelayIceServers } from './webrtc';
 
 const env = typeof process !== 'undefined' && process.env ? process.env : undefined;
 const EXPO_DEV_BUILD_DOCS_URL = 'https://docs.expo.dev/development/introduction/';
 
 type WebRtcBindings = {
-  RTCPeerConnection: typeof import('react-native-webrtc').RTCPeerConnection;
-  RTCIceCandidate: typeof import('react-native-webrtc').RTCIceCandidate;
-  RTCSessionDescription: typeof import('react-native-webrtc').RTCSessionDescription;
+  RTCPeerConnection: new (...args: any[]) => ExpoRTCPeerConnection;
+  RTCIceCandidate: new (...args: any[]) => ExpoRTCIceCandidate;
+  RTCSessionDescription: new (...args: any[]) => ExpoRTCSessionDescription;
 };
 
-const WEBRTC_NATIVE_MODULE_CANDIDATES = ['WebRTCModule', 'WebRTC'];
+const WEBRTC_NATIVE_MODULE_CANDIDATES = ['ExpoWebRTCModule', 'ExpoWebRTC', 'WebRTCModule', 'WebRTC'];
 let cachedWebRtcBindings: WebRtcBindings | null | undefined;
 
 const getWebRtcBindings = (): WebRtcBindings | null => {
@@ -53,11 +57,11 @@ const getWebRtcBindings = (): WebRtcBindings | null => {
       return null;
     }
 
-    cachedWebRtcBindings = require('react-native-webrtc') as WebRtcBindings;
+    cachedWebRtcBindings = require('expo-webrtc') as WebRtcBindings;
     return cachedWebRtcBindings;
   } catch (error) {
     console.warn(
-      'Unable to load react-native-webrtc. Build a development client to enable native session connectivity.',
+      'Unable to load expo-webrtc. Build a development client to enable native session connectivity.',
       error
     );
     cachedWebRtcBindings = null;
@@ -207,7 +211,7 @@ type Message = {
 
 type DataChannelState = 'connecting' | 'open' | 'closing' | 'closed';
 
-type PeerDataChannel = ReturnType<NativeRTCPeerConnection['createDataChannel']> & {
+type PeerDataChannel = ReturnType<ExpoRTCPeerConnection['createDataChannel']> & {
   onopen: (() => void) | null;
   onclose: (() => void) | null;
   onerror: (() => void) | null;
@@ -1159,7 +1163,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
-  const peerConnectionRef = useRef<NativeRTCPeerConnection | null>(null);
+  const peerConnectionRef = useRef<ExpoRTCPeerConnection | null>(null);
   const dataChannelRef = useRef<PeerDataChannel | null>(null);
   const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
   const pendingSignalsRef = useRef<any[]>([]);
@@ -1409,7 +1413,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   );
 
   const flushPendingCandidates = useCallback(
-    async (pc: NativeRTCPeerConnection) => {
+    async (pc: ExpoRTCPeerConnection) => {
       if (!pc.remoteDescription) {
         return;
       }
@@ -1426,7 +1430,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   );
 
   const processSignalPayload = useCallback(
-    async (pc: NativeRTCPeerConnection, payload: any) => {
+    async (pc: ExpoRTCPeerConnection, payload: any) => {
       const signalType = payload.signalType as string;
       const detail = payload.payload;
       if (signalType === 'offer' && detail) {
@@ -1626,7 +1630,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   );
 
     const attachDataChannel = useCallback(
-      (channel: PeerDataChannel, owner: NativeRTCPeerConnection | null) => {
+      (channel: PeerDataChannel, owner: ExpoRTCPeerConnection | null) => {
       dataChannelRef.current = channel;
       setDataChannelState(channel.readyState as DataChannelState);
       channel.onopen = () => {
@@ -1698,7 +1702,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         attachDataChannel(event.channel as unknown as PeerDataChannel, peerConnection);
       };
 
-    const peerConnectionAny = peerConnection as NativeRTCPeerConnection & {
+    const peerConnectionAny = peerConnection as ExpoRTCPeerConnection & {
       onicecandidate?: ((event: RTCPeerConnectionIceEvent) => void) | null;
       onconnectionstatechange?: (() => void) | null;
       ondatachannel?: ((event: RTCDataChannelEvent) => void) | null;
