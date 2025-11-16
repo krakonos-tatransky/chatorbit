@@ -88,7 +88,10 @@ npm run native:android    # builds + installs on the Android emulator or connect
 
 Behind the scenes these commands execute `expo prebuild`, run `pod install`, and invoke
 `xcodebuild`/`gradlew`. SDK 54’s prebuild templates already declare script-phase outputs and handle
-codegen reliably, so no extra config plugins are required for a clean native build.
+codegen reliably, so no extra config plugins are required for a clean native build. You do **not**
+need to run `npx expo prebuild --clean --platform ios` before `npm run native:ios`; only reach for
+`prebuild --clean` when you intentionally want to delete the generated iOS/Android folders and
+recreate them from scratch.
 
 ### 5. Launch Metro in dev-client mode
 
