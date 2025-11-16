@@ -87,9 +87,8 @@ npm run native:android    # builds + installs on the Android emulator or connect
 ```
 
 Behind the scenes these commands execute `expo prebuild`, run `pod install`, and invoke
-`xcodebuild`/`gradlew`. The repository’s config plugin disables the fragile `React-Codegen` phase
-and adds derived-data marker files so you can repeatedly run `expo run` without touching the native
-projects manually.
+`xcodebuild`/`gradlew`. SDK 54’s prebuild templates already declare script-phase outputs and handle
+codegen reliably, so no extra config plugins are required for a clean native build.
 
 ### 5. Launch Metro in dev-client mode
 
@@ -179,20 +178,10 @@ https://docs.expo.dev/development/introduction/
 
 ### Keep Xcode builds quiet (and stable)
 
-When you generate the native iOS project via `npx expo prebuild`/`npx expo run:ios`, Xcode warns
-about custom `[CP-User]` script phases that lack declared output files. The app now ships with a
-config plugin (`plugins/ensure-script-phase-outputs.js`) that adds derived-data stamp files for the
-Hermes, RNCore, and Expo Constants helper scripts so the warnings disappear automatically each time
-you prebuild. If you add new custom script phases in the future, mimic this pattern so every phase
-declares at least one output.
-
-The same plugin also forces `ENV['DISABLE_CODEGEN'] = '1'` in the generated Podfile *and* drops stub
-`React-Codegen.podspec.json` **and** `ReactCodegen.podspec.json` files inside `ios/build/generated/ios`.
-React Native's codegen target has been intermittently failing on clean Expo development builds and
-Podfile templates sometimes look for either spelling, so disabling it (while still providing the
-expected podspecs) keeps `npx expo run:ios` reliable until we switch to the new architecture. Remove
-that line (or override the environment variable) if you specifically need to re-enable codegen for
-local experiments.
+SDK 54’s generated iOS project already includes output markers on the custom `[CP-User]` script
+phases and handles React Native codegen without extra tweaks. If you do add new script phases or run
+into Podfile issues after modifying the native project, re-run `npx expo prebuild --clean` to
+regenerate the iOS folder with the latest Expo templates.
 
 ### Configure your default editor for Expo Go
 

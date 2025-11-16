@@ -1,5 +1,3 @@
-const scriptPhaseWarningsPlugin = './plugins/ensure-script-phase-outputs';
-
 /**
  * @param {import('expo/config').ConfigContext} param0
  */
@@ -29,6 +27,6 @@ module.exports = ({ config }) => {
       bundler: 'metro',
       ...(baseConfig.web ?? {}),
     },
-    plugins: [...plugins, 'expo-font', scriptPhaseWarningsPlugin],
+    plugins: [...plugins, 'expo-font'],
   };
 };
