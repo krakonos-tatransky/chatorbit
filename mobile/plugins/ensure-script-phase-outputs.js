@@ -84,7 +84,7 @@ const getReactNativeVersion = (projectRoot) => {
   return pkg.version || '0.0.0';
 };
 
-const buildStubSpec = (version) => {
+const buildStubSpec = (podName, version) => {
   const headerSearchPaths = [
     '"$(PODS_ROOT)/boost"',
     '"$(PODS_ROOT)/RCT-Folly"',
@@ -98,7 +98,7 @@ const buildStubSpec = (version) => {
   ];
 
   return {
-    name: 'React-Codegen',
+    name: podName,
     version,
     summary: 'Stub podspec for Expo development builds with codegen disabled.',
     homepage: 'https://expo.dev',
@@ -151,10 +151,14 @@ const ensureReactCodegenStub = (config) =>
       const generatedDir = path.join(iosDir, 'build', 'generated', 'ios');
       fs.mkdirSync(generatedDir, { recursive: true });
 
-      const specPath = path.join(generatedDir, 'React-Codegen.podspec.json');
+      const podspecNames = ['React-Codegen', 'ReactCodegen'];
       const version = getReactNativeVersion(projectRoot);
-      const spec = buildStubSpec(version);
-      fs.writeFileSync(specPath, `${JSON.stringify(spec, null, 2)}\n`);
+
+      podspecNames.forEach((podName) => {
+        const specPath = path.join(generatedDir, `${podName}.podspec.json`);
+        const spec = buildStubSpec(podName, version);
+        fs.writeFileSync(specPath, `${JSON.stringify(spec, null, 2)}\n`);
+      });
 
       return cfg;
     },

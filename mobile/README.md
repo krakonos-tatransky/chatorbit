@@ -186,12 +186,13 @@ Hermes, RNCore, and Expo Constants helper scripts so the warnings disappear auto
 you prebuild. If you add new custom script phases in the future, mimic this pattern so every phase
 declares at least one output.
 
-The same plugin also forces `ENV['DISABLE_CODEGEN'] = '1'` in the generated Podfile *and* drops a
-stub `React-Codegen.podspec.json` inside `ios/build/generated/ios`. React Native's `React-Codegen`
-target has been intermittently failing on clean Expo development builds, so disabling it (while
-still providing the expected podspec) keeps `npx expo run:ios` reliable until we switch to the new
-architecture. Remove that line (or override the environment variable) if you specifically need to
-re-enable codegen for local experiments.
+The same plugin also forces `ENV['DISABLE_CODEGEN'] = '1'` in the generated Podfile *and* drops stub
+`React-Codegen.podspec.json` **and** `ReactCodegen.podspec.json` files inside `ios/build/generated/ios`.
+React Native's codegen target has been intermittently failing on clean Expo development builds and
+Podfile templates sometimes look for either spelling, so disabling it (while still providing the
+expected podspecs) keeps `npx expo run:ios` reliable until we switch to the new architecture. Remove
+that line (or override the environment variable) if you specifically need to re-enable codegen for
+local experiments.
 
 ### Configure your default editor for Expo Go
 
