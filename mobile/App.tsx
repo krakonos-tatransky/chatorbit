@@ -49,16 +49,15 @@ const getWebRtcBindings = (): WebRtcBindings | null => {
   }
 
   try {
-    const nativeModules = NativeModules as Record<string, unknown> | null;
-    const hasNativeModule = WEBRTC_NATIVE_MODULE_CANDIDATES.some((name) => Boolean(nativeModules?.[name]));
-
-    if (!hasNativeModule) {
-      cachedWebRtcBindings = null;
-      return null;
+    const bindings = require('expo-webrtc') as WebRtcBindings;
+    if (
+      bindings?.RTCPeerConnection &&
+      bindings?.RTCIceCandidate &&
+      bindings?.RTCSessionDescription
+    ) {
+      cachedWebRtcBindings = bindings;
+      return cachedWebRtcBindings;
     }
-
-    cachedWebRtcBindings = require('expo-webrtc') as WebRtcBindings;
-    return cachedWebRtcBindings;
   } catch (error) {
     console.warn(
       'Unable to load expo-webrtc. Build a development client to enable native session connectivity.',
@@ -67,6 +66,19 @@ const getWebRtcBindings = (): WebRtcBindings | null => {
     cachedWebRtcBindings = null;
     return null;
   }
+
+  const nativeModules = NativeModules as Record<string, unknown> | null;
+  const hasNativeModule = WEBRTC_NATIVE_MODULE_CANDIDATES.some((name) => Boolean(nativeModules?.[name]));
+
+  if (!hasNativeModule) {
+    console.warn(
+      'expo-webrtc native module not detected. Install the Expo dev build to enable in-app sessions.',
+      nativeModules
+    );
+  }
+
+  cachedWebRtcBindings = null;
+  return null;
 };
 
 const isWebRtcSupported = (): boolean => getWebRtcBindings() !== null;
