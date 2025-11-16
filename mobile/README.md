@@ -17,7 +17,9 @@ This Expo + React Native application prototypes the ChatOrbit iPhone experience 
 
 ### 1. Prep your macOS environment
 
-All commands below assume the latest macOS Sonoma release with Xcode 15.4+.
+All commands below assume the latest macOS Sonoma release with Xcode 15.4+ **and** that you are
+using the default `zsh` shell. If you use another shell, replace the `~/.zshrc` edits with the
+equivalent profile file for your setup.
 
 ```bash
 # Install Homebrew if it is not already available.
@@ -99,7 +101,9 @@ Press `i`, `a`, or scan the QR code to connect. The dev client will reuse the sa
 shake the device (or press `r`/`R`) to reload.
 
 > **Note:** Run all Expo CLI commands from inside the `mobile/` directory so Metro resolves the
-> workspace-local entry points and configuration correctly.
+> workspace-local entry points and configuration correctly. If you store your environment exports in
+> `~/.zprofile` or another `zsh`-specific startup file, make sure it is sourced before launching
+> Expo in a new terminal tab/window.
 
 ### 6. Force a pristine native rebuild (when things get stuck)
 
@@ -190,7 +194,7 @@ re-enable codegen for local experiments.
 
 Expo CLI can open the project in your preferred editor (handy when you press `o` in the
 terminal or tap "Open in Editor" inside Expo Go). Set the `EXPO_EDITOR` environment variable in
-your shell profile (for example `~/.zshrc` or `~/.bash_profile`) so the CLI knows which command to
+your shell profile (for example `~/.zshrc` or `~/.zprofile`) so the CLI knows which command to
 invoke:
 
 ```bash
