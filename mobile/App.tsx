@@ -27,7 +27,8 @@ import type {
   RTCIceCandidate as NativeRTCIceCandidate,
   RTCSessionDescription as NativeRTCSessionDescription,
   MediaStream as NativeMediaStream,
-  RTCTrackEvent as NativeRTCTrackEvent
+  RTCTrackEvent as NativeRTCTrackEvent,
+  RTCView
 } from 'react-native-webrtc';
 type RTCPeerConnection = NativeRTCPeerConnection;
 type RTCIceCandidate = NativeRTCIceCandidate;
@@ -1176,6 +1177,12 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const [dataChannelState, setDataChannelState] = useState<DataChannelState | null>(null);
   const [supportsEncryption, setSupportsEncryption] = useState<boolean | null>(null);
   const [peerSupportsEncryption, setPeerSupportsEncryption] = useState<boolean | null>(null);
+  const [callState, setCallState] = useState<'idle' | 'requesting' | 'incoming' | 'connecting' | 'active'>(
+    'idle'
+  );
+  const [incomingCallFrom, setIncomingCallFrom] = useState<string | null>(null);
+  const [localVideoStream, setLocalVideoStream] = useState<MediaStream | null>(null);
+  const [remoteVideoStream, setRemoteVideoStream] = useState<MediaStream | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [socketReady, setSocketReady] = useState(false);
   const [socketReconnectNonce, setSocketReconnectNonce] = useState(0);
@@ -1198,6 +1205,8 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
   const hasSentOfferRef = useRef(false);
   const localAudioStreamRef = useRef<MediaStream | null>(null);
+  const localVideoStreamRef = useRef<MediaStream | null>(null);
+  const remoteVideoStreamRef = useRef<MediaStream | null>(null);
 
   const webRtcBindings = useMemo(() => getWebRtcBindings(), []);
 
@@ -1258,6 +1267,27 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const connectionBadgeLabel = connected ? 'Connected' : isReconnecting ? 'Reconnecting…' : socketReady ? 'Waiting for peer' : 'Offline';
   const connectionBadgeStyle =
     connected ? styles.connectionBadgeOnline : isReconnecting ? styles.connectionBadgeReconnecting : styles.connectionBadgeIdle;
+  const videoReady = connected && dataChannelState === 'open';
+  const videoStatusLabel =
+    callState === 'active'
+      ? 'Video live'
+      : callState === 'connecting'
+        ? 'Connecting…'
+      : callState === 'incoming'
+        ? 'Incoming request'
+        : callState === 'requesting'
+          ? 'Requested…'
+          : 'Idle';
+  const videoStatusStyle =
+    callState === 'active'
+      ? styles.videoBadgeActive
+      : callState === 'incoming'
+        ? styles.videoBadgeIncoming
+        : callState === 'requesting'
+          ? styles.videoBadgePending
+          : styles.videoBadgeIdle;
+  const localVideoUrl = useMemo(() => (localVideoStream as any)?.toURL?.() ?? null, [localVideoStream]);
+  const remoteVideoUrl = useMemo(() => (remoteVideoStream as any)?.toURL?.() ?? null, [remoteVideoStream]);
 
   useEffect(() => {
     setSupportsEncryption(resolveCrypto() !== null);
@@ -1340,6 +1370,12 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         stream.getTracks().forEach((track) => track.stop());
       }
       localAudioStreamRef.current = null;
+      const videoStream = localVideoStreamRef.current;
+      if (videoStream) {
+        videoStream.getTracks().forEach((track) => track.stop());
+      }
+      localVideoStreamRef.current = null;
+      remoteVideoStreamRef.current = null;
     };
   }, []);
 
@@ -1367,7 +1403,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       anyPeer[key] = nextId;
       return nextId;
     },
-    []
+    [clearRemoteVideo, stopLocalVideoTracks]
   );
 
   const logPeer = useCallback(
@@ -1468,6 +1504,26 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     }
   }, [sendCapabilities, supportsEncryption]);
 
+  const sendCallMessage = useCallback(
+    (action: string, detail: Record<string, unknown> = {}) => {
+      if (!participantId) {
+        return;
+      }
+      const channel = dataChannelRef.current;
+      if (!channel || channel.readyState !== 'open') {
+        return;
+      }
+      const payload = { type: 'call', action, from: participantId, ...detail };
+      try {
+        channel.send(JSON.stringify(payload));
+        logPeer(peerConnectionRef.current, 'sent call control', action);
+      } catch (err) {
+        console.warn('Failed to send call control message', err);
+      }
+    },
+    [participantId]
+  );
+
   const handlePeerMessage = useCallback(
     async (rawMessage: string) => {
       try {
@@ -1476,6 +1532,55 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           const remoteSupports = Boolean(payload.supportsEncryption);
           peerSupportsEncryptionRef.current = remoteSupports;
           setPeerSupportsEncryption(remoteSupports);
+          return;
+        }
+        if (payload.type === 'call') {
+          const action = payload.action as string;
+          const from = payload.from as string | undefined;
+          if (!from || from === participantId) {
+            return;
+          }
+          if (action === 'request') {
+            if (callState !== 'idle') {
+              sendCallMessage('busy');
+              return;
+            }
+            setIncomingCallFrom(from);
+            setCallState('incoming');
+            return;
+          }
+          if (action === 'accept') {
+            setIncomingCallFrom(null);
+            setCallState((prev) => (prev === 'requesting' ? 'connecting' : prev));
+            void ensureLocalVideoStream();
+            return;
+          }
+          if (action === 'reject') {
+            setIncomingCallFrom(null);
+            setCallState('idle');
+            stopLocalVideoTracks();
+            clearRemoteVideo();
+            return;
+          }
+          if (action === 'end') {
+            setIncomingCallFrom(null);
+            setCallState('idle');
+            stopLocalVideoTracks();
+            clearRemoteVideo();
+            return;
+          }
+          if (action === 'busy') {
+            if (callState === 'requesting') {
+              setCallState('idle');
+              stopLocalVideoTracks();
+              clearRemoteVideo();
+              setError('Peer is busy with another video chat.');
+            }
+            return;
+          }
+          if (action === 'renegotiate') {
+            void negotiateMediaUpdate(peerConnectionRef.current, 'peer requested media update');
+          }
           return;
         }
         if (payload.type === 'message') {
@@ -1557,7 +1662,16 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         console.warn('Unable to process data channel message', err);
       }
     },
-    [token.token]
+    [
+      callState,
+      clearRemoteVideo,
+      ensureLocalVideoStream,
+      negotiateMediaUpdate,
+      participantId,
+      sendCallMessage,
+      stopLocalVideoTracks,
+      token.token
+    ]
   );
 
   const flushPendingCandidates = useCallback(
@@ -1780,6 +1894,10 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       hasSentOfferRef.current = false;
       setConnected(false);
       setDataChannelState(null);
+      stopLocalVideoTracks();
+      clearRemoteVideo();
+      setCallState('idle');
+      setIncomingCallFrom(null);
       if (!recreate) {
         return;
       }
@@ -1872,6 +1990,140 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     }
   }, [logSocket, webRtcBindings]);
 
+  const stopLocalVideoTracks = useCallback(() => {
+    const stream = localVideoStreamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+    localVideoStreamRef.current = null;
+    setLocalVideoStream(null);
+    const pc = peerConnectionRef.current;
+    if (pc && typeof pc.getSenders === 'function') {
+      pc.getSenders().forEach((sender) => {
+        if (sender.track?.kind === 'video') {
+          try {
+            pc.removeTrack(sender);
+          } catch (err) {
+            console.warn('Failed to remove video sender', err);
+          }
+        }
+      });
+    }
+  }, []);
+
+  const clearRemoteVideo = useCallback(() => {
+    remoteVideoStreamRef.current = null;
+    setRemoteVideoStream(null);
+  }, []);
+
+  const negotiateMediaUpdate = useCallback(
+    async (pc: RTCPeerConnection | null, reason: string) => {
+      if (!pc) {
+        return;
+      }
+      if (pc.signalingState === 'closed') {
+        return;
+      }
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendSignal('offer', offer);
+        logPeer(pc, 'sent renegotiation offer', reason);
+      } catch (err) {
+        console.warn('Failed to renegotiate media', err);
+      }
+    },
+    [logPeer, sendSignal]
+  );
+
+  const ensureLocalVideoStream = useCallback(async () => {
+    const pc = peerConnectionRef.current;
+    if (!pc || !webRtcBindings?.mediaDevices?.getUserMedia) {
+      return null;
+    }
+    if (localVideoStreamRef.current) {
+      return localVideoStreamRef.current;
+    }
+    try {
+      const stream = await webRtcBindings.mediaDevices.getUserMedia({ video: true });
+      localVideoStreamRef.current = stream;
+      setLocalVideoStream(stream);
+      if (typeof pc.addTransceiver === 'function') {
+        try {
+          pc.addTransceiver('video', { direction: 'sendrecv' });
+        } catch (err) {
+          console.warn('Failed to add video transceiver', err);
+        }
+      }
+      stream.getVideoTracks().forEach((track) => {
+        try {
+          pc.addTrack(track, stream);
+          logPeer(pc, 'added local video track', track.id);
+        } catch (err) {
+          console.warn('Failed to attach local video track', err);
+        }
+      });
+      void negotiateMediaUpdate(pc, 'local video ready');
+      return stream;
+    } catch (err) {
+      console.warn('Unable to start local video stream', err);
+      return null;
+    }
+  }, [logPeer, negotiateMediaUpdate, webRtcBindings]);
+
+  const requestVideoChat = useCallback(async () => {
+    if (callState !== 'idle') {
+      return;
+    }
+    const stream = await ensureLocalVideoStream();
+    if (!stream) {
+      setError('Unable to access the camera for video chat.');
+      return;
+    }
+    setCallState('requesting');
+    setIncomingCallFrom(null);
+    sendCallMessage('request');
+    await negotiateMediaUpdate(peerConnectionRef.current, 'video request');
+  }, [callState, ensureLocalVideoStream, negotiateMediaUpdate, sendCallMessage]);
+
+  const acceptVideoChat = useCallback(async () => {
+    if (!incomingCallFrom) {
+      return;
+    }
+    const stream = await ensureLocalVideoStream();
+    if (!stream) {
+      setError('Unable to access the camera for video chat.');
+      sendCallMessage('reject');
+      return;
+    }
+    setCallState('connecting');
+    setIncomingCallFrom(null);
+    sendCallMessage('accept');
+    await negotiateMediaUpdate(peerConnectionRef.current, 'video accept');
+  }, [ensureLocalVideoStream, incomingCallFrom, negotiateMediaUpdate, sendCallMessage]);
+
+  const declineVideoChat = useCallback(() => {
+    sendCallMessage('reject');
+    setIncomingCallFrom(null);
+    setCallState('idle');
+    stopLocalVideoTracks();
+    clearRemoteVideo();
+  }, [clearRemoteVideo, sendCallMessage, stopLocalVideoTracks]);
+
+  const endVideoChat = useCallback(() => {
+    sendCallMessage('end');
+    setCallState('idle');
+    setIncomingCallFrom(null);
+    stopLocalVideoTracks();
+    clearRemoteVideo();
+  }, [clearRemoteVideo, sendCallMessage, stopLocalVideoTracks]);
+
+  useEffect(() => {
+    if (remoteVideoStream && (callState === 'connecting' || callState === 'requesting')) {
+      setCallState('active');
+    }
+  }, [callState, remoteVideoStream]);
+
   useEffect(() => {
     if (!participantId) {
       return;
@@ -1923,7 +2175,18 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         logPeer(pc, 'remote track', event.track?.kind, event.streams?.length ?? 0);
         if (event.track?.kind === 'audio') {
           event.track.enabled = true;
+          return;
         }
+        if (event.track?.kind === 'video') {
+          const stream = event.streams?.[0] ?? new MediaStream([event.track]);
+          remoteVideoStreamRef.current = stream as unknown as MediaStream;
+          setRemoteVideoStream(stream as unknown as MediaStream);
+          return;
+        }
+      };
+
+      const handleNegotiationNeeded = () => {
+        void negotiateMediaUpdate(pc, 'onnegotiationneeded');
       };
 
       const peerConnectionAny = pc as RTCPeerConnection & {
@@ -1931,12 +2194,14 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         onconnectionstatechange?: (() => void) | null;
         ondatachannel?: ((event: RTCDataChannelEvent) => void) | null;
         ontrack?: ((event: RTCTrackEvent) => void) | null;
+        onnegotiationneeded?: (() => void) | null;
       };
 
       peerConnectionAny.onicecandidate = handleIceCandidate;
       peerConnectionAny.onconnectionstatechange = handleConnectionStateChange;
       peerConnectionAny.ondatachannel = handleDataChannel;
       peerConnectionAny.ontrack = handleTrack;
+      peerConnectionAny.onnegotiationneeded = handleNegotiationNeeded;
 
       if (typeof pc.addTransceiver === 'function') {
         try {
@@ -2230,6 +2495,77 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
                     })
                   )}
                 </View>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.videoCard}>
+            <View style={styles.sessionCardHeader}>
+              <Text style={styles.sessionCardTitle}>Video chat</Text>
+              <View style={[styles.connectionBadge, videoStatusStyle]}>
+                <Text style={styles.connectionBadgeLabel}>{videoStatusLabel}</Text>
+              </View>
+            </View>
+            <Text style={styles.sessionCardDescription}>
+              Request a video call once both peers are connected. When accepted, your camera preview appears alongside the
+              remote feed.
+            </Text>
+            <View style={styles.videoPreviewRow}>
+              <View style={styles.videoPane}>
+                <Text style={styles.videoPaneLabel}>Remote</Text>
+                {remoteVideoUrl ? (
+                  <RTCView streamURL={remoteVideoUrl} style={styles.videoSurface} objectFit="cover" />
+                ) : (
+                  <View style={styles.videoPlaceholder}>
+                    <Ionicons name="videocam-outline" size={28} color={COLORS.ice} />
+                    <Text style={styles.videoPlaceholderText}>Waiting for remote video…</Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.videoPane}>
+                <Text style={styles.videoPaneLabel}>You</Text>
+                {localVideoUrl ? (
+                  <RTCView streamURL={localVideoUrl} style={styles.videoSurface} objectFit="cover" mirror />
+                ) : (
+                  <View style={styles.videoPlaceholder}>
+                    <Ionicons name="person-circle-outline" size={28} color={COLORS.ice} />
+                    <Text style={styles.videoPlaceholderText}>Camera preview</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+            {incomingCallFrom ? (
+              <View style={styles.videoActionsRow}>
+                <TouchableOpacity style={[styles.primaryButton, styles.videoAcceptButton]} onPress={acceptVideoChat}>
+                  <Ionicons name="videocam" size={18} color={COLORS.midnight} />
+                  <Text style={[styles.primaryButtonLabel, styles.videoAcceptLabel]}>Accept video</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.secondaryButton, styles.videoDeclineButton]} onPress={declineVideoChat}>
+                  <Text style={styles.secondaryButtonLabel}>Decline</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.videoActionsRow}>
+                <TouchableOpacity
+                  style={[styles.primaryButton, !videoReady && styles.primaryButtonDisabled]}
+                  disabled={!videoReady}
+                  onPress={callState === 'idle' ? requestVideoChat : endVideoChat}
+                >
+                  {callState === 'idle' ? (
+                    <Ionicons name="videocam-outline" size={18} color={COLORS.midnight} />
+                  ) : (
+                    <Ionicons name="close" size={18} color={COLORS.midnight} />
+                  )}
+                  <Text style={[styles.primaryButtonLabel, !videoReady && styles.primaryButtonLabelDisabled]}>
+                    {callState === 'idle'
+                      ? videoReady
+                        ? 'Request video chat'
+                        : 'Waiting for connection…'
+                      : callState === 'active'
+                        ? 'End video'
+                        : 'Cancel request'}
+                  </Text>
+                </TouchableOpacity>
               </View>
             )}
           </View>
@@ -2910,6 +3246,14 @@ const styles = StyleSheet.create({
     gap: 12,
     minHeight: 320
   },
+  videoCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.38)',
+    backgroundColor: 'rgba(4, 23, 60, 0.72)',
+    padding: 20,
+    gap: 12
+  },
   sessionCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2990,6 +3334,85 @@ const styles = StyleSheet.create({
   chatError: {
     color: COLORS.danger,
     fontWeight: '600'
+  },
+  videoPreviewRow: {
+    flexDirection: 'row',
+    gap: 12
+  },
+  videoPane: {
+    flex: 1,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.25)',
+    overflow: 'hidden',
+    backgroundColor: 'rgba(2, 11, 31, 0.6)'
+  },
+  videoPaneLabel: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: 'rgba(219, 237, 255, 0.78)',
+    fontWeight: '600'
+  },
+  videoSurface: {
+    width: '100%',
+    height: 180,
+    backgroundColor: 'black'
+  },
+  videoPlaceholder: {
+    height: 180,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8
+  },
+  videoPlaceholderText: {
+    color: 'rgba(219, 237, 255, 0.7)'
+  },
+  videoActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 4,
+    alignItems: 'center'
+  },
+  primaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: COLORS.aurora,
+    borderRadius: 14,
+    flex: 1
+  },
+  primaryButtonDisabled: {
+    backgroundColor: 'rgba(111, 231, 255, 0.3)'
+  },
+  primaryButtonLabel: {
+    color: COLORS.midnight,
+    fontWeight: '700'
+  },
+  primaryButtonLabelDisabled: {
+    color: 'rgba(2,11,31,0.5)'
+  },
+  secondaryButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(219, 237, 255, 0.4)'
+  },
+  secondaryButtonLabel: {
+    color: COLORS.ice,
+    fontWeight: '600'
+  },
+  videoAcceptButton: {
+    backgroundColor: COLORS.aurora
+  },
+  videoAcceptLabel: {
+    color: COLORS.midnight
+  },
+  videoDeclineButton: {
+    borderColor: 'rgba(239, 71, 111, 0.65)'
   },
   sendButton: {
     width: 48,
@@ -3181,6 +3604,22 @@ const styles = StyleSheet.create({
   connectionBadgeLabel: {
     color: COLORS.ice,
     fontWeight: '600'
+  },
+  videoBadgeActive: {
+    borderColor: 'rgba(136, 230, 255, 0.7)',
+    backgroundColor: 'rgba(136, 230, 255, 0.18)'
+  },
+  videoBadgeIncoming: {
+    borderColor: 'rgba(255, 209, 102, 0.65)',
+    backgroundColor: 'rgba(255, 209, 102, 0.2)'
+  },
+  videoBadgePending: {
+    borderColor: 'rgba(219, 237, 255, 0.4)',
+    backgroundColor: 'rgba(219, 237, 255, 0.15)'
+  },
+  videoBadgeIdle: {
+    borderColor: 'rgba(111, 214, 255, 0.25)',
+    backgroundColor: 'rgba(111, 214, 255, 0.08)'
   },
   sessionFallbackCard: {
     width: '100%',
