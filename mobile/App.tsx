@@ -1203,6 +1203,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const reconnectAttemptsRef = useRef(0);
   const socketReconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const fallbackOfferTimeoutRef = useRef<TimeoutHandle | null>(null);
   const hasSentOfferRef = useRef(false);
   const localAudioStreamRef = useRef<MediaStream | null>(null);
   const localVideoStreamRef = useRef<MediaStream | null>(null);
@@ -1699,6 +1700,10 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       const signalType = payload.signalType as string;
       const detail = payload.payload;
       if (signalType === 'offer' && detail) {
+        if (fallbackOfferTimeoutRef.current) {
+          clearTimeout(fallbackOfferTimeoutRef.current as TimeoutHandle);
+          fallbackOfferTimeoutRef.current = null;
+        }
         logPeer(pc, 'received offer');
         await pc.setRemoteDescription(new RTCSessionDescriptionCtor(detail));
         logPeer(pc, 'applied remote offer');
@@ -1868,6 +1873,10 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       if (iceRetryTimeoutRef.current) {
         clearTimeout(iceRetryTimeoutRef.current as TimeoutHandle);
         iceRetryTimeoutRef.current = null;
+      }
+      if (fallbackOfferTimeoutRef.current) {
+        clearTimeout(fallbackOfferTimeoutRef.current as TimeoutHandle);
+        fallbackOfferTimeoutRef.current = null;
       }
       const existing = peerConnectionRef.current;
       if (existing) {
@@ -2261,6 +2270,38 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         } catch (err) {
           console.warn('Failed to create offer', err);
         }
+      } else if (!pc.remoteDescription && !fallbackOfferTimeoutRef.current) {
+        fallbackOfferTimeoutRef.current = setTimeout(async () => {
+          fallbackOfferTimeoutRef.current = null;
+          if (!peerConnectionRef.current || peerConnectionRef.current !== pc) {
+            return;
+          }
+          if (pc.signalingState !== 'stable' || pc.remoteDescription) {
+            return;
+          }
+          try {
+            if (!dataChannelRef.current) {
+              const channel = pc.createDataChannel('chat') as unknown as PeerDataChannel;
+              logPeer(pc, 'created data channel (fallback)', channel.label);
+              attachDataChannel(channel, pc);
+            }
+            logPeer(pc, 'creating fallback offer as guest');
+            const offer = await pc.createOffer();
+            if (peerConnectionRef.current !== pc || pc.signalingState === 'closed') {
+              logPeer(pc, 'fallback offer abandoned (stale peer)');
+              return;
+            }
+            await pc.setLocalDescription(offer);
+            if (peerConnectionRef.current !== pc || pc.signalingState === 'closed') {
+              logPeer(pc, 'fallback offer abandoned after setLocalDescription (stale peer)');
+              return;
+            }
+            sendSignal('offer', offer);
+            hasSentOfferRef.current = true;
+          } catch (err) {
+            console.warn('Failed to create fallback offer', err);
+          }
+        }, 750);
       }
     };
 
@@ -2270,6 +2311,10 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       cancelled = true;
       if (!peerConnection) {
         return;
+      }
+      if (fallbackOfferTimeoutRef.current) {
+        clearTimeout(fallbackOfferTimeoutRef.current as TimeoutHandle);
+        fallbackOfferTimeoutRef.current = null;
       }
       const peerConnectionAny = peerConnection as RTCPeerConnection & {
         onicecandidate?: ((event: RTCPeerConnectionIceEvent) => void) | null;
