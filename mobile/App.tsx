@@ -1179,6 +1179,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
 
   const socketRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const peerLogCounterRef = useRef(0);
   const dataChannelRef = useRef<PeerDataChannel | null>(null);
   const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
   const pendingSignalsRef = useRef<any[]>([]);
@@ -1323,6 +1324,31 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     return () => clearTimeout(timeout);
   }, [remainingSeconds]);
 
+  const getPeerLogId = useCallback(
+    (pc: RTCPeerConnection | null | undefined) => {
+      if (!pc) {
+        return 'none';
+      }
+      const key = '__chatorbitPeerId';
+      const anyPeer = pc as RTCPeerConnection & { [key]?: number };
+      if (anyPeer[key] != null) {
+        return anyPeer[key];
+      }
+      const nextId = peerLogCounterRef.current++;
+      anyPeer[key] = nextId;
+      return nextId;
+    },
+    []
+  );
+
+  const logPeer = useCallback(
+    (pc: RTCPeerConnection | null | undefined, message: string, ...detail: unknown[]) => {
+      const id = getPeerLogId(pc);
+      console.debug(`rn-webrtc:pc:${id} ${message}`, ...detail);
+    },
+    [getPeerLogId]
+  );
+
   const sendSignal = useCallback(
     (signalType: string, payload: unknown) => {
       if (!participantId) {
@@ -1332,6 +1358,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       if (socket?.readyState !== WebSocket.OPEN) {
         return;
       }
+      console.debug('rn-webrtc:signal:out', signalType, payload ? Object.keys(payload as any) : 'no-payload');
       socket.send(
         JSON.stringify({
           type: 'signal',
@@ -1433,6 +1460,9 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         return;
       }
       const backlog = pendingCandidatesRef.current.splice(0);
+      if (backlog.length > 0) {
+        logPeer(pc, 'flushing buffered ice candidates', backlog.length);
+      }
       for (const candidate of backlog) {
         try {
           await pc.addIceCandidate(new RTCIceCandidateCtor(candidate));
@@ -1441,7 +1471,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         }
       }
     },
-    [RTCIceCandidateCtor]
+    [RTCIceCandidateCtor, logPeer]
   );
 
   const processSignalPayload = useCallback(
@@ -1449,17 +1479,24 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       const signalType = payload.signalType as string;
       const detail = payload.payload;
       if (signalType === 'offer' && detail) {
+        logPeer(pc, 'received offer');
         await pc.setRemoteDescription(new RTCSessionDescriptionCtor(detail));
+        logPeer(pc, 'applied remote offer');
         await flushPendingCandidates(pc);
         const answer = await pc.createAnswer();
+        logPeer(pc, 'created answer');
         await pc.setLocalDescription(answer);
+        logPeer(pc, 'set local answer');
         sendSignal('answer', answer);
       } else if (signalType === 'answer' && detail) {
+        logPeer(pc, 'received answer');
         await pc.setRemoteDescription(new RTCSessionDescriptionCtor(detail));
+        logPeer(pc, 'applied remote answer');
         await flushPendingCandidates(pc);
       } else if (signalType === 'iceCandidate') {
         if (!detail) {
           try {
+            logPeer(pc, 'received end-of-candidates');
             await pc.addIceCandidate(null);
           } catch (err) {
             console.warn('Failed to process end-of-candidates signal', err);
@@ -1467,30 +1504,34 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           return;
         }
         if (!pc.remoteDescription) {
+          logPeer(pc, 'buffering ice candidate (no remote description yet)');
           pendingCandidatesRef.current.push(detail);
           return;
         }
         try {
+          logPeer(pc, 'adding ice candidate');
           await pc.addIceCandidate(new RTCIceCandidateCtor(detail));
         } catch (err) {
           console.warn('Failed to process ICE candidate', err);
         }
       }
     },
-    [RTCIceCandidateCtor, RTCSessionDescriptionCtor, flushPendingCandidates, sendSignal]
+    [RTCIceCandidateCtor, RTCSessionDescriptionCtor, flushPendingCandidates, logPeer, sendSignal]
   );
 
-    const handleSignal = useCallback(
-      (payload: any) => {
-        const pc = peerConnectionRef.current;
-        if (!pc) {
-          pendingSignalsRef.current.push(payload);
-          return;
-        }
-        void processSignalPayload(pc, payload);
-      },
-      [processSignalPayload]
-    );
+  const handleSignal = useCallback(
+    (payload: any) => {
+      const pc = peerConnectionRef.current;
+      if (!pc) {
+        console.debug('rn-webrtc:signal:buffered', payload.signalType);
+        pendingSignalsRef.current.push(payload);
+        return;
+      }
+      console.debug('rn-webrtc:signal:in', payload.signalType);
+      void processSignalPayload(pc, payload);
+    },
+    [processSignalPayload]
+  );
 
     useEffect(() => {
       if (!participantId) {
@@ -1644,11 +1685,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     [resetPeerConnection]
   );
 
-    const attachDataChannel = useCallback(
-      (channel: PeerDataChannel, owner: RTCPeerConnection | null) => {
+  const attachDataChannel = useCallback(
+    (channel: PeerDataChannel, owner: RTCPeerConnection | null) => {
+      logPeer(owner, 'attach data channel', channel.label, channel.readyState);
       dataChannelRef.current = channel;
       setDataChannelState(channel.readyState as DataChannelState);
       channel.onopen = () => {
+        logPeer(owner, 'data channel open', channel.label);
         setConnected(true);
         setError(null);
         setIsReconnecting(false);
@@ -1657,6 +1700,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         setDataChannelState('open');
       };
       channel.onclose = () => {
+        logPeer(owner, 'data channel closed', channel.label);
         setConnected(false);
         setDataChannelState(channel.readyState as DataChannelState);
         capabilityAnnouncedRef.current = false;
@@ -1667,6 +1711,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         }
       };
       channel.onerror = () => {
+        logPeer(owner, 'data channel error', channel.label);
         setConnected(false);
         setDataChannelState(channel.readyState as DataChannelState);
         if (owner && peerConnectionRef.current === owner && sessionActiveRef.current) {
@@ -1685,18 +1730,22 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       return;
     }
     const peerConnection = new RTCPeerConnectionCtor({ iceServers });
+    logPeer(peerConnection, 'ctor', iceServers.length ? 'with-ice' : 'no-ice');
     peerConnectionRef.current = peerConnection;
 
     const handleIceCandidate = (event: RTCPeerConnectionIceEvent) => {
       if (event.candidate && event.candidate.candidate) {
         const candidate = typeof event.candidate.toJSON === 'function' ? event.candidate.toJSON() : event.candidate;
+        logPeer(peerConnection, 'emit ice candidate');
         sendSignal('iceCandidate', candidate);
       } else {
+        logPeer(peerConnection, 'emit end-of-candidates');
         sendSignal('iceCandidate', null);
       }
     };
 
     const handleConnectionStateChange = () => {
+      logPeer(peerConnection, 'connection state change', peerConnection.connectionState, peerConnection.iceConnectionState);
       const state = peerConnection.connectionState;
       if (state === 'connected') {
         setIsReconnecting(false);
@@ -1713,9 +1762,10 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       }
     };
 
-      const handleDataChannel = (event: RTCDataChannelEvent) => {
-        attachDataChannel(event.channel as unknown as PeerDataChannel, peerConnection);
-      };
+    const handleDataChannel = (event: RTCDataChannelEvent) => {
+      logPeer(peerConnection, 'incoming data channel', event.channel?.label);
+      attachDataChannel(event.channel as unknown as PeerDataChannel, peerConnection);
+    };
 
     const peerConnectionAny = peerConnection as RTCPeerConnection & {
       onicecandidate?: ((event: RTCPeerConnectionIceEvent) => void) | null;
@@ -1727,13 +1777,15 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     peerConnectionAny.onconnectionstatechange = handleConnectionStateChange;
     peerConnectionAny.ondatachannel = handleDataChannel;
 
-      if (participantRole === 'host') {
-        const channel = peerConnection.createDataChannel('chat') as unknown as PeerDataChannel;
-        attachDataChannel(channel, peerConnection);
-      }
+    if (participantRole === 'host') {
+      const channel = peerConnection.createDataChannel('chat') as unknown as PeerDataChannel;
+      logPeer(peerConnection, 'created data channel', channel.label);
+      attachDataChannel(channel, peerConnection);
+    }
 
     const backlog = pendingSignalsRef.current.splice(0);
     if (backlog.length > 0) {
+      logPeer(peerConnection, 'replaying buffered signals', backlog.length);
       backlog.forEach((item) => {
         void processSignalPayload(peerConnection, item);
       });
@@ -1742,14 +1794,18 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     if (participantRole === 'host') {
       void (async () => {
         try {
+          logPeer(peerConnection, 'creating offer');
           const offer = await peerConnection.createOffer();
           if (peerConnectionRef.current !== peerConnection || peerConnection.signalingState === 'closed') {
+            logPeer(peerConnection, 'offer abandoned (stale peer)');
             return;
           }
           await peerConnection.setLocalDescription(offer);
           if (peerConnectionRef.current !== peerConnection || peerConnection.signalingState === 'closed') {
+            logPeer(peerConnection, 'offer abandoned after setLocalDescription (stale peer)');
             return;
           }
+          logPeer(peerConnection, 'sending offer');
           sendSignal('offer', offer);
           hasSentOfferRef.current = true;
         } catch (err) {
