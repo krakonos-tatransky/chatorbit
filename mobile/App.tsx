@@ -1287,13 +1287,16 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         if (isMounted) {
           setSessionStatus(status);
           setRemainingSeconds(status.remaining_seconds ?? null);
-          const connectedIds = Array.isArray(status.connected_participants) ? status.connected_participants : [];
-          if (!status.connected_participants) {
-            logSocket('http status missing connected_participants, defaulting to []');
+          if (status.connected_participants !== undefined) {
+            const connectedIds = Array.isArray(status.connected_participants)
+              ? status.connected_participants
+              : [];
+            setConnectedParticipantIds(connectedIds);
+            logSocket('http status', status.status, 'connected', connectedIds);
+          } else {
+            logSocket('http status missing connected_participants, keeping previous value');
           }
-          setConnectedParticipantIds(connectedIds);
           setStatusError(null);
-          logSocket('http status', status.status, 'connected', connectedIds);
         }
       } catch (err: any) {
         if (isMounted && !controller.signal.aborted) {
@@ -1666,14 +1669,15 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           const payload = JSON.parse(event.data) as SessionStatusSocketPayload | { type: string; signalType?: string };
           if (payload.type === 'status') {
             const { connected_participants, type: _ignored, ...rest } = payload as SessionStatusSocketPayload;
-            const connectedIds = Array.isArray(connected_participants) ? connected_participants : [];
-            if (!connected_participants) {
-              logSocket('status payload missing connected_participants, defaulting to []');
+            if (connected_participants !== undefined) {
+              const connectedIds = Array.isArray(connected_participants) ? connected_participants : [];
+              logSocket('status payload', rest.status, 'participants', connectedIds);
+              setConnectedParticipantIds(connectedIds);
+            } else {
+              logSocket('status payload missing connected_participants, keeping previous value');
             }
-            logSocket('status payload', rest.status, 'participants', connectedIds);
             setSessionStatus(rest);
             setRemainingSeconds(rest.remaining_seconds ?? null);
-            setConnectedParticipantIds(connectedIds);
             setStatusLoading(false);
           } else if (payload.type === 'signal') {
             const signalType = payload.signalType ?? 'unknown';
