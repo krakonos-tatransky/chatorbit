@@ -5,11 +5,11 @@ module.exports = ({ config }) => {
   const baseConfig = config ?? {};
   const plugins = baseConfig.plugins ?? [];
   const baseIOS = baseConfig.ios ?? {};
-  const infoPlist = {
-    ...(baseIOS.infoPlist ?? {}),
-    NSMicrophoneUsageDescription:
-      'ChatOrbit uses the microphone for secure, real-time audio conversations between participants.',
-  };
+  const infoPlist = { ...(baseIOS.infoPlist ?? {}) };
+  if (!infoPlist.NSMicrophoneUsageDescription) {
+    infoPlist.NSMicrophoneUsageDescription =
+      'ChatOrbit uses the microphone for secure, real-time audio conversations between participants.';
+  }
 
   return {
     ...baseConfig,
@@ -34,6 +34,6 @@ module.exports = ({ config }) => {
       bundler: 'metro',
       ...(baseConfig.web ?? {}),
     },
-    plugins: [...plugins, 'expo-font'],
+    plugins: [...plugins, 'expo-font', './plugins/withMicrophoneUsage'],
   };
 };
