@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AdminLayout } from "@/components/admin/admin-layout";
 import { AdminLoginPanel } from "@/components/admin/admin-login-panel";
@@ -33,6 +33,22 @@ type AdminSessionListResponse = {
   sessions: AdminSessionSummary[];
 };
 
+type AdminRateLimitLock = {
+  identifier_type: "client_identity" | "ip_address";
+  identifier: string;
+  request_count: number;
+  window_seconds: number;
+  last_request_at: string;
+};
+
+type AdminRateLimitListResponse = {
+  locks: AdminRateLimitLock[];
+};
+
+type AdminResetRateLimitResponse = {
+  removed_entries: number;
+};
+
 type HeadersDialogState = {
   participantId: string;
   role: string;
@@ -47,7 +63,50 @@ export default function AdminSessionsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<AdminSessionSummary[]>([]);
+  const [rateLimitLocks, setRateLimitLocks] = useState<AdminRateLimitLock[]>([]);
+  const [locksLoading, setLocksLoading] = useState(false);
+  const [locksError, setLocksError] = useState<string | null>(null);
+  const [resettingIdentifier, setResettingIdentifier] = useState<string | null>(null);
+  const [resetMessage, setResetMessage] = useState<string | null>(null);
   const [headersDialog, setHeadersDialog] = useState<HeadersDialogState | null>(null);
+
+  const fetchRateLimitLocks = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!token) {
+        setRateLimitLocks([]);
+        return;
+      }
+      setLocksLoading(true);
+      setLocksError(null);
+      try {
+        const response = await fetch(apiUrl("/api/admin/rate-limits"), {
+          headers: { Authorization: `Bearer ${token}` },
+          signal,
+        });
+        if (response.status === 401) {
+          clearToken();
+          throw new Error("Session expired. Please sign in again.");
+        }
+        if (!response.ok) {
+          throw new Error("Unable to load rate limit locks. Please try again.");
+        }
+        const payload = (await response.json()) as AdminRateLimitListResponse;
+        setRateLimitLocks(payload.locks ?? []);
+      } catch (cause) {
+        if (signal?.aborted) {
+          return;
+        }
+        setLocksError(
+          cause instanceof Error ? cause.message : "Unable to load rate limit locks.",
+        );
+      } finally {
+        if (!signal?.aborted) {
+          setLocksLoading(false);
+        }
+      }
+    },
+    [clearToken, token],
+  );
 
   useEffect(() => {
     if (!token) {
@@ -100,6 +159,16 @@ export default function AdminSessionsPage() {
   }, [token, statusFilter, tokenQuery, ipQuery, clearToken]);
 
   useEffect(() => {
+    if (!token) {
+      setRateLimitLocks([]);
+      return;
+    }
+    const controller = new AbortController();
+    void fetchRateLimitLocks(controller.signal);
+    return () => controller.abort();
+  }, [token, fetchRateLimitLocks]);
+
+  useEffect(() => {
     if (!headersDialog) {
       return;
     }
@@ -111,6 +180,48 @@ export default function AdminSessionsPage() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [headersDialog]);
+
+  const handleResetRateLimit = async (lock: AdminRateLimitLock) => {
+    if (!token) {
+      return;
+    }
+    setResettingIdentifier(lock.identifier);
+    setResetMessage(null);
+    setLocksError(null);
+    try {
+      const response = await fetch(apiUrl("/api/admin/rate-limits/reset"), {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          identifier_type: lock.identifier_type,
+          identifier: lock.identifier,
+        }),
+      });
+      if (response.status === 401) {
+        clearToken();
+        throw new Error("Session expired. Please sign in again.");
+      }
+      if (!response.ok) {
+        throw new Error("Unable to reset the rate limit for this identifier.");
+      }
+      const payload = (await response.json()) as AdminResetRateLimitResponse;
+      setResetMessage(
+        `Removed ${payload.removed_entries} request log(s) for ${lock.identifier}.`,
+      );
+      await fetchRateLimitLocks();
+    } catch (cause) {
+      setLocksError(
+        cause instanceof Error
+          ? cause.message
+          : "Unable to reset the rate limit. Please try again.",
+      );
+    } finally {
+      setResettingIdentifier(null);
+    }
+  };
 
   const groupedSessions = useMemo(() => {
     const sorted = [...sessions].sort((a, b) => {
@@ -241,6 +352,81 @@ export default function AdminSessionsPage() {
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="admin-card admin-card--section">
+        <div className="admin-card__header">
+          <div>
+            <h2 className="admin-card__title">Current rate limit locks</h2>
+            <p className="admin-card__description">
+              Requests counted within the most recent hour. Resetting a lock removes recent
+              request logs so additional tokens can be issued immediately.
+            </p>
+          </div>
+          <div className="admin-card__actions">
+            <button
+              type="button"
+              className="admin-button admin-button--ghost"
+              onClick={() => fetchRateLimitLocks()}
+              disabled={locksLoading}
+            >
+              {locksLoading ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
+        </div>
+
+        {locksError ? <p className="admin-error">{locksError}</p> : null}
+        {resetMessage ? <p className="admin-form__success">{resetMessage}</p> : null}
+
+        <div className="admin-table-wrapper">
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th scope="col">Identifier</th>
+                <th scope="col">Type</th>
+                <th scope="col">Requests (1h)</th>
+                <th scope="col">Last request</th>
+                <th scope="col">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rateLimitLocks.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="admin-table__empty">
+                    {locksLoading
+                      ? "Loading rate limit locks…"
+                      : "No rate limit locks detected in the current window."}
+                  </td>
+                </tr>
+              ) : (
+                rateLimitLocks.map((lock) => (
+                  <tr key={`${lock.identifier_type}:${lock.identifier}`}>
+                    <td>
+                      <code className="admin-code">{lock.identifier}</code>
+                    </td>
+                    <td className="admin-meta">
+                      {lock.identifier_type === "client_identity" ? "Client identity" : "IP address"}
+                    </td>
+                    <td>{lock.request_count}</td>
+                    <td className="admin-meta">
+                      {new Date(lock.last_request_at).toLocaleString()}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="admin-button admin-button--ghost"
+                        onClick={() => handleResetRateLimit(lock)}
+                        disabled={resettingIdentifier === lock.identifier}
+                      >
+                        {resettingIdentifier === lock.identifier ? "Resetting…" : "Reset lock"}
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {headersDialog ? (
