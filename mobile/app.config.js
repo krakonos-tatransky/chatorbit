@@ -4,6 +4,12 @@
 module.exports = ({ config }) => {
   const baseConfig = config ?? {};
   const plugins = baseConfig.plugins ?? [];
+  const baseIOS = baseConfig.ios ?? {};
+  const infoPlist = {
+    ...(baseIOS.infoPlist ?? {}),
+    NSMicrophoneUsageDescription:
+      'ChatOrbit uses the microphone for secure, real-time audio conversations between participants.',
+  };
 
   return {
     ...baseConfig,
@@ -17,7 +23,8 @@ module.exports = ({ config }) => {
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.chatorbit.token',
-      ...(baseConfig.ios ?? {}),
+      ...baseIOS,
+      infoPlist,
     },
     android: {
       package: 'com.chatorbit.token',
