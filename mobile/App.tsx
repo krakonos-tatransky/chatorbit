@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -16,7 +15,6 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import type { ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -2040,10 +2038,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     }
   }, [connected, draft, participantId, participantRole, peerSupportsEncryption, sessionStatus?.message_char_limit, supportsEncryption, token.token]);
 
-    const renderMessage: ListRenderItem<Message> = ({ item }) => {
+    const renderMessage = (item: Message) => {
       const isSelf = item.participantId === participantId;
       return (
-        <View style={[styles.chatBubble, isSelf ? styles.chatBubbleSelf : styles.chatBubblePeer]}>
+        <View
+          key={item.messageId}
+          style={[styles.chatBubble, isSelf ? styles.chatBubbleSelf : styles.chatBubblePeer]}
+        >
           <Text style={styles.chatBubbleMeta}>
             {item.role === 'host' ? 'Host' : 'Guest'} ·{' '}
             {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -2160,13 +2161,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
                   </Text>
                 </View>
               ) : (
-                <FlatList
-                  data={messages}
-                  renderItem={renderMessage}
-                    keyExtractor={(item: Message) => item.messageId}
+                <ScrollView
                   style={styles.chatList}
                   contentContainerStyle={styles.chatListContent}
-                />
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {messages.map(renderMessage)}
+                </ScrollView>
               )}
             </View>
             {error ? <Text style={styles.chatError}>{error}</Text> : null}
