@@ -1240,6 +1240,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const dataChannelRef = useRef<PeerDataChannel | null>(null);
   const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
   const pendingSignalsRef = useRef<any[]>([]);
+  const pendingCallMessagesRef = useRef<Array<{ action: string; detail: Record<string, unknown> }>>([]);
   const pendingOutgoingSignalsRef = useRef<{ type: string; signalType: string; payload: unknown }[]>([]);
   const pendingCandidatesRef = useRef<any[]>([]);
   const capabilityAnnouncedRef = useRef(false);
@@ -1600,24 +1601,47 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     }
   }, [sendCapabilities, supportsEncryption]);
 
+  const flushPendingCallMessages = useCallback(
+    (channel?: PeerDataChannel | null) => {
+      const target = channel ?? dataChannelRef.current;
+      if (!target || target.readyState !== 'open' || !participantId) {
+        return;
+      }
+      const queue = pendingCallMessagesRef.current.splice(0);
+      for (const { action, detail } of queue) {
+        try {
+          target.send(JSON.stringify({ type: 'call', action, from: participantId, ...detail }));
+          logPeer(peerConnectionRef.current, 'sent call control (queued)', action);
+        } catch (err) {
+          console.warn('Failed to flush call control message', err);
+          pendingCallMessagesRef.current.unshift({ action, detail });
+          break;
+        }
+      }
+    },
+    [logPeer, participantId]
+  );
+
   const sendCallMessage = useCallback(
     (action: string, detail: Record<string, unknown> = {}) => {
       if (!participantId) {
         return;
       }
       const channel = dataChannelRef.current;
+      const payload = { type: 'call', action, from: participantId, ...detail };
       if (!channel || channel.readyState !== 'open') {
+        pendingCallMessagesRef.current.push({ action, detail });
         return;
       }
-      const payload = { type: 'call', action, from: participantId, ...detail };
       try {
         channel.send(JSON.stringify(payload));
         logPeer(peerConnectionRef.current, 'sent call control', action);
       } catch (err) {
         console.warn('Failed to send call control message', err);
+        pendingCallMessagesRef.current.push({ action, detail });
       }
     },
-    [participantId]
+    [logPeer, participantId]
   );
 
   const handlePeerMessage = useCallback(
@@ -2090,6 +2114,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         setIsReconnecting(false);
         capabilityAnnouncedRef.current = false;
         sendCapabilities();
+        flushPendingCallMessages(channel);
         setDataChannelState('open');
       };
       if (channel.readyState === 'open') {
@@ -2121,7 +2146,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         void handlePeerMessage(event.data);
       };
     },
-    [handlePeerMessage, schedulePeerConnectionRecovery, sendCapabilities]
+    [flushPendingCallMessages, handlePeerMessage, schedulePeerConnectionRecovery, sendCapabilities]
   );
 
   const ensureLocalAudioStream = useCallback(async () => {
