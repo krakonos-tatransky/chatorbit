@@ -10,6 +10,10 @@ module.exports = ({ config }) => {
     infoPlist.NSMicrophoneUsageDescription =
       'ChatOrbit uses the microphone for secure, real-time audio conversations between participants.';
   }
+  if (!infoPlist.NSCameraUsageDescription) {
+    infoPlist.NSCameraUsageDescription =
+      'ChatOrbit uses the camera for secure, real-time video conversations between participants.';
+  }
 
   return {
     ...baseConfig,
