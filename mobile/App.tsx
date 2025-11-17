@@ -1478,13 +1478,20 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
               content = incoming.content ?? '';
             } else {
               if (supportsEncryption !== true) {
-                throw new Error('Device cannot decrypt messages in this session.');
+                setError('Received encrypted message but encryption is not supported.');
+                return;
               }
               if (!incoming.encryptedContent) {
-                throw new Error('Encrypted payload is missing.');
+                setError('Missing encrypted payload.');
+                return;
               }
               const key = await deriveKey(token.token);
-              content = await decryptText(key, incoming.encryptedContent);
+              try {
+                content = await decryptText(key, incoming.encryptedContent);
+              } catch (err) {
+                setError('Failed to decrypt message.');
+                return;
+              }
             }
             if (incoming.hash) {
               const expectedHash = await computeMessageHash(
