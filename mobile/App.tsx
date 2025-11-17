@@ -1568,13 +1568,14 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           if (action === 'accept') {
             setIncomingCallFrom(null);
             setCallState((prev) => (prev === 'requesting' ? 'connecting' : prev));
-            void ensureLocalVideoStream();
+            void ensureCallMedia();
             return;
           }
           if (action === 'reject') {
             setIncomingCallFrom(null);
             setCallState('idle');
             stopLocalVideoTracks();
+            stopLocalAudioTracks();
             clearRemoteVideo();
             return;
           }
@@ -1582,6 +1583,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             setIncomingCallFrom(null);
             setCallState('idle');
             stopLocalVideoTracks();
+            stopLocalAudioTracks();
             clearRemoteVideo();
             return;
           }
@@ -1589,6 +1591,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             if (callState === 'requesting') {
               setCallState('idle');
               stopLocalVideoTracks();
+              stopLocalAudioTracks();
               clearRemoteVideo();
               setError('Peer is busy with another video chat.');
             }
@@ -1681,10 +1684,11 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     [
       callState,
       clearRemoteVideo,
-      ensureLocalVideoStream,
+      ensureCallMedia,
       negotiateMediaUpdate,
       participantId,
       sendCallMessage,
+      stopLocalAudioTracks,
       stopLocalVideoTracks,
       token.token
     ]
@@ -1919,6 +1923,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       setConnected(false);
       setDataChannelState(null);
       stopLocalVideoTracks();
+      stopLocalAudioTracks();
       clearRemoteVideo();
       setCallState('idle');
       setIncomingCallFrom(null);
@@ -2014,6 +2019,26 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     }
   }, [logSocket, webRtcBindings]);
 
+  const stopLocalAudioTracks = useCallback(() => {
+    const stream = localAudioStreamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+    localAudioStreamRef.current = null;
+    const pc = peerConnectionRef.current;
+    if (pc && typeof pc.getSenders === 'function') {
+      pc.getSenders().forEach((sender) => {
+        if (sender.track?.kind === 'audio') {
+          try {
+            pc.removeTrack(sender);
+          } catch (err) {
+            console.warn('Failed to remove audio sender', err);
+          }
+        }
+      });
+    }
+  }, []);
+
   const stopLocalVideoTracks = useCallback(() => {
     const stream = localVideoStreamRef.current;
     if (stream) {
@@ -2060,46 +2085,62 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     [logPeer, sendSignal]
   );
 
-  const ensureLocalVideoStream = useCallback(async () => {
+  const ensureCallMedia = useCallback(async () => {
     const pc = peerConnectionRef.current;
     if (!pc || !webRtcBindings?.mediaDevices?.getUserMedia) {
       return null;
     }
-    if (localVideoStreamRef.current) {
-      return localVideoStreamRef.current;
-    }
-    try {
-      const stream = await webRtcBindings.mediaDevices.getUserMedia({ video: true });
-      localVideoStreamRef.current = stream;
-      setLocalVideoStream(stream);
-      if (typeof pc.addTransceiver === 'function') {
+    const attachSenders = (kind: 'audio' | 'video', stream: MediaStream) => {
+      const hasSender = pc.getSenders?.().some((sender) => sender.track?.kind === kind);
+      if (!hasSender && typeof pc.addTransceiver === 'function') {
         try {
-          pc.addTransceiver('video', { direction: 'sendrecv' });
+          pc.addTransceiver(kind, { direction: 'sendrecv' });
         } catch (err) {
-          console.warn('Failed to add video transceiver', err);
+          console.warn(`Failed to add ${kind} transceiver`, err);
         }
       }
-      stream.getVideoTracks().forEach((track) => {
-        try {
-          pc.addTrack(track, stream);
-          logPeer(pc, 'added local video track', track.id);
-        } catch (err) {
-          console.warn('Failed to attach local video track', err);
-        }
-      });
-      void negotiateMediaUpdate(pc, 'local video ready');
-      return stream;
-    } catch (err) {
-      console.warn('Unable to start local video stream', err);
-      return null;
+      stream.getTracks()
+        .filter((track) => track.kind === kind)
+        .forEach((track) => {
+          try {
+            pc.addTrack(track, stream);
+            logPeer(pc, `added local ${kind} track`, track.id);
+          } catch (err) {
+            console.warn(`Failed to attach local ${kind} track`, err);
+          }
+        });
+    };
+
+    const audioStream = await ensureLocalAudioStream();
+    if (audioStream) {
+      attachSenders('audio', audioStream);
     }
-  }, [logPeer, negotiateMediaUpdate, webRtcBindings]);
+
+    let videoStream = localVideoStreamRef.current;
+    if (!videoStream) {
+      try {
+        videoStream = await webRtcBindings.mediaDevices.getUserMedia({ video: true });
+        localVideoStreamRef.current = videoStream;
+        setLocalVideoStream(videoStream);
+      } catch (err) {
+        console.warn('Unable to start local video stream', err);
+        return null;
+      }
+    }
+
+    if (videoStream) {
+      attachSenders('video', videoStream);
+    }
+
+    void negotiateMediaUpdate(pc, 'local call media ready');
+    return videoStream;
+  }, [ensureLocalAudioStream, logPeer, negotiateMediaUpdate, webRtcBindings]);
 
   const requestVideoChat = useCallback(async () => {
     if (callState !== 'idle') {
       return;
     }
-    const stream = await ensureLocalVideoStream();
+    const stream = await ensureCallMedia();
     if (!stream) {
       setError('Unable to access the camera for video chat.');
       return;
@@ -2108,13 +2149,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     setIncomingCallFrom(null);
     sendCallMessage('request');
     await negotiateMediaUpdate(peerConnectionRef.current, 'video request');
-  }, [callState, ensureLocalVideoStream, negotiateMediaUpdate, sendCallMessage]);
+  }, [callState, ensureCallMedia, negotiateMediaUpdate, sendCallMessage]);
 
   const acceptVideoChat = useCallback(async () => {
     if (!incomingCallFrom) {
       return;
     }
-    const stream = await ensureLocalVideoStream();
+    const stream = await ensureCallMedia();
     if (!stream) {
       setError('Unable to access the camera for video chat.');
       sendCallMessage('reject');
@@ -2124,23 +2165,25 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     setIncomingCallFrom(null);
     sendCallMessage('accept');
     await negotiateMediaUpdate(peerConnectionRef.current, 'video accept');
-  }, [ensureLocalVideoStream, incomingCallFrom, negotiateMediaUpdate, sendCallMessage]);
+  }, [ensureCallMedia, incomingCallFrom, negotiateMediaUpdate, sendCallMessage]);
 
   const declineVideoChat = useCallback(() => {
     sendCallMessage('reject');
     setIncomingCallFrom(null);
     setCallState('idle');
     stopLocalVideoTracks();
+    stopLocalAudioTracks();
     clearRemoteVideo();
-  }, [clearRemoteVideo, sendCallMessage, stopLocalVideoTracks]);
+  }, [clearRemoteVideo, sendCallMessage, stopLocalAudioTracks, stopLocalVideoTracks]);
 
   const endVideoChat = useCallback(() => {
     sendCallMessage('end');
     setCallState('idle');
     setIncomingCallFrom(null);
     stopLocalVideoTracks();
+    stopLocalAudioTracks();
     clearRemoteVideo();
-  }, [clearRemoteVideo, sendCallMessage, stopLocalVideoTracks]);
+  }, [clearRemoteVideo, sendCallMessage, stopLocalAudioTracks, stopLocalVideoTracks]);
 
   useEffect(() => {
     if (remoteVideoStream && (callState === 'connecting' || callState === 'requesting')) {
@@ -2226,31 +2269,6 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       peerConnectionAny.ondatachannel = handleDataChannel;
       peerConnectionAny.ontrack = handleTrack;
       peerConnectionAny.onnegotiationneeded = handleNegotiationNeeded;
-
-      if (typeof pc.addTransceiver === 'function') {
-        try {
-          pc.addTransceiver('audio', { direction: 'sendrecv' });
-          logPeer(pc, 'added audio transceiver');
-        } catch (err) {
-          console.warn('Failed to add audio transceiver', err);
-        }
-      }
-
-      const localStream = await ensureLocalAudioStream();
-      if (cancelled) {
-        localStream?.getTracks().forEach((track) => track.stop());
-        return;
-      }
-      if (localStream) {
-        localStream.getAudioTracks().forEach((track) => {
-          try {
-            pc.addTrack(track, localStream);
-            logPeer(pc, 'added local audio track', track.id);
-          } catch (err) {
-            console.warn('Failed to attach local audio track', err);
-          }
-        });
-      }
 
       if (participantRole === 'host') {
         const channel = pc.createDataChannel('chat') as unknown as PeerDataChannel;
@@ -2357,7 +2375,6 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   }, [
     RTCPeerConnectionCtor,
     attachDataChannel,
-    ensureLocalAudioStream,
     iceServers,
     participantId,
     participantRole,
