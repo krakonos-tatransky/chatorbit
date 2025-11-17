@@ -1284,6 +1284,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           setRemainingSeconds(status.remaining_seconds ?? null);
           setConnectedParticipantIds(Array.isArray(status.connected_participants) ? status.connected_participants : []);
           setStatusError(null);
+          logSocket('http status', status.status, 'connected', status.connected_participants);
         }
       } catch (err: any) {
         if (isMounted && !controller.signal.aborted) {
@@ -1306,7 +1307,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       controller.abort();
       clearInterval(interval);
     };
-  }, [token.token]);
+  }, [logSocket, token.token]);
 
   useEffect(() => {
     if (sessionStatus) {
@@ -1349,13 +1350,19 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     [getPeerLogId]
   );
 
+  const logSocket = useCallback((message: string, ...detail: unknown[]) => {
+    console.debug('rn-webrtc:ws', message, ...detail);
+  }, []);
+
   const sendSignal = useCallback(
     (signalType: string, payload: unknown) => {
       if (!participantId) {
+        logSocket('signal skip: missing participant', signalType);
         return;
       }
       const socket = socketRef.current;
       if (socket?.readyState !== WebSocket.OPEN) {
+        logSocket('signal skip: socket not open', signalType, socket?.readyState);
         return;
       }
       console.debug('rn-webrtc:signal:out', signalType, payload ? Object.keys(payload as any) : 'no-payload');
@@ -1367,7 +1374,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         })
       );
     },
-    [participantId]
+    [logSocket, participantId]
   );
 
   const sendCapabilities = useCallback(() => {
@@ -1541,20 +1548,24 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       let cancelled = false;
 
       try {
+        logSocket('connecting', url);
         const socket = new WebSocket(url);
         socketRef.current = socket;
 
         socket.onopen = () => {
+          logSocket('open');
           setSocketReady(true);
           setStatusError(null);
           reconnectAttemptsRef.current = 0;
         };
 
-        socket.onerror = () => {
+        socket.onerror = (event: Event) => {
+          logSocket('error', event);
           setStatusError('Realtime connection interrupted. Attempting to reconnect…');
         };
 
         socket.onclose = () => {
+          logSocket('close');
           socketRef.current = null;
           setSocketReady(false);
           if (!cancelled) {
@@ -1563,6 +1574,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
               const attempt = reconnectAttemptsRef.current + 1;
               reconnectAttemptsRef.current = attempt;
               const delay = Math.min(3000, attempt * 600);
+              logSocket('reconnect scheduled', { attempt, delay });
               socketReconnectTimeoutRef.current = setTimeout(() => {
                 socketReconnectTimeoutRef.current = null;
                 if (!cancelled) {
@@ -1574,15 +1586,18 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         };
 
         socket.onmessage = (event: MessageEvent) => {
+          logSocket('message', event.data);
           try {
             const payload = JSON.parse(event.data) as SessionStatusSocketPayload | { type: string; signalType?: string };
             if (payload.type === 'status') {
               const { connected_participants, type: _ignored, ...rest } = payload as SessionStatusSocketPayload;
+              logSocket('status payload', rest.status, 'participants', connected_participants);
               setSessionStatus(rest);
               setRemainingSeconds(rest.remaining_seconds ?? null);
               setConnectedParticipantIds(Array.isArray(connected_participants) ? connected_participants : []);
               setStatusLoading(false);
             } else if (payload.type === 'signal') {
+              logSocket('signal payload', payload.signalType ?? 'unknown');
               handleSignal(payload);
             } else if (payload.type === 'session_closed') {
               setStatusError('The session has been closed.');
@@ -1625,7 +1640,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         }
         socketRef.current = null;
       };
-    }, [handleSignal, participantId, socketReconnectNonce, token.token]);
+    }, [handleSignal, logSocket, participantId, socketReconnectNonce, token.token]);
 
     const resetPeerConnection = useCallback(
       ({ recreate = true, delayMs }: { recreate?: boolean; delayMs?: number } = {}) => {
@@ -1676,13 +1691,14 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const schedulePeerConnectionRecovery = useCallback(
     (reason: string, { delayMs = 1000 }: { delayMs?: number } = {}) => {
       console.warn('Scheduling peer connection recovery', reason);
+      logSocket('peer recovery', reason, 'delayMs', delayMs);
       if (!sessionActiveRef.current) {
         return;
       }
       setIsReconnecting(true);
       resetPeerConnection({ delayMs });
     },
-    [resetPeerConnection]
+    [logSocket, resetPeerConnection]
   );
 
   const attachDataChannel = useCallback(
