@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field, conint
 
@@ -154,6 +154,27 @@ class AdminSessionSummary(BaseModel):
 
 class AdminSessionListResponse(BaseModel):
     sessions: List[AdminSessionSummary]
+
+
+class AdminRateLimitLock(BaseModel):
+    identifier_type: Literal["client_identity", "ip_address"]
+    identifier: str
+    request_count: int
+    window_seconds: int
+    last_request_at: datetime
+
+
+class AdminRateLimitListResponse(BaseModel):
+    locks: List[AdminRateLimitLock]
+
+
+class AdminResetRateLimitRequest(BaseModel):
+    identifier_type: Literal["client_identity", "ip_address"]
+    identifier: str
+
+
+class AdminResetRateLimitResponse(BaseModel):
+    removed_entries: int
 
 
 class AdminAbuseReportParticipant(BaseModel):
