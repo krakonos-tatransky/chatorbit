@@ -1813,7 +1813,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       logPeer(owner, 'attach data channel', channel.label, channel.readyState);
       dataChannelRef.current = channel;
       setDataChannelState(channel.readyState as DataChannelState);
-      channel.onopen = () => {
+      const markOpen = () => {
         logPeer(owner, 'data channel open', channel.label);
         setConnected(true);
         setError(null);
@@ -1821,6 +1821,12 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         capabilityAnnouncedRef.current = false;
         sendCapabilities();
         setDataChannelState('open');
+      };
+      if (channel.readyState === 'open') {
+        markOpen();
+      }
+      channel.onopen = () => {
+        markOpen();
       };
       channel.onclose = () => {
         logPeer(owner, 'data channel closed', channel.label);
