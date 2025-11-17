@@ -1282,9 +1282,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         if (isMounted) {
           setSessionStatus(status);
           setRemainingSeconds(status.remaining_seconds ?? null);
-          setConnectedParticipantIds(Array.isArray(status.connected_participants) ? status.connected_participants : []);
+          const connectedIds = Array.isArray(status.connected_participants) ? status.connected_participants : [];
+          if (!status.connected_participants) {
+            logSocket('http status missing connected_participants, defaulting to []');
+          }
+          setConnectedParticipantIds(connectedIds);
           setStatusError(null);
-          logSocket('http status', status.status, 'connected', status.connected_participants);
+          logSocket('http status', status.status, 'connected', connectedIds);
         }
       } catch (err: any) {
         if (isMounted && !controller.signal.aborted) {
@@ -1354,6 +1358,28 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     console.debug('rn-webrtc:ws', message, ...detail);
   }, []);
 
+  const summarizeSignalPayload = useCallback((signalType: string, payload: unknown) => {
+    if (!payload) {
+      return 'no-payload';
+    }
+    if (signalType === 'iceCandidate' && typeof payload === 'object' && payload !== null) {
+      const candidate = payload as { candidate?: string; sdpMid?: string; sdpMLineIndex?: number };
+      return {
+        sdpMid: candidate.sdpMid,
+        sdpMLineIndex: candidate.sdpMLineIndex,
+        hasCandidate: Boolean(candidate.candidate)
+      };
+    }
+    if ((signalType === 'offer' || signalType === 'answer') && typeof payload === 'object' && payload !== null) {
+      const desc = payload as { type?: string; sdp?: string };
+      return {
+        type: desc.type,
+        sdpLength: desc.sdp?.length ?? 0
+      };
+    }
+    return payload;
+  }, []);
+
   const sendSignal = useCallback(
     (signalType: string, payload: unknown) => {
       if (!participantId) {
@@ -1365,7 +1391,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         logSocket('signal skip: socket not open', signalType, socket?.readyState);
         return;
       }
-      console.debug('rn-webrtc:signal:out', signalType, payload ? Object.keys(payload as any) : 'no-payload');
+      console.debug('rn-webrtc:signal:out', signalType, summarizeSignalPayload(signalType, payload));
       socket.send(
         JSON.stringify({
           type: 'signal',
@@ -1374,7 +1400,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         })
       );
     },
-    [logSocket, participantId]
+    [logSocket, participantId, summarizeSignalPayload]
   );
 
   const sendCapabilities = useCallback(() => {
@@ -1540,110 +1566,116 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     [processSignalPayload]
   );
 
-    useEffect(() => {
-      if (!participantId) {
-        return;
-      }
-      const url = `${WS_BASE_URL}/ws/sessions/${encodeURIComponent(token.token)}?participantId=${encodeURIComponent(participantId)}`;
-      let cancelled = false;
+  useEffect(() => {
+    if (!participantId) {
+      return;
+    }
+    const url = `${WS_BASE_URL}/ws/sessions/${encodeURIComponent(token.token)}?participantId=${encodeURIComponent(participantId)}`;
+    let cancelled = false;
 
-      try {
-        logSocket('connecting', url);
-        const socket = new WebSocket(url);
-        socketRef.current = socket;
+    try {
+      logSocket('connecting', url, { participantId });
+      const socket = new WebSocket(url);
+      socketRef.current = socket;
 
-        socket.onopen = () => {
-          logSocket('open');
-          setSocketReady(true);
-          setStatusError(null);
-          reconnectAttemptsRef.current = 0;
-        };
-
-        socket.onerror = (event: Event) => {
-          logSocket('error', event);
-          setStatusError('Realtime connection interrupted. Attempting to reconnect…');
-        };
-
-        socket.onclose = () => {
-          logSocket('close');
-          socketRef.current = null;
-          setSocketReady(false);
-          if (!cancelled) {
-            setStatusError((prev: string | null) => prev ?? 'Realtime connection closed.');
-            if (!socketReconnectTimeoutRef.current) {
-              const attempt = reconnectAttemptsRef.current + 1;
-              reconnectAttemptsRef.current = attempt;
-              const delay = Math.min(3000, attempt * 600);
-              logSocket('reconnect scheduled', { attempt, delay });
-              socketReconnectTimeoutRef.current = setTimeout(() => {
-                socketReconnectTimeoutRef.current = null;
-                if (!cancelled) {
-                  setSocketReconnectNonce((value: number) => value + 1);
-                }
-              }, delay);
-            }
-          }
-        };
-
-        socket.onmessage = (event: MessageEvent) => {
-          logSocket('message', event.data);
-          try {
-            const payload = JSON.parse(event.data) as SessionStatusSocketPayload | { type: string; signalType?: string };
-            if (payload.type === 'status') {
-              const { connected_participants, type: _ignored, ...rest } = payload as SessionStatusSocketPayload;
-              logSocket('status payload', rest.status, 'participants', connected_participants);
-              setSessionStatus(rest);
-              setRemainingSeconds(rest.remaining_seconds ?? null);
-              setConnectedParticipantIds(Array.isArray(connected_participants) ? connected_participants : []);
-              setStatusLoading(false);
-            } else if (payload.type === 'signal') {
-              logSocket('signal payload', payload.signalType ?? 'unknown');
-              handleSignal(payload);
-            } else if (payload.type === 'session_closed') {
-              setStatusError('The session has been closed.');
-              setConnected(false);
-            } else if (payload.type === 'session_expired') {
-              setStatusError('The session has expired.');
-              setConnected(false);
-            } else if (payload.type === 'session_deleted') {
-              setStatusError('The session is no longer available.');
-              setConnected(false);
-            }
-          } catch (err) {
-            console.warn('Unable to process websocket payload', err);
-          }
-        };
-      } catch (err) {
-        console.warn('Unable to open realtime session socket', err);
-        setStatusError('Unable to open realtime connection. Some updates may be delayed.');
-        if (!socketReconnectTimeoutRef.current) {
-          socketReconnectTimeoutRef.current = setTimeout(() => {
-            socketReconnectTimeoutRef.current = null;
-            setSocketReconnectNonce((value: number) => value + 1);
-          }, 1500);
-        }
-        return;
-      }
-
-      return () => {
-        cancelled = true;
-        if (socketReconnectTimeoutRef.current) {
-          clearTimeout(socketReconnectTimeoutRef.current as TimeoutHandle);
-          socketReconnectTimeoutRef.current = null;
-        }
-        if (socketRef.current) {
-          try {
-            socketRef.current.close();
-          } catch (err) {
-            console.warn('Failed to close session socket', err);
-          }
-        }
-        socketRef.current = null;
+      socket.onopen = () => {
+        logSocket('open');
+        setSocketReady(true);
+        setStatusError(null);
+        reconnectAttemptsRef.current = 0;
       };
-    }, [handleSignal, logSocket, participantId, socketReconnectNonce, token.token]);
 
-    const resetPeerConnection = useCallback(
-      ({ recreate = true, delayMs }: { recreate?: boolean; delayMs?: number } = {}) => {
+      socket.onerror = (event: Event) => {
+        logSocket('error', event);
+        setStatusError('Realtime connection interrupted. Attempting to reconnect…');
+      };
+
+      socket.onclose = (event: CloseEvent) => {
+        logSocket('close', { code: event.code, reason: event.reason, wasClean: event.wasClean });
+        socketRef.current = null;
+        setSocketReady(false);
+        if (!cancelled) {
+          setStatusError((prev: string | null) => prev ?? 'Realtime connection closed.');
+          if (!socketReconnectTimeoutRef.current) {
+            const attempt = reconnectAttemptsRef.current + 1;
+            reconnectAttemptsRef.current = attempt;
+            const delay = Math.min(3000, attempt * 600);
+            logSocket('reconnect scheduled', { attempt, delay });
+            socketReconnectTimeoutRef.current = setTimeout(() => {
+              socketReconnectTimeoutRef.current = null;
+              if (!cancelled) {
+                logSocket('reconnect firing', { attempt });
+                setSocketReconnectNonce((value: number) => value + 1);
+              }
+            }, delay);
+          }
+        }
+      };
+
+      socket.onmessage = (event: MessageEvent) => {
+        logSocket('message', event.data);
+        try {
+          const payload = JSON.parse(event.data) as SessionStatusSocketPayload | { type: string; signalType?: string };
+          if (payload.type === 'status') {
+            const { connected_participants, type: _ignored, ...rest } = payload as SessionStatusSocketPayload;
+            const connectedIds = Array.isArray(connected_participants) ? connected_participants : [];
+            if (!connected_participants) {
+              logSocket('status payload missing connected_participants, defaulting to []');
+            }
+            logSocket('status payload', rest.status, 'participants', connectedIds);
+            setSessionStatus(rest);
+            setRemainingSeconds(rest.remaining_seconds ?? null);
+            setConnectedParticipantIds(connectedIds);
+            setStatusLoading(false);
+          } else if (payload.type === 'signal') {
+            const signalType = payload.signalType ?? 'unknown';
+            logSocket('signal payload', signalType, summarizeSignalPayload(signalType, (payload as any).payload));
+            handleSignal(payload);
+          } else if (payload.type === 'session_closed') {
+            setStatusError('The session has been closed.');
+            setConnected(false);
+          } else if (payload.type === 'session_expired') {
+            setStatusError('The session has expired.');
+            setConnected(false);
+          } else if (payload.type === 'session_deleted') {
+            setStatusError('The session is no longer available.');
+            setConnected(false);
+          }
+        } catch (err) {
+          console.warn('Unable to process websocket payload', err);
+        }
+      };
+    } catch (err) {
+      console.warn('Unable to open realtime session socket', err);
+      setStatusError('Unable to open realtime connection. Some updates may be delayed.');
+      if (!socketReconnectTimeoutRef.current) {
+        socketReconnectTimeoutRef.current = setTimeout(() => {
+          socketReconnectTimeoutRef.current = null;
+          setSocketReconnectNonce((value: number) => value + 1);
+        }, 1500);
+      }
+      return;
+    }
+
+    return () => {
+      cancelled = true;
+      if (socketReconnectTimeoutRef.current) {
+        clearTimeout(socketReconnectTimeoutRef.current as TimeoutHandle);
+        socketReconnectTimeoutRef.current = null;
+      }
+      if (socketRef.current) {
+        try {
+          socketRef.current.close();
+        } catch (err) {
+          console.warn('Failed to close session socket', err);
+        }
+      }
+      socketRef.current = null;
+    };
+  }, [handleSignal, logSocket, participantId, socketReconnectNonce, summarizeSignalPayload, token.token]);
+
+  const resetPeerConnection = useCallback(
+    ({ recreate = true, delayMs }: { recreate?: boolean; delayMs?: number } = {}) => {
       if (iceRetryTimeoutRef.current) {
         clearTimeout(iceRetryTimeoutRef.current as TimeoutHandle);
         iceRetryTimeoutRef.current = null;
@@ -1677,13 +1709,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         return;
       }
       if (delayMs && delayMs > 0) {
-          iceRetryTimeoutRef.current = setTimeout(() => {
-            iceRetryTimeoutRef.current = null;
-            setPeerResetNonce((value: number) => value + 1);
-          }, delayMs);
-        } else {
+        iceRetryTimeoutRef.current = setTimeout(() => {
+          iceRetryTimeoutRef.current = null;
           setPeerResetNonce((value: number) => value + 1);
-        }
+        }, delayMs);
+      } else {
+        setPeerResetNonce((value: number) => value + 1);
+      }
     },
     []
   );
