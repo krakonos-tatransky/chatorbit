@@ -2059,7 +2059,12 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             <Text style={styles.inAppSubtitle}>Keep this screen open while participants join.</Text>
           </View>
         </View>
-        <View style={styles.sessionContent}>
+        <ScrollView
+          style={styles.sessionScroll}
+          contentContainerStyle={styles.sessionContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
           <View style={styles.sessionStatusCard}>
             <View style={styles.sessionCardHeader}>
               <Text style={styles.sessionCardTitle}>Session status</Text>
@@ -2176,7 +2181,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
               Data channel: {dataChannelState ?? '—'} · Socket: {socketReady ? 'connected' : 'offline'}
             </Text>
           </KeyboardAvoidingView>
-        </View>
+        </ScrollView>
       </SafeAreaView>
     </LinearGradient>
   );
@@ -2776,8 +2781,11 @@ const styles = StyleSheet.create({
     color: 'rgba(219, 237, 255, 0.78)',
     lineHeight: 20
   },
+  sessionScroll: {
+    flex: 1
+  },
   sessionContent: {
-    flex: 1,
+    flexGrow: 1,
     paddingBottom: 28,
     gap: 18
   },
