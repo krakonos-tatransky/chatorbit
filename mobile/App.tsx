@@ -1469,25 +1469,55 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             peerSupportsEncryptionRef.current = encryptionMode !== 'none';
             setPeerSupportsEncryption(encryptionMode !== 'none');
           }
-          let content: string;
-          if (encryptionMode === 'none') {
-            content = incoming.content ?? '';
-          } else {
-            setError('Encrypted messages are not supported on this device.');
+          try {
+            let content: string;
+            if (encryptionMode === 'none') {
+              content = incoming.content ?? '';
+            } else {
+              if (supportsEncryption !== true) {
+                throw new Error('Device cannot decrypt messages in this session.');
+              }
+              if (!incoming.encryptedContent) {
+                throw new Error('Encrypted payload is missing.');
+              }
+              const key = await deriveKey(token.token);
+              content = await decryptText(key, incoming.encryptedContent);
+            }
+            if (incoming.hash) {
+              const expectedHash = await computeMessageHash(
+                incoming.sessionId,
+                incoming.participantId,
+                incoming.messageId,
+                content
+              );
+              if (expectedHash !== incoming.hash) {
+                console.warn('Hash mismatch for message', incoming.messageId);
+                setError('Ignored a message with mismatched hash.');
+                return;
+              }
+            }
+            hashedMessagesRef.current.set(incoming.messageId, {
+              ...incoming,
+              content,
+              encryption: encryptionMode,
+              deleted: false
+            });
+            setMessages((prev: Message[]) =>
+              upsertMessage(prev, {
+                messageId: incoming.messageId,
+                participantId: incoming.participantId,
+                role: incoming.role,
+                content,
+                createdAt: incoming.createdAt
+              })
+            );
+            setError(null);
+            return;
+          } catch (err) {
+            console.warn('Unable to process incoming message', err);
+            setError('Unable to process an incoming message.');
             return;
           }
-          hashedMessagesRef.current.set(incoming.messageId, { ...incoming, content, deleted: false });
-          setMessages((prev: Message[]) =>
-            upsertMessage(prev, {
-              messageId: incoming.messageId,
-              participantId: incoming.participantId,
-              role: incoming.role,
-              content,
-              createdAt: incoming.createdAt
-            })
-          );
-          setError(null);
-          return;
         }
         if (payload.type === 'delete') {
           const messageId = payload.messageId as string | undefined;
