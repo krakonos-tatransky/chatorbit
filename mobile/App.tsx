@@ -40,6 +40,33 @@ import { getIceServers, hasRelayIceServers } from './webrtc';
 
 const env = typeof process !== 'undefined' && process.env ? process.env : undefined;
 
+const IGNORED_NATIVE_WARNINGS = [
+  'hapticpatternlibrary.plist',
+  'Error creating CHHapticPattern',
+  'RemoteTextInput',
+  'perform input operation requires a valid sessionID'
+];
+
+const filterConsole = (original: (...args: any[]) => void) =>
+  (...args: any[]) => {
+    const shouldIgnore = args.some((arg) => {
+      if (typeof arg !== 'string') {
+        return false;
+      }
+      return IGNORED_NATIVE_WARNINGS.some((pattern) => arg.includes(pattern));
+    });
+    if (shouldIgnore) {
+      return;
+    }
+    original(...args);
+  };
+
+// Filter noisy simulator-only warnings before React components mount.
+// eslint-disable-next-line no-console
+console.warn = filterConsole(console.warn.bind(console));
+// eslint-disable-next-line no-console
+console.error = filterConsole(console.error.bind(console));
+
 LogBox.ignoreLogs([
   // iOS simulators do not ship the haptic pattern library, which triggers noisy warnings
   // when the keyboard feedback generator initializes. This does not affect functionality.
@@ -1194,6 +1221,10 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const [callState, setCallState] = useState<'idle' | 'requesting' | 'incoming' | 'connecting' | 'active'>(
     'idle'
   );
+  const [isLocalAudioMuted, setIsLocalAudioMuted] = useState(false);
+  const [isLocalVideoMuted, setIsLocalVideoMuted] = useState(false);
+  const [isCallFullscreen, setIsCallFullscreen] = useState(false);
+  const [preferredCameraFacing, setPreferredCameraFacing] = useState<'user' | 'environment'>('user');
   const [incomingCallFrom, setIncomingCallFrom] = useState<string | null>(null);
   const [localVideoStream, setLocalVideoStream] = useState<MediaStream | null>(null);
   const [remoteVideoStream, setRemoteVideoStream] = useState<MediaStream | null>(null);
@@ -1213,6 +1244,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const pendingCandidatesRef = useRef<any[]>([]);
   const capabilityAnnouncedRef = useRef(false);
   const peerSupportsEncryptionRef = useRef<boolean | null>(null);
+  const callStateRef = useRef<'idle' | 'requesting' | 'incoming' | 'connecting' | 'active'>('idle');
   const sessionActiveRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
   const socketReconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
@@ -1304,10 +1336,58 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           : styles.videoBadgeIdle;
   const localVideoUrl = useMemo(() => (localVideoStream as any)?.toURL?.() ?? null, [localVideoStream]);
   const remoteVideoUrl = useMemo(() => (remoteVideoStream as any)?.toURL?.() ?? null, [remoteVideoStream]);
+  const videoPreviewRowStyle = useMemo(
+    () => [styles.videoPreviewRow, isCallFullscreen && styles.videoPreviewRowFullscreen],
+    [isCallFullscreen]
+  );
+  const videoPaneStyle = useMemo(
+    () => [styles.videoPane, isCallFullscreen && styles.videoPaneFullscreen],
+    [isCallFullscreen]
+  );
+  const videoSurfaceStyle = useMemo(
+    () => [styles.videoSurface, isCallFullscreen && styles.videoSurfaceFullscreen],
+    [isCallFullscreen]
+  );
 
   useEffect(() => {
     setSupportsEncryption(resolveCrypto() !== null);
   }, []);
+
+  useEffect(() => {
+    callStateRef.current = callState;
+  }, [callState]);
+
+  useEffect(() => {
+    if (callState === 'idle') {
+      setIsCallFullscreen(false);
+    }
+  }, [callState]);
+
+  useEffect(() => {
+    const stream = localAudioStreamRef.current;
+    if (!stream) {
+      return;
+    }
+    stream
+      .getTracks()
+      .filter((track) => track.kind === 'audio')
+      .forEach((track) => {
+        track.enabled = !isLocalAudioMuted;
+      });
+  }, [isLocalAudioMuted]);
+
+  useEffect(() => {
+    const stream = localVideoStreamRef.current;
+    if (!stream) {
+      return;
+    }
+    stream
+      .getTracks()
+      .filter((track) => track.kind === 'video')
+      .forEach((track) => {
+        track.enabled = !isLocalVideoMuted;
+      });
+  }, [isLocalVideoMuted]);
 
   useEffect(() => {
     pendingOutgoingSignalsRef.current = [];
@@ -1556,9 +1636,28 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           if (!from || from === participantId) {
             return;
           }
-          if (action === 'request') {
-            if (callState !== 'idle') {
-              sendCallMessage('busy');
+            if (action === 'request') {
+              if (callState === 'active' || callState === 'connecting') {
+                sendCallMessage('busy');
+              return;
+            }
+            if (callState === 'requesting') {
+              setCallState('connecting');
+              try {
+                await ensureCallMedia();
+                if (callStateRef.current === 'connecting') {
+                  sendCallMessage('accept');
+                  requestMediaRenegotiation();
+                }
+              } catch (err) {
+                console.warn('Failed to auto-accept call request', err);
+                setCallState('idle');
+                sendCallMessage('reject');
+                stopLocalVideoTracks();
+                stopLocalAudioTracks();
+                clearRemoteVideo();
+                resetCallControls();
+              }
               return;
             }
             setIncomingCallFrom(from);
@@ -1568,7 +1667,17 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           if (action === 'accept') {
             setIncomingCallFrom(null);
             setCallState((prev) => (prev === 'requesting' ? 'connecting' : prev));
-            void ensureCallMedia();
+            try {
+              await ensureCallMedia();
+              requestMediaRenegotiation();
+            } catch (err) {
+              console.warn('Unable to attach media after acceptance', err);
+              setCallState('idle');
+              stopLocalVideoTracks();
+              stopLocalAudioTracks();
+              clearRemoteVideo();
+              resetCallControls();
+            }
             return;
           }
           if (action === 'reject') {
@@ -1577,6 +1686,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             stopLocalVideoTracks();
             stopLocalAudioTracks();
             clearRemoteVideo();
+            resetCallControls();
             return;
           }
           if (action === 'end') {
@@ -1585,6 +1695,17 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             stopLocalVideoTracks();
             stopLocalAudioTracks();
             clearRemoteVideo();
+            resetCallControls();
+            return;
+          }
+          if (action === 'cancel') {
+            if (callState !== 'idle') {
+              setCallState('idle');
+              stopLocalVideoTracks();
+              stopLocalAudioTracks();
+              clearRemoteVideo();
+              resetCallControls();
+            }
             return;
           }
           if (action === 'busy') {
@@ -1593,6 +1714,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
               stopLocalVideoTracks();
               stopLocalAudioTracks();
               clearRemoteVideo();
+              resetCallControls();
               setError('Peer is busy with another video chat.');
             }
             return;
@@ -1687,6 +1809,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       ensureCallMedia,
       negotiateMediaUpdate,
       participantId,
+      requestMediaRenegotiation,
       sendCallMessage,
       stopLocalAudioTracks,
       stopLocalVideoTracks,
@@ -2065,6 +2188,12 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     setRemoteVideoStream(null);
   }, []);
 
+  const resetCallControls = useCallback(() => {
+    setIsLocalAudioMuted(false);
+    setIsLocalVideoMuted(false);
+    setIsCallFullscreen(false);
+  }, []);
+
   const negotiateMediaUpdate = useCallback(
     async (pc: RTCPeerConnection | null, reason: string) => {
       if (!pc) {
@@ -2084,6 +2213,14 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     },
     [logPeer, sendSignal]
   );
+
+  const requestMediaRenegotiation = useCallback(() => {
+    if (participantRole === 'host') {
+      void negotiateMediaUpdate(peerConnectionRef.current, 'requested media update');
+    } else {
+      sendCallMessage('renegotiate');
+    }
+  }, [negotiateMediaUpdate, participantRole, sendCallMessage]);
 
   const ensureCallMedia = useCallback(
     async (options: { attach?: boolean } = {}) => {
@@ -2118,7 +2255,9 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       let videoStream = localVideoStreamRef.current;
       if (!videoStream) {
         try {
-          videoStream = await webRtcBindings.mediaDevices.getUserMedia({ video: true });
+          videoStream = await webRtcBindings.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: preferredCameraFacing } }
+          });
           localVideoStreamRef.current = videoStream;
           setLocalVideoStream(videoStream);
         } catch (err) {
@@ -2127,6 +2266,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         }
       }
 
+      videoStream
+        .getTracks()
+        .filter((track) => track.kind === 'video')
+        .forEach((track) => {
+          track.enabled = !isLocalVideoMuted;
+        });
+
       if (videoStream && attach) {
         attachSenders('video', videoStream);
       }
@@ -2134,14 +2280,60 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       if (attach) {
         const audioStream = await ensureLocalAudioStream();
         if (audioStream) {
+          audioStream
+            .getTracks()
+            .filter((track) => track.kind === 'audio')
+            .forEach((track) => {
+              track.enabled = !isLocalAudioMuted;
+            });
           attachSenders('audio', audioStream);
         }
       }
 
       return videoStream;
     },
-    [ensureLocalAudioStream, logPeer, webRtcBindings]
+    [ensureLocalAudioStream, isLocalAudioMuted, isLocalVideoMuted, logPeer, preferredCameraFacing, webRtcBindings]
   );
+
+  const toggleLocalAudio = useCallback(() => {
+    setIsLocalAudioMuted((prev) => {
+      const next = !prev;
+      const stream = localAudioStreamRef.current;
+      if (stream) {
+        stream.getAudioTracks().forEach((track) => {
+          track.enabled = !next;
+        });
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleLocalVideo = useCallback(() => {
+    setIsLocalVideoMuted((prev) => {
+      const next = !prev;
+      const stream = localVideoStreamRef.current;
+      if (stream) {
+        stream.getVideoTracks().forEach((track) => {
+          track.enabled = !next;
+        });
+      }
+      return next;
+    });
+  }, []);
+
+  const flipCamera = useCallback(() => {
+    const stream = localVideoStreamRef.current;
+    const track = stream?.getVideoTracks?.()[0];
+    const switchable = track as unknown as { _switchCamera?: () => void } | undefined;
+    if (switchable?._switchCamera) {
+      switchable._switchCamera();
+      setPreferredCameraFacing((prev) => (prev === 'user' ? 'environment' : 'user'));
+    }
+  }, []);
+
+  const toggleCallFullscreen = useCallback(() => {
+    setIsCallFullscreen((prev) => !prev);
+  }, []);
 
   const requestVideoChat = useCallback(async () => {
     if (callState !== 'idle') {
@@ -2170,7 +2362,8 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     setCallState('connecting');
     setIncomingCallFrom(null);
     sendCallMessage('accept');
-  }, [ensureCallMedia, incomingCallFrom, sendCallMessage]);
+    requestMediaRenegotiation();
+  }, [ensureCallMedia, incomingCallFrom, requestMediaRenegotiation, sendCallMessage]);
 
   const declineVideoChat = useCallback(() => {
     sendCallMessage('reject');
@@ -2179,16 +2372,22 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     stopLocalVideoTracks();
     stopLocalAudioTracks();
     clearRemoteVideo();
-  }, [clearRemoteVideo, sendCallMessage, stopLocalAudioTracks, stopLocalVideoTracks]);
+    resetCallControls();
+  }, [clearRemoteVideo, resetCallControls, sendCallMessage, stopLocalAudioTracks, stopLocalVideoTracks]);
 
   const endVideoChat = useCallback(() => {
-    sendCallMessage('end');
+    if (callState === 'requesting') {
+      sendCallMessage('cancel');
+    } else {
+      sendCallMessage('end');
+    }
     setCallState('idle');
     setIncomingCallFrom(null);
     stopLocalVideoTracks();
     stopLocalAudioTracks();
     clearRemoteVideo();
-  }, [clearRemoteVideo, sendCallMessage, stopLocalAudioTracks, stopLocalVideoTracks]);
+    resetCallControls();
+  }, [callState, clearRemoteVideo, resetCallControls, sendCallMessage, stopLocalAudioTracks, stopLocalVideoTracks]);
 
   useEffect(() => {
     if (remoteVideoStream && (callState === 'connecting' || callState === 'requesting')) {
@@ -2592,11 +2791,11 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
               Request a video call once both peers are connected. When accepted, your camera preview appears alongside the
               remote feed.
             </Text>
-            <View style={styles.videoPreviewRow}>
-              <View style={styles.videoPane}>
+            <View style={videoPreviewRowStyle}>
+              <View style={videoPaneStyle}>
                 <Text style={styles.videoPaneLabel}>Remote</Text>
                 {RTCViewComponent && remoteVideoUrl ? (
-                  <RTCViewComponent streamURL={remoteVideoUrl} style={styles.videoSurface} objectFit="cover" />
+                  <RTCViewComponent streamURL={remoteVideoUrl} style={videoSurfaceStyle} objectFit="cover" />
                 ) : (
                   <View style={styles.videoPlaceholder}>
                     <Ionicons name="videocam-outline" size={28} color={COLORS.ice} />
@@ -2604,10 +2803,10 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
                   </View>
                 )}
               </View>
-              <View style={styles.videoPane}>
+              <View style={videoPaneStyle}>
                 <Text style={styles.videoPaneLabel}>You</Text>
                 {RTCViewComponent && localVideoUrl ? (
-                  <RTCViewComponent streamURL={localVideoUrl} style={styles.videoSurface} objectFit="cover" mirror />
+                  <RTCViewComponent streamURL={localVideoUrl} style={videoSurfaceStyle} objectFit="cover" mirror />
                 ) : (
                   <View style={styles.videoPlaceholder}>
                     <Ionicons name="person-circle-outline" size={28} color={COLORS.ice} />
@@ -2647,6 +2846,48 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
                         ? 'End video'
                         : 'Cancel request'}
                   </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {(callState === 'connecting' || callState === 'active') && (
+              <View style={[styles.videoControlsRow, isCallFullscreen && styles.videoControlsRowFullscreen]}>
+                <TouchableOpacity style={styles.videoIconButton} onPress={toggleCallFullscreen}>
+                  <Ionicons
+                    name={isCallFullscreen ? 'contract-outline' : 'expand-outline'}
+                    size={18}
+                    color={COLORS.midnight}
+                  />
+                  <Text style={styles.videoIconLabel}>{isCallFullscreen ? 'Exit full screen' : 'Full screen'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.videoIconButton, isLocalVideoMuted && styles.videoIconButtonMuted]}
+                  onPress={toggleLocalVideo}
+                >
+                  <Ionicons
+                    name={isLocalVideoMuted ? 'videocam-off' : 'videocam'}
+                    size={18}
+                    color={COLORS.midnight}
+                  />
+                  <Text style={styles.videoIconLabel}>{isLocalVideoMuted ? 'Camera off' : 'Camera on'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.videoIconButton, isLocalAudioMuted && styles.videoIconButtonMuted]}
+                  onPress={toggleLocalAudio}
+                >
+                  <Ionicons
+                    name={isLocalAudioMuted ? 'mic-off' : 'mic'}
+                    size={18}
+                    color={COLORS.midnight}
+                  />
+                  <Text style={styles.videoIconLabel}>{isLocalAudioMuted ? 'Mic muted' : 'Mic live'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.videoIconButton} onPress={flipCamera}>
+                  <Ionicons name="camera-reverse-outline" size={18} color={COLORS.midnight} />
+                  <Text style={styles.videoIconLabel}>Switch camera</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.videoIconButton, styles.videoEndButton]} onPress={endVideoChat}>
+                  <Ionicons name="call" size={18} color={COLORS.ice} />
+                  <Text style={[styles.videoIconLabel, styles.videoEndLabel]}>End call</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -3421,6 +3662,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12
   },
+  videoPreviewRowFullscreen: {
+    flexDirection: 'column'
+  },
   videoPane: {
     flex: 1,
     borderRadius: 16,
@@ -3428,6 +3672,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(111, 214, 255, 0.25)',
     overflow: 'hidden',
     backgroundColor: 'rgba(2, 11, 31, 0.6)'
+  },
+  videoPaneFullscreen: {
+    width: '100%'
   },
   videoPaneLabel: {
     paddingHorizontal: 10,
@@ -3439,6 +3686,9 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 180,
     backgroundColor: 'black'
+  },
+  videoSurfaceFullscreen: {
+    height: 260
   },
   videoPlaceholder: {
     height: 180,
@@ -3454,6 +3704,41 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 4,
     alignItems: 'center'
+  },
+  videoControlsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 12
+  },
+  videoControlsRowFullscreen: {
+    justifyContent: 'space-between'
+  },
+  videoIconButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(136, 230, 255, 0.35)',
+    backgroundColor: 'rgba(136, 230, 255, 0.18)'
+  },
+  videoIconButtonMuted: {
+    backgroundColor: 'rgba(255, 209, 102, 0.15)',
+    borderColor: 'rgba(255, 209, 102, 0.45)'
+  },
+  videoIconLabel: {
+    color: COLORS.midnight,
+    fontWeight: '700'
+  },
+  videoEndButton: {
+    backgroundColor: 'rgba(239, 71, 111, 0.9)',
+    borderColor: 'rgba(239, 71, 111, 0.9)'
+  },
+  videoEndLabel: {
+    color: COLORS.ice
   },
   primaryButton: {
     flexDirection: 'row',
