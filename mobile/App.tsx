@@ -25,11 +25,15 @@ import { useFonts } from 'expo-font';
 import type {
   RTCPeerConnection as NativeRTCPeerConnection,
   RTCIceCandidate as NativeRTCIceCandidate,
-  RTCSessionDescription as NativeRTCSessionDescription
+  RTCSessionDescription as NativeRTCSessionDescription,
+  MediaStream as NativeMediaStream,
+  RTCTrackEvent as NativeRTCTrackEvent
 } from 'react-native-webrtc';
 type RTCPeerConnection = NativeRTCPeerConnection;
 type RTCIceCandidate = NativeRTCIceCandidate;
 type RTCSessionDescription = NativeRTCSessionDescription;
+type MediaStream = NativeMediaStream;
+type RTCTrackEvent = NativeRTCTrackEvent;
 import { getIceServers, hasRelayIceServers } from './webrtc';
 
 const env = typeof process !== 'undefined' && process.env ? process.env : undefined;
@@ -39,6 +43,9 @@ type WebRtcBindings = {
   RTCPeerConnection: new (...args: any[]) => NativeRTCPeerConnection;
   RTCIceCandidate: new (...args: any[]) => NativeRTCIceCandidate;
   RTCSessionDescription: new (...args: any[]) => NativeRTCSessionDescription;
+  mediaDevices?: {
+    getUserMedia: (constraints: Record<string, unknown>) => Promise<MediaStream>;
+  };
 };
 
 const WEBRTC_NATIVE_MODULE_CANDIDATES = ['WebRTCModule', 'WebRTC'];
@@ -1190,6 +1197,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const socketReconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
   const hasSentOfferRef = useRef(false);
+  const localAudioStreamRef = useRef<MediaStream | null>(null);
 
   const webRtcBindings = useMemo(() => getWebRtcBindings(), []);
 
@@ -1324,6 +1332,16 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       setRemainingSeconds(sessionStatus.remaining_seconds ?? null);
     }
   }, [sessionStatus?.remaining_seconds]);
+
+  useEffect(() => {
+    return () => {
+      const stream = localAudioStreamRef.current;
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      localAudioStreamRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (remainingSeconds == null || remainingSeconds <= 0) {
@@ -1830,99 +1848,168 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     [handlePeerMessage, schedulePeerConnectionRecovery, sendCapabilities]
   );
 
+  const ensureLocalAudioStream = useCallback(async () => {
+    if (!webRtcBindings?.mediaDevices?.getUserMedia) {
+      logSocket('mediaDevices missing; audio unavailable');
+      return null;
+    }
+    if (localAudioStreamRef.current) {
+      return localAudioStreamRef.current;
+    }
+    try {
+      const stream = await webRtcBindings.mediaDevices.getUserMedia({ audio: true });
+      localAudioStreamRef.current = stream;
+      return stream;
+    } catch (err) {
+      console.warn('Unable to start local audio stream', err);
+      return null;
+    }
+  }, [logSocket, webRtcBindings]);
+
   useEffect(() => {
     if (!participantId) {
       return;
     }
-    const peerConnection = new RTCPeerConnectionCtor({ iceServers });
-    logPeer(peerConnection, 'ctor', iceServers.length ? 'with-ice' : 'no-ice');
-    peerConnectionRef.current = peerConnection;
+    let cancelled = false;
+    let peerConnection: RTCPeerConnection | null = null;
 
-    const handleIceCandidate = (event: RTCPeerConnectionIceEvent) => {
-      if (event.candidate && event.candidate.candidate) {
-        const candidate = typeof event.candidate.toJSON === 'function' ? event.candidate.toJSON() : event.candidate;
-        logPeer(peerConnection, 'emit ice candidate');
-        sendSignal('iceCandidate', candidate);
-      } else {
-        logPeer(peerConnection, 'emit end-of-candidates');
-        sendSignal('iceCandidate', null);
-      }
-    };
+    const setupPeerConnection = async () => {
+      const pc = new RTCPeerConnectionCtor({ iceServers });
+      peerConnection = pc;
+      logPeer(pc, 'ctor', iceServers.length ? 'with-ice' : 'no-ice');
+      peerConnectionRef.current = pc;
 
-    const handleConnectionStateChange = () => {
-      logPeer(peerConnection, 'connection state change', peerConnection.connectionState, peerConnection.iceConnectionState);
-      const state = peerConnection.connectionState;
-      if (state === 'connected') {
-        setIsReconnecting(false);
-        if (dataChannelRef.current?.readyState === 'open') {
-          setConnected(true);
+      const handleIceCandidate = (event: RTCPeerConnectionIceEvent) => {
+        if (event.candidate && event.candidate.candidate) {
+          const candidate = typeof event.candidate.toJSON === 'function' ? event.candidate.toJSON() : event.candidate;
+          logPeer(pc, 'emit ice candidate');
+          sendSignal('iceCandidate', candidate);
+        } else {
+          logPeer(pc, 'emit end-of-candidates');
+          sendSignal('iceCandidate', null);
         }
-      } else if (state === 'failed' || state === 'disconnected') {
-        setConnected(false);
-        if (sessionActiveRef.current) {
-          schedulePeerConnectionRecovery(`connection ${state}`, { delayMs: state === 'failed' ? 0 : 1200 });
+      };
+
+      const handleConnectionStateChange = () => {
+        logPeer(pc, 'connection state change', pc.connectionState, pc.iceConnectionState);
+        const state = pc.connectionState;
+        if (state === 'connected') {
+          setIsReconnecting(false);
+          if (dataChannelRef.current?.readyState === 'open') {
+            setConnected(true);
+          }
+        } else if (state === 'failed' || state === 'disconnected') {
+          setConnected(false);
+          if (sessionActiveRef.current) {
+            schedulePeerConnectionRecovery(`connection ${state}`, { delayMs: state === 'failed' ? 0 : 1200 });
+          }
+        } else if (state === 'closed') {
+          setConnected(false);
         }
-      } else if (state === 'closed') {
-        setConnected(false);
-      }
-    };
+      };
 
-    const handleDataChannel = (event: RTCDataChannelEvent) => {
-      logPeer(peerConnection, 'incoming data channel', event.channel?.label);
-      attachDataChannel(event.channel as unknown as PeerDataChannel, peerConnection);
-    };
+      const handleDataChannel = (event: RTCDataChannelEvent) => {
+        logPeer(pc, 'incoming data channel', event.channel?.label);
+        attachDataChannel(event.channel as unknown as PeerDataChannel, pc);
+      };
 
-    const peerConnectionAny = peerConnection as RTCPeerConnection & {
-      onicecandidate?: ((event: RTCPeerConnectionIceEvent) => void) | null;
-      onconnectionstatechange?: (() => void) | null;
-      ondatachannel?: ((event: RTCDataChannelEvent) => void) | null;
-    };
+      const handleTrack = (event: RTCTrackEvent) => {
+        logPeer(pc, 'remote track', event.track?.kind, event.streams?.length ?? 0);
+        if (event.track?.kind === 'audio') {
+          event.track.enabled = true;
+        }
+      };
 
-    peerConnectionAny.onicecandidate = handleIceCandidate;
-    peerConnectionAny.onconnectionstatechange = handleConnectionStateChange;
-    peerConnectionAny.ondatachannel = handleDataChannel;
+      const peerConnectionAny = pc as RTCPeerConnection & {
+        onicecandidate?: ((event: RTCPeerConnectionIceEvent) => void) | null;
+        onconnectionstatechange?: (() => void) | null;
+        ondatachannel?: ((event: RTCDataChannelEvent) => void) | null;
+        ontrack?: ((event: RTCTrackEvent) => void) | null;
+      };
 
-    if (participantRole === 'host') {
-      const channel = peerConnection.createDataChannel('chat') as unknown as PeerDataChannel;
-      logPeer(peerConnection, 'created data channel', channel.label);
-      attachDataChannel(channel, peerConnection);
-    }
+      peerConnectionAny.onicecandidate = handleIceCandidate;
+      peerConnectionAny.onconnectionstatechange = handleConnectionStateChange;
+      peerConnectionAny.ondatachannel = handleDataChannel;
+      peerConnectionAny.ontrack = handleTrack;
 
-    const backlog = pendingSignalsRef.current.splice(0);
-    if (backlog.length > 0) {
-      logPeer(peerConnection, 'replaying buffered signals', backlog.length);
-      backlog.forEach((item) => {
-        void processSignalPayload(peerConnection, item);
-      });
-    }
-
-    if (participantRole === 'host') {
-      void (async () => {
+      if (typeof pc.addTransceiver === 'function') {
         try {
-          logPeer(peerConnection, 'creating offer');
-          const offer = await peerConnection.createOffer();
-          if (peerConnectionRef.current !== peerConnection || peerConnection.signalingState === 'closed') {
-            logPeer(peerConnection, 'offer abandoned (stale peer)');
+          pc.addTransceiver('audio', { direction: 'sendrecv' });
+          logPeer(pc, 'added audio transceiver');
+        } catch (err) {
+          console.warn('Failed to add audio transceiver', err);
+        }
+      }
+
+      const localStream = await ensureLocalAudioStream();
+      if (cancelled) {
+        localStream?.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      if (localStream) {
+        localStream.getAudioTracks().forEach((track) => {
+          try {
+            pc.addTrack(track, localStream);
+            logPeer(pc, 'added local audio track', track.id);
+          } catch (err) {
+            console.warn('Failed to attach local audio track', err);
+          }
+        });
+      }
+
+      if (participantRole === 'host') {
+        const channel = pc.createDataChannel('chat') as unknown as PeerDataChannel;
+        logPeer(pc, 'created data channel', channel.label);
+        attachDataChannel(channel, pc);
+      }
+
+      const backlog = pendingSignalsRef.current.splice(0);
+      if (backlog.length > 0) {
+        logPeer(pc, 'replaying buffered signals', backlog.length);
+        backlog.forEach((item) => {
+          void processSignalPayload(pc, item);
+        });
+      }
+
+      if (participantRole === 'host') {
+        try {
+          logPeer(pc, 'creating offer');
+          const offer = await pc.createOffer();
+          if (peerConnectionRef.current !== pc || pc.signalingState === 'closed') {
+            logPeer(pc, 'offer abandoned (stale peer)');
             return;
           }
-          await peerConnection.setLocalDescription(offer);
-          if (peerConnectionRef.current !== peerConnection || peerConnection.signalingState === 'closed') {
-            logPeer(peerConnection, 'offer abandoned after setLocalDescription (stale peer)');
+          await pc.setLocalDescription(offer);
+          if (peerConnectionRef.current !== pc || pc.signalingState === 'closed') {
+            logPeer(pc, 'offer abandoned after setLocalDescription (stale peer)');
             return;
           }
-          logPeer(peerConnection, 'sending offer');
+          logPeer(pc, 'sending offer');
           sendSignal('offer', offer);
           hasSentOfferRef.current = true;
         } catch (err) {
           console.warn('Failed to create offer', err);
         }
-      })();
-    }
+      }
+    };
+
+    void setupPeerConnection();
 
     return () => {
+      cancelled = true;
+      if (!peerConnection) {
+        return;
+      }
+      const peerConnectionAny = peerConnection as RTCPeerConnection & {
+        onicecandidate?: ((event: RTCPeerConnectionIceEvent) => void) | null;
+        onconnectionstatechange?: (() => void) | null;
+        ondatachannel?: ((event: RTCDataChannelEvent) => void) | null;
+        ontrack?: ((event: RTCTrackEvent) => void) | null;
+      };
       peerConnectionAny.onicecandidate = null;
       peerConnectionAny.onconnectionstatechange = null;
       peerConnectionAny.ondatachannel = null;
+      peerConnectionAny.ontrack = null;
       try {
         peerConnection.close();
       } catch (err) {
@@ -1939,12 +2026,14 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   }, [
     RTCPeerConnectionCtor,
     attachDataChannel,
+    ensureLocalAudioStream,
     iceServers,
     participantId,
     participantRole,
     peerResetNonce,
     processSignalPayload,
-    sendSignal
+    sendSignal,
+    schedulePeerConnectionRecovery
   ]);
 
   const sessionStatusLabel = mapStatusLabel(sessionStatus?.status);
