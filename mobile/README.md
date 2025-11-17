@@ -178,6 +178,23 @@ cd mobile
 npx expo run:ios    # or: npx expo run:android
 ```
 
+> **iOS permissions tip:** If you ever see a crash complaining about
+> `NSMicrophoneUsageDescription` or `NSCameraUsageDescription`, wipe any previously generated
+> `ios/` folder and let Expo rebuild the native project so the config plugin can write the required
+> Info.plist entries:
+>
+> ```bash
+> cd mobile
+> rm -rf ios
+> npx expo prebuild -p ios --clean
+> npx expo run:ios --no-build-cache
+> ```
+>
+> After prebuild, you can double-check the injected permission strings in Xcode under
+> `ios/chatorbit-token/Info.plist` (look for "Privacy - Microphone Usage Description" and "Privacy -
+> Camera Usage Description"). No additional Xcode settings are required beyond rerunning the
+> commands above from the `mobile/` directory.
+
 Expo documents the full dev-build workflow here:
 https://docs.expo.dev/development/introduction/
 
