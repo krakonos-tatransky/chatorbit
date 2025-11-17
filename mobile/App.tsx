@@ -1743,7 +1743,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       void (async () => {
         try {
           const offer = await peerConnection.createOffer();
+          if (peerConnectionRef.current !== peerConnection || peerConnection.signalingState === 'closed') {
+            return;
+          }
           await peerConnection.setLocalDescription(offer);
+          if (peerConnectionRef.current !== peerConnection || peerConnection.signalingState === 'closed') {
+            return;
+          }
           sendSignal('offer', offer);
           hasSentOfferRef.current = true;
         } catch (err) {
