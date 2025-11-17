@@ -1,25 +1,114 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
+  KeyboardAvoidingView,
   Linking,
   Modal,
-  SafeAreaView,
+  NativeModules,
+  Platform,
   ScrollView,
   Share,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
+import type { ListRenderItem } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { useFonts } from 'expo-font';
-import { WebView } from 'react-native-webview';
+import type {
+  RTCPeerConnection as NativeRTCPeerConnection,
+  RTCIceCandidate as NativeRTCIceCandidate,
+  RTCSessionDescription as NativeRTCSessionDescription
+} from 'react-native-webrtc';
+type RTCPeerConnection = NativeRTCPeerConnection;
+type RTCIceCandidate = NativeRTCIceCandidate;
+type RTCSessionDescription = NativeRTCSessionDescription;
+import { getIceServers, hasRelayIceServers } from './webrtc';
 
+const env = typeof process !== 'undefined' && process.env ? process.env : undefined;
+const EXPO_DEV_BUILD_DOCS_URL = 'https://docs.expo.dev/development/introduction/';
+
+type WebRtcBindings = {
+  RTCPeerConnection: new (...args: any[]) => NativeRTCPeerConnection;
+  RTCIceCandidate: new (...args: any[]) => NativeRTCIceCandidate;
+  RTCSessionDescription: new (...args: any[]) => NativeRTCSessionDescription;
+};
+
+const WEBRTC_NATIVE_MODULE_CANDIDATES = ['WebRTCModule', 'WebRTC'];
+let cachedWebRtcBindings: WebRtcBindings | null | undefined;
+
+const getWebRtcBindings = (): WebRtcBindings | null => {
+  if (cachedWebRtcBindings !== undefined) {
+    return cachedWebRtcBindings;
+  }
+
+  try {
+    const bindings = require('react-native-webrtc') as WebRtcBindings;
+    if (
+      bindings?.RTCPeerConnection &&
+      bindings?.RTCIceCandidate &&
+      bindings?.RTCSessionDescription
+    ) {
+      cachedWebRtcBindings = bindings;
+      return cachedWebRtcBindings;
+    }
+  } catch (error) {
+    console.warn(
+      'Unable to load react-native-webrtc. Build a development client to enable native session connectivity.',
+      error
+    );
+    cachedWebRtcBindings = null;
+    return null;
+  }
+
+  const nativeModules = NativeModules as Record<string, unknown> | null;
+  const hasNativeModule = WEBRTC_NATIVE_MODULE_CANDIDATES.some((name) => Boolean(nativeModules?.[name]));
+
+  if (!hasNativeModule) {
+    console.warn(
+      'react-native-webrtc native module not detected. Install the Expo dev build to enable in-app sessions.',
+      nativeModules
+    );
+  }
+
+  cachedWebRtcBindings = null;
+  return null;
+};
+
+const isWebRtcSupported = (): boolean => getWebRtcBindings() !== null;
+
+const readEnvValue = (...keys: string[]): string | undefined => {
+  if (!env) {
+    return undefined;
+  }
+  for (const key of keys) {
+    const value = env[key];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
+};
+
+const stripTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
+
+const API_BASE_URL = stripTrailingSlash(
+  readEnvValue('EXPO_PUBLIC_API_BASE_URL', 'NEXT_PUBLIC_API_BASE_URL', 'API_BASE_URL') ||
+    'https://endpoints.chatorbit.com/api'
+);
+const WS_BASE_URL = stripTrailingSlash(
+  readEnvValue('EXPO_PUBLIC_WS_BASE_URL', 'NEXT_PUBLIC_WS_BASE_URL', 'WS_BASE_URL') ||
+    'wss://endpoints.chatorbit.com'
+);
 const COLORS = {
   midnight: '#020B1F',
   abyss: '#041335',
@@ -37,7 +126,6 @@ const COLORS = {
   danger: '#EF476F'
 };
 
-const API_BASE_URL = 'https://endpoints.chatorbit.com/api';
 const MOBILE_CLIENT_IDENTITY = 'mobile-app-host';
 
 const TERMS_TEXT = `Welcome to ChatOrbit!\n\nBefore generating secure session tokens, please take a moment to review these highlights:\n\n• Tokens are valid only for the duration selected during creation.\n• Share your token only with trusted participants.\n• Generated sessions may be monitored for quality and abuse prevention.\n• Using the token implies that you agree to abide by ChatOrbit community guidelines.\n\nThis preview app is designed for rapid testing of the ChatOrbit realtime experience. By continuing you acknowledge that:\n\n1. You are authorised to request access tokens on behalf of your organisation or team.\n2. All interactions facilitated by the token must respect local regulations regarding recorded communication.\n3. ChatOrbit may contact you for product feedback using the email or account associated with your workspace.\n4. Abuse of the system, including sharing illicit content, will result in automatic suspension of the workspace.\n\nScroll to the bottom of this message to enable the Accept button. Thank you for helping us keep the orbit safe and collaborative!`;
@@ -103,6 +191,338 @@ const SESSION_TTL_MINUTES: Record<string, number> = {
 
 const DEFAULT_MESSAGE_CHAR_LIMIT = 2000;
 
+type SessionParticipant = {
+  participant_id: string;
+  role: string;
+  joined_at: string;
+};
+
+type SessionStatus = {
+  token: string;
+  status: string;
+  validity_expires_at: string;
+  session_started_at: string | null;
+  session_expires_at: string | null;
+  message_char_limit: number;
+  participants: SessionParticipant[];
+  remaining_seconds: number | null;
+  connected_participants?: string[];
+};
+
+type SessionStatusSocketPayload = SessionStatus & {
+  type: string;
+  connected_participants?: string[];
+};
+
+const SESSION_POLL_INTERVAL_MS = 12000;
+
+type Message = {
+  messageId: string;
+  participantId: string;
+  role: string;
+  content: string;
+  createdAt: string;
+};
+
+type DataChannelState = 'connecting' | 'open' | 'closing' | 'closed';
+
+type PeerDataChannel = ReturnType<RTCPeerConnection['createDataChannel']> & {
+  onopen: (() => void) | null;
+  onclose: (() => void) | null;
+  onerror: (() => void) | null;
+  onmessage: ((event: MessageEvent) => void) | null;
+};
+
+type EncryptionMode = 'aes-gcm' | 'none';
+
+type EncryptedMessage = {
+  sessionId: string;
+  messageId: string;
+  participantId: string;
+  role: string;
+  createdAt: string;
+  encryption: EncryptionMode;
+  hash?: string;
+  content?: string;
+  encryptedContent?: string;
+  deleted?: boolean;
+};
+
+type CryptoLike = {
+  subtle: SubtleCrypto;
+  getRandomValues<T extends ArrayBufferView | null>(array: T): T;
+  randomUUID?: () => string;
+};
+
+type TimeoutHandle = ReturnType<typeof setTimeout> | number;
+
+const textEncoder = typeof TextEncoder !== 'undefined' ? new TextEncoder() : null;
+const textDecoder = typeof TextDecoder !== 'undefined' ? new TextDecoder() : null;
+
+function resolveCrypto(): CryptoLike | null {
+  const globalScope: any =
+    typeof globalThis !== 'undefined'
+      ? globalThis
+      : typeof self !== 'undefined'
+        ? self
+        : typeof window !== 'undefined'
+          ? window
+          : undefined;
+
+  if (!globalScope) {
+    return null;
+  }
+
+  const candidates = [
+    globalScope.crypto,
+    globalScope.msCrypto,
+    globalScope?.webkitCrypto,
+    globalScope.navigator?.crypto
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const subtle: SubtleCrypto | undefined = candidate.subtle ?? candidate.webkitSubtle ?? candidate.webcrypto?.subtle;
+    const getRandomValues: CryptoLike['getRandomValues'] | undefined =
+      typeof candidate.getRandomValues === 'function'
+        ? candidate.getRandomValues.bind(candidate)
+        : typeof candidate.webcrypto?.getRandomValues === 'function'
+          ? candidate.webcrypto.getRandomValues.bind(candidate.webcrypto)
+          : undefined;
+    const randomUUID: CryptoLike['randomUUID'] | undefined =
+      typeof candidate.randomUUID === 'function'
+        ? candidate.randomUUID.bind(candidate)
+        : typeof candidate.webcrypto?.randomUUID === 'function'
+          ? candidate.webcrypto.randomUUID.bind(candidate.webcrypto)
+          : undefined;
+
+    if (subtle && getRandomValues) {
+      return { subtle, getRandomValues, randomUUID };
+    }
+  }
+
+  return null;
+}
+
+const cryptoLike = resolveCrypto();
+
+function encodeUtf8(value: string): Uint8Array {
+  if (textEncoder) {
+    return textEncoder.encode(value);
+  }
+  const encoded = unescape(encodeURIComponent(value));
+  const bytes = new Uint8Array(encoded.length);
+  for (let index = 0; index < encoded.length; index += 1) {
+    bytes[index] = encoded.charCodeAt(index);
+  }
+  return bytes;
+}
+
+function decodeUtf8(bytes: Uint8Array): string {
+  if (textDecoder) {
+    return textDecoder.decode(bytes);
+  }
+  let binary = '';
+  bytes.forEach((value) => {
+    binary += String.fromCharCode(value);
+  });
+  return decodeURIComponent(escape(binary));
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = '';
+  bytes.forEach((value) => {
+    binary += String.fromCharCode(value);
+  });
+  if (typeof btoa === 'function') {
+    return btoa(binary);
+  }
+  const globalBuffer = (globalThis as { Buffer?: any }).Buffer;
+  if (globalBuffer) {
+    return globalBuffer.from(bytes).toString('base64');
+  }
+  throw new Error('Base64 encoding is not supported in this environment.');
+}
+
+function fromBase64(value: string): Uint8Array {
+  if (typeof atob === 'function') {
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+  }
+  const globalBuffer = (globalThis as { Buffer?: any }).Buffer;
+  if (globalBuffer) {
+    return globalBuffer.from(value, 'base64');
+  }
+  throw new Error('Base64 decoding is not supported in this environment.');
+}
+
+function rotateRight(value: number, amount: number): number {
+  return ((value >>> amount) | (value << (32 - amount))) >>> 0;
+}
+
+function sha256Bytes(input: string): Uint8Array {
+  const message = encodeUtf8(input);
+  const messageLength = message.length;
+  const paddedLength = (messageLength + 9 + 63) & ~63;
+  const buffer = new ArrayBuffer(paddedLength);
+  const bytes = new Uint8Array(buffer);
+  bytes.set(message);
+  bytes[messageLength] = 0x80;
+  const view = new DataView(buffer);
+  const bitLength = messageLength * 8;
+  const highBits = Math.floor(bitLength / 0x100000000);
+  const lowBits = bitLength >>> 0;
+  view.setUint32(paddedLength - 8, highBits, false);
+  view.setUint32(paddedLength - 4, lowBits, false);
+
+  const hash = new Uint32Array([
+    0x6a09e667,
+    0xbb67ae85,
+    0x3c6ef372,
+    0xa54ff53a,
+    0x510e527f,
+    0x9b05688c,
+    0x1f83d9ab,
+    0x5be0cd19
+  ]);
+
+  const k = new Uint32Array([
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ]);
+
+  const words = new Uint32Array(64);
+
+  for (let offset = 0; offset < paddedLength; offset += 64) {
+    for (let index = 0; index < 16; index += 1) {
+      words[index] = view.getUint32(offset + index * 4, false);
+    }
+    for (let index = 16; index < 64; index += 1) {
+      const s0 = rotateRight(words[index - 15], 7) ^ rotateRight(words[index - 15], 18) ^ (words[index - 15] >>> 3);
+      const s1 = rotateRight(words[index - 2], 17) ^ rotateRight(words[index - 2], 19) ^ (words[index - 2] >>> 10);
+      words[index] = (words[index - 16] + s0 + words[index - 7] + s1) >>> 0;
+    }
+
+    let a = hash[0];
+    let b = hash[1];
+    let c = hash[2];
+    let d = hash[3];
+    let e = hash[4];
+    let f = hash[5];
+    let g = hash[6];
+    let h = hash[7];
+
+    for (let index = 0; index < 64; index += 1) {
+      const S1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
+      const ch = (e & f) ^ (~e & g);
+      const temp1 = (h + S1 + ch + k[index] + words[index]) >>> 0;
+      const S0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const temp2 = (S0 + maj) >>> 0;
+
+      h = g;
+      g = f;
+      f = e;
+      e = (d + temp1) >>> 0;
+      d = c;
+      c = b;
+      b = a;
+      a = (temp1 + temp2) >>> 0;
+    }
+
+    hash[0] = (hash[0] + a) >>> 0;
+    hash[1] = (hash[1] + b) >>> 0;
+    hash[2] = (hash[2] + c) >>> 0;
+    hash[3] = (hash[3] + d) >>> 0;
+    hash[4] = (hash[4] + e) >>> 0;
+    hash[5] = (hash[5] + f) >>> 0;
+    hash[6] = (hash[6] + g) >>> 0;
+    hash[7] = (hash[7] + h) >>> 0;
+  }
+
+  const result = new Uint8Array(32);
+  const outputView = new DataView(result.buffer);
+  for (let index = 0; index < 8; index += 1) {
+    outputView.setUint32(index * 4, hash[index], false);
+  }
+  return result;
+}
+
+function generateMessageId(): string {
+  if (cryptoLike?.randomUUID) {
+    return cryptoLike.randomUUID().replace(/-/g, '');
+  }
+  return `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 14)}`;
+}
+
+async function deriveKey(token: string): Promise<CryptoKey> {
+  if (!cryptoLike?.subtle) {
+    throw new Error('Web Crypto API is not available.');
+  }
+  const digest = await cryptoLike.subtle.digest('SHA-256', toArrayBuffer(encodeUtf8(token)));
+  return cryptoLike.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+}
+
+async function encryptText(key: CryptoKey, plaintext: string): Promise<string> {
+  if (!cryptoLike?.subtle || !cryptoLike?.getRandomValues) {
+    throw new Error('Web Crypto API is not available.');
+  }
+  const iv = cryptoLike.getRandomValues(new Uint8Array(12));
+  const encoded = encodeUtf8(plaintext);
+  const encrypted = await cryptoLike.subtle.encrypt({ name: 'AES-GCM', iv }, key, toArrayBuffer(encoded));
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(encrypted), iv.length);
+  return toBase64(combined);
+}
+
+async function decryptText(key: CryptoKey, payload: string): Promise<string> {
+  if (!cryptoLike?.subtle) {
+    throw new Error('Web Crypto API is not available.');
+  }
+  const bytes = fromBase64(payload);
+  if (bytes.length < 13) {
+    throw new Error('Encrypted payload is not valid.');
+  }
+  const iv = bytes.slice(0, 12);
+  const cipher = bytes.slice(12);
+  const decrypted = await cryptoLike.subtle.decrypt({ name: 'AES-GCM', iv }, key, toArrayBuffer(cipher));
+  return decodeUtf8(new Uint8Array(decrypted));
+}
+
+async function computeMessageHash(sessionId: string, participantId: string, messageId: string, content: string): Promise<string> {
+  if (cryptoLike?.subtle) {
+    const digest = await cryptoLike.subtle.digest(
+      'SHA-256',
+      toArrayBuffer(encodeUtf8(`${sessionId}:${participantId}:${messageId}:${content}`))
+    );
+    return toBase64(new Uint8Array(digest));
+  }
+  return toBase64(sha256Bytes(`${sessionId}:${participantId}:${messageId}:${content}`));
+}
+
+function upsertMessage(list: Message[], message: Message): Message[] {
+  const next = list.filter((item) => item.messageId !== message.messageId);
+  next.push(message);
+  next.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  return next;
+}
+
 const extractFriendlyError = (rawBody: string): string => {
   if (!rawBody) {
     return 'Unexpected response from the server.';
@@ -166,7 +586,101 @@ const joinSession = async (
   }
 };
 
-const AcceptScreen: React.FC<{ onAccept: () => void }> = ({ onAccept }) => {
+const fetchSessionStatus = async (
+  tokenValue: string,
+  signal?: AbortSignal
+): Promise<SessionStatus> => {
+  const response = await fetch(`${API_BASE_URL}/sessions/${encodeURIComponent(tokenValue)}/status`, {
+    method: 'GET',
+    signal
+  });
+
+  const rawBody = await response.text();
+
+  if (!response.ok) {
+    throw new Error(extractFriendlyError(rawBody) || 'Unable to load the session status.');
+  }
+
+  try {
+    return JSON.parse(rawBody) as SessionStatus;
+  } catch (error) {
+    console.error('Failed to parse session status payload', error);
+    throw new Error('Received an invalid session status payload.');
+  }
+};
+
+const formatRemainingTime = (seconds: number | null) => {
+  if (seconds == null) {
+    return 'Session will begin once a guest joins.';
+  }
+  if (seconds <= 0) {
+    return 'Session timer elapsed.';
+  }
+  const rounded = Math.max(0, Math.floor(seconds));
+  const hours = Math.floor(rounded / 3600);
+  const minutes = Math.floor((rounded % 3600) / 60);
+  const secs = rounded % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes.toString().padStart(2, '0')}m remaining`;
+  }
+  return `${minutes}m ${secs.toString().padStart(2, '0')}s remaining`;
+};
+
+const formatJoinedAt = (isoString: string) => {
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) {
+    return 'Joined time unavailable';
+  }
+  return `Joined ${date.toLocaleString()}`;
+};
+
+const mapStatusLabel = (status: string | undefined) => {
+  switch (status) {
+    case 'active':
+      return 'Active';
+    case 'issued':
+      return 'Waiting';
+    case 'closed':
+      return 'Closed';
+    case 'expired':
+      return 'Expired';
+    case 'deleted':
+      return 'Deleted';
+    default:
+      return 'Unknown';
+  }
+};
+
+const mapStatusDescription = (status: string | undefined) => {
+  switch (status) {
+    case 'active':
+      return 'Both participants are connected to the live session.';
+    case 'issued':
+      return 'Share the token with your guest to begin the session.';
+    case 'closed':
+      return 'This session has been closed.';
+    case 'expired':
+      return 'This session expired before both participants connected.';
+    case 'deleted':
+      return 'This session is no longer available.';
+    default:
+      return 'Session status is being determined.';
+  }
+};
+
+const statusVariant = (status: string | undefined) => {
+  switch (status) {
+    case 'active':
+      return 'success';
+    case 'issued':
+      return 'waiting';
+    default:
+      return 'inactive';
+  }
+};
+
+  type AcceptScreenProps = { onAccept: () => void };
+  const AcceptScreen: React.FC<AcceptScreenProps> = ({ onAccept }: AcceptScreenProps) => {
   const [acceptEnabled, setAcceptEnabled] = useState(false);
 
   const handleScroll = (event: any) => {
@@ -213,13 +727,20 @@ const AcceptScreen: React.FC<{ onAccept: () => void }> = ({ onAccept }) => {
   );
 };
 
-const BigActionButton: React.FC<{
-  icon: React.ReactNode;
-  title: string;
-  description: string;
-  onPress: () => void;
-  background: string;
-}> = ({ icon, title, description, onPress, background }) => {
+  type BigActionButtonProps = {
+    icon: React.ReactNode;
+    title: string;
+    description: string;
+    onPress: () => void;
+    background: string;
+  };
+  const BigActionButton: React.FC<BigActionButtonProps> = ({
+    icon,
+    title,
+    description,
+    onPress,
+    background
+  }: BigActionButtonProps) => {
   return (
     <TouchableOpacity style={[styles.bigActionButton, { backgroundColor: background }]} onPress={onPress}>
       <View style={styles.bigActionIcon}>{icon}</View>
@@ -231,13 +752,18 @@ const BigActionButton: React.FC<{
   );
 };
 
-const NeedTokenForm: React.FC<{
-  visible: boolean;
-  onClose: () => void;
-  onGenerated: (token: TokenResponse) => void;
-}> = ({ visible, onClose, onGenerated }) => {
-  const [selectedDuration, setSelectedDuration] = useState(durationOptions[2].value);
-  const [selectedTier, setSelectedTier] = useState(tokenTierOptions[0].value);
+  type NeedTokenFormProps = {
+    visible: boolean;
+    onClose: () => void;
+    onGenerated: (token: TokenResponse) => void;
+  };
+  const NeedTokenForm: React.FC<NeedTokenFormProps> = ({
+    visible,
+    onClose,
+    onGenerated
+  }: NeedTokenFormProps) => {
+    const [selectedDuration, setSelectedDuration] = useState<DurationOption['value']>(durationOptions[2].value);
+    const [selectedTier, setSelectedTier] = useState<TokenTierOption['value']>(tokenTierOptions[0].value);
   const [selectedValidity, setSelectedValidity] = useState<ValidityOption['value']>(validityOptions[0].value);
   const [loading, setLoading] = useState(false);
 
@@ -330,7 +856,7 @@ const NeedTokenForm: React.FC<{
               <View style={styles.pickerWrapper}>
                 <Picker
                   selectedValue={selectedDuration}
-                  onValueChange={(value) => setSelectedDuration(value.toString())}
+                  onValueChange={(value: DurationOption['value'], _index: number) => setSelectedDuration(value)}
                   dropdownIconColor={COLORS.aurora}
                   style={styles.picker}
                   itemStyle={styles.pickerItem}
@@ -346,7 +872,7 @@ const NeedTokenForm: React.FC<{
               <View style={styles.pickerWrapper}>
                 <Picker
                   selectedValue={selectedValidity}
-                  onValueChange={(value) => setSelectedValidity(value as ValidityOption['value'])}
+                    onValueChange={(value: ValidityOption['value'], _index: number) => setSelectedValidity(value)}
                   dropdownIconColor={COLORS.aurora}
                   style={styles.picker}
                   itemStyle={styles.pickerItem}
@@ -362,7 +888,7 @@ const NeedTokenForm: React.FC<{
               <View style={styles.pickerWrapper}>
                 <Picker
                   selectedValue={selectedTier}
-                  onValueChange={(value) => setSelectedTier(value.toString())}
+                    onValueChange={(value: TokenTierOption['value'], _index: number) => setSelectedTier(value)}
                   dropdownIconColor={COLORS.aurora}
                   style={styles.picker}
                   itemStyle={styles.pickerItem}
@@ -391,17 +917,110 @@ const NeedTokenForm: React.FC<{
   );
 };
 
-const TokenResultCard: React.FC<{
-  token: TokenResponse;
-  onReset: () => void;
-  onStartInApp: () => void | Promise<void>;
-  joiningInApp: boolean;
-}> = ({ token, onReset, onStartInApp, joiningInApp }) => {
+  type JoinTokenFormResult = { payload: JoinResponse; token: string };
+  type JoinTokenFormProps = {
+    visible: boolean;
+    onClose: () => void;
+    onJoined: (result: JoinTokenFormResult) => void;
+    webRtcAvailable: boolean;
+  };
+  const JoinTokenForm: React.FC<JoinTokenFormProps> = ({
+    visible,
+    onClose,
+    onJoined,
+    webRtcAvailable
+  }: JoinTokenFormProps) => {
+  const [tokenValue, setTokenValue] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!visible) {
+      setTokenValue('');
+      setLoading(false);
+    }
+  }, [visible]);
+
+  const handleJoin = async () => {
+    if (!tokenValue.trim()) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const trimmed = tokenValue.trim();
+      const payload = await joinSession(trimmed);
+      onJoined({ payload, token: trimmed });
+      setTokenValue('');
+    } catch (error: any) {
+      Alert.alert('Cannot join session', error?.message ?? 'Unexpected error while joining the session.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.joinOverlay}>
+        <LinearGradient colors={[COLORS.glowSoft, COLORS.glowWarm]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.joinCard}>
+          <View style={styles.formHeader}>
+            <Text style={styles.formTitle}>Enter a token</Text>
+            <TouchableOpacity style={styles.formCloseButton} onPress={onClose}>
+              <Ionicons name="close" size={20} color={COLORS.ice} />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.joinHelper}>Paste or type the token you received to join the live session natively.</Text>
+          {!webRtcAvailable && (
+            <View style={styles.joinInfoBanner}>
+              <Ionicons name="warning" size={18} color={COLORS.danger} />
+              <Text style={styles.joinInfoBannerText}>
+                Expo Go doesn’t include the WebRTC native module. Install the Expo dev build (run “npx expo run:ios” or “npx expo
+                run:android”) to join in-app, or tap “On web” to continue in the browser.
+              </Text>
+            </View>
+          )}
+          <TextInput
+            style={styles.joinInput}
+            placeholder="CHAT-XXXX-XXXX"
+            placeholderTextColor="rgba(255,255,255,0.6)"
+            value={tokenValue}
+            onChangeText={setTokenValue}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            editable={!loading}
+          />
+          <TouchableOpacity
+            style={[styles.joinButton, (loading || !tokenValue.trim()) && styles.joinButtonDisabled]}
+            onPress={handleJoin}
+            disabled={loading || !tokenValue.trim()}
+          >
+            {loading ? <ActivityIndicator color={COLORS.midnight} /> : <Text style={styles.joinButtonLabel}>Join session</Text>}
+          </TouchableOpacity>
+        </LinearGradient>
+      </View>
+    </Modal>
+  );
+};
+
+  type TokenResultCardProps = {
+    token: TokenResponse;
+    onReset: () => void;
+    onStartInApp: () => void | Promise<void>;
+    joiningInApp: boolean;
+    webRtcAvailable: boolean;
+  };
+  const TokenResultCard: React.FC<TokenResultCardProps> = ({
+    token,
+    onReset,
+    onStartInApp,
+    joiningInApp,
+    webRtcAvailable
+  }: TokenResultCardProps) => {
   const shareMessage = useMemo(() => `Join my ChatOrbit session using this token: ${token.token}`, [token.token]);
   const sessionMinutes = Math.max(1, Math.round(token.session_ttl_seconds / 60));
   const messageLimit = token.message_char_limit.toLocaleString();
   const [launchingWeb, setLaunchingWeb] = useState(false);
   const [storedParticipantId, setStoredParticipantId] = useState<string | null>(null);
+  const inAppDisabled = joiningInApp || !webRtcAvailable;
 
   const copyToClipboard = async () => {
     await Clipboard.setStringAsync(token.token);
@@ -474,10 +1093,10 @@ const TokenResultCard: React.FC<{
           style={[
             styles.resultButton,
             styles.primaryResultButton,
-            joiningInApp && styles.primaryResultButtonDisabled
+            inAppDisabled && styles.primaryResultButtonDisabled
           ]}
           onPress={onStartInApp}
-          disabled={joiningInApp}
+          disabled={inAppDisabled}
         >
           {joiningInApp ? (
             <ActivityIndicator color={COLORS.midnight} />
@@ -485,7 +1104,7 @@ const TokenResultCard: React.FC<{
             <MaterialCommunityIcons name="tablet-cellphone" size={20} color={COLORS.midnight} />
           )}
           <Text style={[styles.resultButtonLabel, styles.primaryResultButtonLabel]}>
-            {joiningInApp ? 'Connecting…' : 'In app'}
+            {joiningInApp ? 'Connecting…' : webRtcAvailable ? 'In app' : 'Dev build only'}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -507,6 +1126,20 @@ const TokenResultCard: React.FC<{
           </Text>
         </TouchableOpacity>
       </View>
+      {!webRtcAvailable && (
+        <View style={styles.webrtcNotice}>
+          <Ionicons name="warning" size={18} color={COLORS.danger} />
+          <View style={styles.webrtcNoticeContent}>
+            <Text style={styles.webrtcNoticeText}>
+              Expo Go doesn’t bundle the WebRTC native module. Install the Expo dev build (run “npx expo run:ios” or “npx expo
+              run:android”) to launch sessions here, or choose “On web” to continue in the browser.
+            </Text>
+            <TouchableOpacity style={styles.webrtcNoticeLink} onPress={() => void Linking.openURL(EXPO_DEV_BUILD_DOCS_URL)}>
+              <Text style={styles.webrtcNoticeLinkLabel}>View setup guide</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
       <TouchableOpacity style={styles.resetButton} onPress={onReset}>
         <Text style={styles.resetButtonLabel}>Generate another token</Text>
       </TouchableOpacity>
@@ -514,29 +1147,736 @@ const TokenResultCard: React.FC<{
   );
 };
 
-const InAppSessionScreen: React.FC<{
+type InAppSessionScreenProps = {
   token: TokenResponse;
   participantId: string;
+  participantRole: string;
   onExit: () => void;
-}> = ({ token, participantId, onExit }) => {
-  const [webViewLoaded, setWebViewLoaded] = useState(false);
-  const sessionUrl = useMemo(
-    () =>
-      `https://chatorbit.com/session/${encodeURIComponent(token.token)}?participant=${encodeURIComponent(participantId)}&source=mobile`,
-    [token.token, participantId]
+};
+
+const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
+  token,
+  participantId,
+  participantRole,
+  onExit
+}: InAppSessionScreenProps) => {
+  const [sessionStatus, setSessionStatus] = useState<SessionStatus | null>(null);
+  const [connectedParticipantIds, setConnectedParticipantIds] = useState<string[]>([]);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [statusLoading, setStatusLoading] = useState<boolean>(true);
+  const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [draft, setDraft] = useState('');
+  const [connected, setConnected] = useState(false);
+  const [dataChannelState, setDataChannelState] = useState<DataChannelState | null>(null);
+  const [supportsEncryption, setSupportsEncryption] = useState<boolean | null>(null);
+  const [peerSupportsEncryption, setPeerSupportsEncryption] = useState<boolean | null>(null);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const [socketReady, setSocketReady] = useState(false);
+  const [socketReconnectNonce, setSocketReconnectNonce] = useState(0);
+  const [peerResetNonce, setPeerResetNonce] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  const socketRef = useRef<WebSocket | null>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const dataChannelRef = useRef<PeerDataChannel | null>(null);
+  const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
+  const pendingSignalsRef = useRef<any[]>([]);
+  const pendingCandidatesRef = useRef<any[]>([]);
+  const capabilityAnnouncedRef = useRef(false);
+  const peerSupportsEncryptionRef = useRef<boolean | null>(null);
+  const sessionActiveRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
+  const socketReconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const hasSentOfferRef = useRef(false);
+
+  const webRtcBindings = useMemo(() => getWebRtcBindings(), []);
+
+  if (!webRtcBindings) {
+    return (
+      <LinearGradient
+        colors={[COLORS.glowSoft, COLORS.glowWarm, COLORS.glowSoft]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.sessionFallbackCard}
+      >
+        <Text style={styles.sessionFallbackTitle}>Development build required</Text>
+        <Text style={styles.sessionFallbackBody}>
+          Expo Go doesn’t include the WebRTC native module. Run “npx expo run:ios” or “npx expo run:android” to install the Expo
+          dev build with WebRTC support, then reopen this session.
+        </Text>
+        <TouchableOpacity style={styles.resetButton} onPress={onExit}>
+          <Text style={styles.resetButtonLabel}>Back to token</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.sessionFallbackLink} onPress={() => void Linking.openURL(EXPO_DEV_BUILD_DOCS_URL)}>
+          <Text style={styles.sessionFallbackLinkLabel}>View setup guide</Text>
+        </TouchableOpacity>
+      </LinearGradient>
+    );
+  }
+
+  const { RTCPeerConnection: RTCPeerConnectionCtor, RTCIceCandidate: RTCIceCandidateCtor, RTCSessionDescription: RTCSessionDescriptionCtor } =
+    webRtcBindings;
+
+  const iceServers = useMemo(() => getIceServers(), []);
+  const hasRelaySupport = useMemo(() => hasRelayIceServers(iceServers), [iceServers]);
+  const connectivityVariant = hasRelaySupport ? 'relay' : iceServers.length > 0 ? 'stun' : 'none';
+  const connectivityLabel =
+    connectivityVariant === 'relay'
+      ? 'TURN ready'
+      : connectivityVariant === 'stun'
+        ? 'STUN only'
+        : 'No ICE servers';
+  const connectivityMessage =
+    connectivityVariant === 'relay'
+      ? 'Relay routing enabled for restrictive networks.'
+      : connectivityVariant === 'stun'
+        ? 'Basic STUN available; relay fallback is not configured yet.'
+        : 'Configure STUN or TURN servers to complete the WebRTC flow.';
+  const connectivityBadgeStyle =
+    connectivityVariant === 'relay'
+      ? styles.connectivityBadgeReady
+      : connectivityVariant === 'stun'
+        ? styles.connectivityBadgeLimited
+        : styles.connectivityBadgeWarning;
+  const connectivityIcon =
+    connectivityVariant === 'relay'
+      ? 'radio-outline'
+      : connectivityVariant === 'stun'
+        ? 'alert-circle-outline'
+        : 'close-circle-outline';
+
+  const connectionBadgeLabel = connected ? 'Connected' : isReconnecting ? 'Reconnecting…' : socketReady ? 'Waiting for peer' : 'Offline';
+  const connectionBadgeStyle =
+    connected ? styles.connectionBadgeOnline : isReconnecting ? styles.connectionBadgeReconnecting : styles.connectionBadgeIdle;
+
+  useEffect(() => {
+    setSupportsEncryption(resolveCrypto() !== null);
+  }, []);
+
+  useEffect(() => {
+    hashedMessagesRef.current.clear();
+    setMessages([]);
+    setDraft('');
+    capabilityAnnouncedRef.current = false;
+    peerSupportsEncryptionRef.current = null;
+    setPeerSupportsEncryption(null);
+  }, [token.token]);
+
+  useEffect(() => {
+    sessionActiveRef.current = sessionStatus?.status === 'active';
+  }, [sessionStatus?.status]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const controller = new AbortController();
+    const loadStatus = async (showSpinner: boolean) => {
+      if (showSpinner) {
+        setStatusLoading(true);
+        setStatusError(null);
+      }
+      try {
+        const status = await fetchSessionStatus(token.token, controller.signal);
+        if (isMounted) {
+          setSessionStatus(status);
+          setRemainingSeconds(status.remaining_seconds ?? null);
+          setConnectedParticipantIds(Array.isArray(status.connected_participants) ? status.connected_participants : []);
+          setStatusError(null);
+        }
+      } catch (err: any) {
+        if (isMounted && !controller.signal.aborted) {
+          setStatusError(err?.message ?? 'Unable to load the session status.');
+        }
+      } finally {
+        if (isMounted && showSpinner) {
+          setStatusLoading(false);
+        }
+      }
+    };
+    loadStatus(true);
+
+    const interval = setInterval(() => {
+      loadStatus(false);
+    }, SESSION_POLL_INTERVAL_MS);
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+      clearInterval(interval);
+    };
+  }, [token.token]);
+
+  useEffect(() => {
+    if (sessionStatus) {
+      setRemainingSeconds(sessionStatus.remaining_seconds ?? null);
+    }
+  }, [sessionStatus?.remaining_seconds]);
+
+  useEffect(() => {
+    if (remainingSeconds == null || remainingSeconds <= 0) {
+      return;
+    }
+    const timeout = setTimeout(() => {
+      setRemainingSeconds((prev: number | null) => (prev == null || prev <= 0 ? prev : prev - 1));
+    }, 1000);
+    return () => clearTimeout(timeout);
+  }, [remainingSeconds]);
+
+  const sendSignal = useCallback(
+    (signalType: string, payload: unknown) => {
+      if (!participantId) {
+        return;
+      }
+      const socket = socketRef.current;
+      if (socket?.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      socket.send(
+        JSON.stringify({
+          type: 'signal',
+          signalType,
+          payload
+        })
+      );
+    },
+    [participantId]
+  );
+
+  const sendCapabilities = useCallback(() => {
+    const channel = dataChannelRef.current;
+    if (!channel || channel.readyState !== 'open') {
+      return;
+    }
+    if (supportsEncryption === null) {
+      return;
+    }
+    channel.send(
+      JSON.stringify({
+        type: 'capabilities',
+        supportsEncryption: supportsEncryption === true
+      })
+    );
+    capabilityAnnouncedRef.current = true;
+  }, [supportsEncryption]);
+
+  useEffect(() => {
+    if (supportsEncryption === null) {
+      return;
+    }
+    if (capabilityAnnouncedRef.current) {
+      return;
+    }
+    if (dataChannelRef.current?.readyState === 'open') {
+      sendCapabilities();
+    }
+  }, [sendCapabilities, supportsEncryption]);
+
+  const handlePeerMessage = useCallback(
+    async (rawMessage: string) => {
+      try {
+        const payload = JSON.parse(rawMessage);
+        if (payload.type === 'capabilities') {
+          const remoteSupports = Boolean(payload.supportsEncryption);
+          peerSupportsEncryptionRef.current = remoteSupports;
+          setPeerSupportsEncryption(remoteSupports);
+          return;
+        }
+        if (payload.type === 'message') {
+          const incoming = payload.message as EncryptedMessage;
+          if (!incoming?.messageId || incoming.sessionId !== token.token) {
+            return;
+          }
+          const encryptionMode: EncryptionMode = incoming.encryption ?? 'aes-gcm';
+          if (peerSupportsEncryptionRef.current === null) {
+            peerSupportsEncryptionRef.current = encryptionMode !== 'none';
+            setPeerSupportsEncryption(encryptionMode !== 'none');
+          }
+          let content: string;
+          if (encryptionMode === 'none') {
+            content = incoming.content ?? '';
+          } else {
+            setError('Encrypted messages are not supported on this device.');
+            return;
+          }
+          hashedMessagesRef.current.set(incoming.messageId, { ...incoming, content, deleted: false });
+          setMessages((prev: Message[]) =>
+            upsertMessage(prev, {
+              messageId: incoming.messageId,
+              participantId: incoming.participantId,
+              role: incoming.role,
+              content,
+              createdAt: incoming.createdAt
+            })
+          );
+          setError(null);
+          return;
+        }
+        if (payload.type === 'delete') {
+          const messageId = payload.messageId as string | undefined;
+          if (!messageId) {
+            return;
+          }
+          hashedMessagesRef.current.delete(messageId);
+          setMessages((prev: Message[]) => prev.filter((item: Message) => item.messageId !== messageId));
+        }
+      } catch (err) {
+        console.warn('Unable to process data channel message', err);
+      }
+    },
+    [token.token]
+  );
+
+  const flushPendingCandidates = useCallback(
+    async (pc: RTCPeerConnection) => {
+      if (!pc.remoteDescription) {
+        return;
+      }
+      const backlog = pendingCandidatesRef.current.splice(0);
+      for (const candidate of backlog) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidateCtor(candidate));
+        } catch (err) {
+          console.warn('Failed to apply buffered ICE candidate', err);
+        }
+      }
+    },
+    [RTCIceCandidateCtor]
+  );
+
+  const processSignalPayload = useCallback(
+    async (pc: RTCPeerConnection, payload: any) => {
+      const signalType = payload.signalType as string;
+      const detail = payload.payload;
+      if (signalType === 'offer' && detail) {
+        await pc.setRemoteDescription(new RTCSessionDescriptionCtor(detail));
+        await flushPendingCandidates(pc);
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        sendSignal('answer', answer);
+      } else if (signalType === 'answer' && detail) {
+        await pc.setRemoteDescription(new RTCSessionDescriptionCtor(detail));
+        await flushPendingCandidates(pc);
+      } else if (signalType === 'iceCandidate') {
+        if (!detail) {
+          try {
+            await pc.addIceCandidate(null);
+          } catch (err) {
+            console.warn('Failed to process end-of-candidates signal', err);
+          }
+          return;
+        }
+        if (!pc.remoteDescription) {
+          pendingCandidatesRef.current.push(detail);
+          return;
+        }
+        try {
+          await pc.addIceCandidate(new RTCIceCandidateCtor(detail));
+        } catch (err) {
+          console.warn('Failed to process ICE candidate', err);
+        }
+      }
+    },
+    [RTCIceCandidateCtor, RTCSessionDescriptionCtor, flushPendingCandidates, sendSignal]
+  );
+
+    const handleSignal = useCallback(
+      (payload: any) => {
+        const pc = peerConnectionRef.current;
+        if (!pc) {
+          pendingSignalsRef.current.push(payload);
+          return;
+        }
+        void processSignalPayload(pc, payload);
+      },
+      [processSignalPayload]
+    );
+
+    useEffect(() => {
+      if (!participantId) {
+        return;
+      }
+      const url = `${WS_BASE_URL}/ws/sessions/${encodeURIComponent(token.token)}?participantId=${encodeURIComponent(participantId)}`;
+      let cancelled = false;
+
+      try {
+        const socket = new WebSocket(url);
+        socketRef.current = socket;
+
+        socket.onopen = () => {
+          setSocketReady(true);
+          setStatusError(null);
+          reconnectAttemptsRef.current = 0;
+        };
+
+        socket.onerror = () => {
+          setStatusError('Realtime connection interrupted. Attempting to reconnect…');
+        };
+
+        socket.onclose = () => {
+          socketRef.current = null;
+          setSocketReady(false);
+          if (!cancelled) {
+            setStatusError((prev: string | null) => prev ?? 'Realtime connection closed.');
+            if (!socketReconnectTimeoutRef.current) {
+              const attempt = reconnectAttemptsRef.current + 1;
+              reconnectAttemptsRef.current = attempt;
+              const delay = Math.min(3000, attempt * 600);
+              socketReconnectTimeoutRef.current = setTimeout(() => {
+                socketReconnectTimeoutRef.current = null;
+                if (!cancelled) {
+                  setSocketReconnectNonce((value: number) => value + 1);
+                }
+              }, delay);
+            }
+          }
+        };
+
+        socket.onmessage = (event: MessageEvent) => {
+          try {
+            const payload = JSON.parse(event.data) as SessionStatusSocketPayload | { type: string; signalType?: string };
+            if (payload.type === 'status') {
+              const { connected_participants, type: _ignored, ...rest } = payload as SessionStatusSocketPayload;
+              setSessionStatus(rest);
+              setRemainingSeconds(rest.remaining_seconds ?? null);
+              setConnectedParticipantIds(Array.isArray(connected_participants) ? connected_participants : []);
+              setStatusLoading(false);
+            } else if (payload.type === 'signal') {
+              handleSignal(payload);
+            } else if (payload.type === 'session_closed') {
+              setStatusError('The session has been closed.');
+              setConnected(false);
+            } else if (payload.type === 'session_expired') {
+              setStatusError('The session has expired.');
+              setConnected(false);
+            } else if (payload.type === 'session_deleted') {
+              setStatusError('The session is no longer available.');
+              setConnected(false);
+            }
+          } catch (err) {
+            console.warn('Unable to process websocket payload', err);
+          }
+        };
+      } catch (err) {
+        console.warn('Unable to open realtime session socket', err);
+        setStatusError('Unable to open realtime connection. Some updates may be delayed.');
+        if (!socketReconnectTimeoutRef.current) {
+          socketReconnectTimeoutRef.current = setTimeout(() => {
+            socketReconnectTimeoutRef.current = null;
+            setSocketReconnectNonce((value: number) => value + 1);
+          }, 1500);
+        }
+        return;
+      }
+
+      return () => {
+        cancelled = true;
+        if (socketReconnectTimeoutRef.current) {
+          clearTimeout(socketReconnectTimeoutRef.current as TimeoutHandle);
+          socketReconnectTimeoutRef.current = null;
+        }
+        if (socketRef.current) {
+          try {
+            socketRef.current.close();
+          } catch (err) {
+            console.warn('Failed to close session socket', err);
+          }
+        }
+        socketRef.current = null;
+      };
+    }, [handleSignal, participantId, socketReconnectNonce, token.token]);
+
+    const resetPeerConnection = useCallback(
+      ({ recreate = true, delayMs }: { recreate?: boolean; delayMs?: number } = {}) => {
+      if (iceRetryTimeoutRef.current) {
+        clearTimeout(iceRetryTimeoutRef.current as TimeoutHandle);
+        iceRetryTimeoutRef.current = null;
+      }
+      const existing = peerConnectionRef.current;
+      if (existing) {
+        try {
+          existing.close();
+        } catch (err) {
+          console.warn('Failed to close RTCPeerConnection', err);
+        }
+      }
+      peerConnectionRef.current = null;
+      if (dataChannelRef.current) {
+        try {
+          dataChannelRef.current.close();
+        } catch (err) {
+          console.warn('Failed to close data channel', err);
+        }
+      }
+      dataChannelRef.current = null;
+      capabilityAnnouncedRef.current = false;
+      peerSupportsEncryptionRef.current = null;
+      setPeerSupportsEncryption(null);
+      pendingSignalsRef.current = [];
+      pendingCandidatesRef.current = [];
+      hasSentOfferRef.current = false;
+      setConnected(false);
+      setDataChannelState(null);
+      if (!recreate) {
+        return;
+      }
+      if (delayMs && delayMs > 0) {
+          iceRetryTimeoutRef.current = setTimeout(() => {
+            iceRetryTimeoutRef.current = null;
+            setPeerResetNonce((value: number) => value + 1);
+          }, delayMs);
+        } else {
+          setPeerResetNonce((value: number) => value + 1);
+        }
+    },
+    []
+  );
+
+  const schedulePeerConnectionRecovery = useCallback(
+    (reason: string, { delayMs = 1000 }: { delayMs?: number } = {}) => {
+      console.warn('Scheduling peer connection recovery', reason);
+      if (!sessionActiveRef.current) {
+        return;
+      }
+      setIsReconnecting(true);
+      resetPeerConnection({ delayMs });
+    },
+    [resetPeerConnection]
+  );
+
+    const attachDataChannel = useCallback(
+      (channel: PeerDataChannel, owner: RTCPeerConnection | null) => {
+      dataChannelRef.current = channel;
+      setDataChannelState(channel.readyState as DataChannelState);
+      channel.onopen = () => {
+        setConnected(true);
+        setError(null);
+        setIsReconnecting(false);
+        capabilityAnnouncedRef.current = false;
+        sendCapabilities();
+        setDataChannelState('open');
+      };
+      channel.onclose = () => {
+        setConnected(false);
+        setDataChannelState(channel.readyState as DataChannelState);
+        capabilityAnnouncedRef.current = false;
+        peerSupportsEncryptionRef.current = null;
+        setPeerSupportsEncryption(null);
+        if (owner && peerConnectionRef.current === owner && sessionActiveRef.current) {
+          schedulePeerConnectionRecovery('data channel closed');
+        }
+      };
+      channel.onerror = () => {
+        setConnected(false);
+        setDataChannelState(channel.readyState as DataChannelState);
+        if (owner && peerConnectionRef.current === owner && sessionActiveRef.current) {
+          schedulePeerConnectionRecovery('data channel error');
+        }
+      };
+      channel.onmessage = (event: MessageEvent) => {
+        void handlePeerMessage(event.data);
+      };
+    },
+    [handlePeerMessage, schedulePeerConnectionRecovery, sendCapabilities]
   );
 
   useEffect(() => {
-    setWebViewLoaded(false);
-  }, [sessionUrl]);
+    if (!participantId) {
+      return;
+    }
+    const peerConnection = new RTCPeerConnectionCtor({ iceServers });
+    peerConnectionRef.current = peerConnection;
+
+    const handleIceCandidate = (event: RTCPeerConnectionIceEvent) => {
+      if (event.candidate && event.candidate.candidate) {
+        const candidate = typeof event.candidate.toJSON === 'function' ? event.candidate.toJSON() : event.candidate;
+        sendSignal('iceCandidate', candidate);
+      } else {
+        sendSignal('iceCandidate', null);
+      }
+    };
+
+    const handleConnectionStateChange = () => {
+      const state = peerConnection.connectionState;
+      if (state === 'connected') {
+        setIsReconnecting(false);
+        if (dataChannelRef.current?.readyState === 'open') {
+          setConnected(true);
+        }
+      } else if (state === 'failed' || state === 'disconnected') {
+        setConnected(false);
+        if (sessionActiveRef.current) {
+          schedulePeerConnectionRecovery(`connection ${state}`, { delayMs: state === 'failed' ? 0 : 1200 });
+        }
+      } else if (state === 'closed') {
+        setConnected(false);
+      }
+    };
+
+      const handleDataChannel = (event: RTCDataChannelEvent) => {
+        attachDataChannel(event.channel as unknown as PeerDataChannel, peerConnection);
+      };
+
+    const peerConnectionAny = peerConnection as RTCPeerConnection & {
+      onicecandidate?: ((event: RTCPeerConnectionIceEvent) => void) | null;
+      onconnectionstatechange?: (() => void) | null;
+      ondatachannel?: ((event: RTCDataChannelEvent) => void) | null;
+    };
+
+    peerConnectionAny.onicecandidate = handleIceCandidate;
+    peerConnectionAny.onconnectionstatechange = handleConnectionStateChange;
+    peerConnectionAny.ondatachannel = handleDataChannel;
+
+      if (participantRole === 'host') {
+        const channel = peerConnection.createDataChannel('chat') as unknown as PeerDataChannel;
+        attachDataChannel(channel, peerConnection);
+      }
+
+    const backlog = pendingSignalsRef.current.splice(0);
+    if (backlog.length > 0) {
+      backlog.forEach((item) => {
+        void processSignalPayload(peerConnection, item);
+      });
+    }
+
+    if (participantRole === 'host') {
+      void (async () => {
+        try {
+          const offer = await peerConnection.createOffer();
+          await peerConnection.setLocalDescription(offer);
+          sendSignal('offer', offer);
+          hasSentOfferRef.current = true;
+        } catch (err) {
+          console.warn('Failed to create offer', err);
+        }
+      })();
+    }
+
+    return () => {
+      peerConnectionAny.onicecandidate = null;
+      peerConnectionAny.onconnectionstatechange = null;
+      peerConnectionAny.ondatachannel = null;
+      try {
+        peerConnection.close();
+      } catch (err) {
+        console.warn('Failed to close peer connection', err);
+      }
+      if (dataChannelRef.current) {
+        try {
+          dataChannelRef.current.close();
+        } catch (err) {
+          console.warn('Failed to close data channel', err);
+        }
+      }
+    };
+  }, [RTCPeerConnectionCtor, attachDataChannel, iceServers, participantId, participantRole, processSignalPayload, sendSignal]);
+
+  const sessionStatusLabel = mapStatusLabel(sessionStatus?.status);
+  const sessionStatusDescription = mapStatusDescription(sessionStatus?.status);
+  const statusIndicatorVariant = statusVariant(sessionStatus?.status);
+  const sessionMessageLimit = sessionStatus?.message_char_limit ?? token.message_char_limit ?? DEFAULT_MESSAGE_CHAR_LIMIT;
+  const connectedCount = connectedParticipantIds.length;
+  const participants: SessionParticipant[] = sessionStatus?.participants ?? [];
+  const canSend = connected && draft.trim().length > 0 && !isReconnecting;
+
+  const handleSendMessage = useCallback(async () => {
+    if (!connected) {
+      setError('Connection is not ready yet.');
+      return;
+    }
+    const channel = dataChannelRef.current;
+    if (!channel || channel.readyState !== 'open') {
+      setError('Connection is not ready yet.');
+      return;
+    }
+    if (!participantId) {
+      return;
+    }
+    const trimmed = draft.trim();
+    if (!trimmed) {
+      return;
+    }
+    if (sessionStatus?.message_char_limit && trimmed.length > sessionStatus.message_char_limit) {
+      setError(`Messages are limited to ${sessionStatus.message_char_limit} characters.`);
+      return;
+    }
+    if (peerSupportsEncryption === null) {
+      setError('Connection is still negotiating. Please wait a moment.');
+      return;
+    }
+    const useEncryption = supportsEncryption === true && peerSupportsEncryption === true;
+    const encryptionMode: EncryptionMode = useEncryption ? 'aes-gcm' : 'none';
+    const messageId = generateMessageId();
+    const createdAt = new Date().toISOString();
+    try {
+      const hash = await computeMessageHash(token.token, participantId, messageId, trimmed);
+      let record: EncryptedMessage;
+      if (useEncryption) {
+        const key = await deriveKey(token.token);
+        const encryptedContent = await encryptText(key, trimmed);
+        record = {
+          sessionId: token.token,
+          messageId,
+          participantId,
+          role: participantRole,
+          createdAt,
+          encryptedContent,
+          hash,
+          encryption: encryptionMode,
+          deleted: false
+        };
+      } else {
+        record = {
+          sessionId: token.token,
+          messageId,
+          participantId,
+          role: participantRole,
+          createdAt,
+          content: trimmed,
+          hash,
+          encryption: encryptionMode,
+          deleted: false
+        };
+      }
+      hashedMessagesRef.current.set(messageId, record);
+      channel.send(
+        JSON.stringify({
+          type: 'message',
+          message: record
+        })
+      );
+      setMessages((prev: Message[]) =>
+        upsertMessage(prev, {
+          messageId,
+          participantId,
+          role: participantRole,
+          content: trimmed,
+          createdAt
+        })
+      );
+      setDraft('');
+      setError(null);
+    } catch (err) {
+      console.warn('Failed to send message', err);
+      setError('Unable to send your message.');
+    }
+  }, [connected, draft, participantId, participantRole, peerSupportsEncryption, sessionStatus?.message_char_limit, supportsEncryption, token.token]);
+
+    const renderMessage: ListRenderItem<Message> = ({ item }) => {
+      const isSelf = item.participantId === participantId;
+      return (
+        <View style={[styles.chatBubble, isSelf ? styles.chatBubbleSelf : styles.chatBubblePeer]}>
+          <Text style={styles.chatBubbleMeta}>
+            {item.role === 'host' ? 'Host' : 'Guest'} ·{' '}
+            {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </Text>
+          <Text style={styles.chatBubbleText}>{item.content}</Text>
+        </View>
+      );
+    };
 
   return (
-    <LinearGradient
-      colors={[COLORS.glowSoft, COLORS.glowWarm, COLORS.glowSoft]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.inAppSessionContainer}
-    >
+    <LinearGradient colors={[COLORS.glowSoft, COLORS.glowWarm, COLORS.glowSoft]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.inAppSessionContainer}>
       <SafeAreaView style={styles.inAppSessionSafeArea}>
         <View style={styles.inAppHeaderRow}>
           <TouchableOpacity accessibilityRole="button" style={styles.inAppBackButton} onPress={onExit}>
@@ -548,22 +1888,123 @@ const InAppSessionScreen: React.FC<{
             <Text style={styles.inAppSubtitle}>Keep this screen open while participants join.</Text>
           </View>
         </View>
-        <View style={styles.sessionWebViewWrapper}>
-          {!webViewLoaded && (
-            <View style={styles.webViewLoadingOverlay}>
-              <ActivityIndicator color={COLORS.aurora} size="large" />
-              <Text style={styles.webViewLoadingText}>Preparing realtime channel…</Text>
+        <View style={styles.sessionContent}>
+          <View style={styles.sessionStatusCard}>
+            <View style={styles.sessionCardHeader}>
+              <Text style={styles.sessionCardTitle}>Session status</Text>
+              <View style={[styles.statusPill, statusIndicatorVariant === 'success' ? styles.statusPillSuccess : statusIndicatorVariant === 'waiting' ? styles.statusPillWaiting : styles.statusPillInactive]}>
+                <View style={styles.statusPillIndicator} />
+                <Text style={styles.statusPillLabel}>{sessionStatusLabel}</Text>
+              </View>
             </View>
-          )}
-          <WebView
-            originWhitelist={["*"]}
-            source={{ uri: sessionUrl }}
-            style={styles.sessionWebView}
-            onLoadEnd={() => setWebViewLoaded(true)}
-            allowsInlineMediaPlayback
-            mediaPlaybackRequiresUserAction={false}
-            allowsFullscreenVideo
-          />
+            <Text style={styles.sessionCardDescription}>{sessionStatusDescription}</Text>
+            <View style={[styles.connectivityBanner, connectivityBadgeStyle]}>
+              <Ionicons name={connectivityIcon as any} size={18} color={COLORS.ice} />
+              <View style={styles.connectivityBannerText}>
+                <Text style={styles.connectivityBannerLabel}>{connectivityLabel}</Text>
+                <Text style={styles.connectivityBannerMessage}>{connectivityMessage}</Text>
+              </View>
+            </View>
+            {statusLoading ? (
+              <View style={styles.statusLoadingRow}>
+                <ActivityIndicator color={COLORS.aurora} />
+                <Text style={styles.statusLoadingLabel}>Loading session details…</Text>
+              </View>
+            ) : statusError ? (
+              <View style={styles.statusErrorBanner}>
+                <Ionicons name="alert-circle" size={18} color={COLORS.danger} />
+                <Text style={styles.statusErrorLabel}>{statusError}</Text>
+              </View>
+            ) : (
+              <View style={styles.statusMetricsContainer}>
+                <View style={styles.statusMetricRow}>
+                  <Text style={styles.statusMetricLabel}>Timer</Text>
+                  <Text style={styles.statusMetricValue}>{formatRemainingTime(remainingSeconds)}</Text>
+                </View>
+                <View style={styles.statusMetricRow}>
+                  <Text style={styles.statusMetricLabel}>Message limit</Text>
+                  <Text style={styles.statusMetricValue}>{sessionMessageLimit.toLocaleString()} characters</Text>
+                </View>
+                <View style={styles.statusMetricRow}>
+                  <Text style={styles.statusMetricLabel}>Connected</Text>
+                  <Text style={styles.statusMetricValue}>
+                    {connectedCount}/{Math.max(participants.length, 2)} participants
+                  </Text>
+                </View>
+                <View style={styles.participantList}>
+                  {participants.length === 0 ? (
+                    <Text style={styles.participantEmpty}>Waiting for participants to join…</Text>
+                  ) : (
+                    participants.map((participant: SessionParticipant) => {
+                      const isConnected = connectedParticipantIds.includes(participant.participant_id);
+                      return (
+                        <View key={participant.participant_id} style={styles.participantRow}>
+                          <View style={styles.participantDetails}>
+                            <Text style={styles.participantRoleLabel}>{participant.role === 'host' ? 'Host' : 'Guest'}</Text>
+                            <Text style={styles.participantMeta}>{formatJoinedAt(participant.joined_at)}</Text>
+                          </View>
+                          <View style={[styles.participantBadge, isConnected ? styles.participantBadgeOnline : styles.participantBadgeOffline]}>
+                            <Text style={styles.participantBadgeLabel}>{isConnected ? 'Connected' : 'Awaiting connection'}</Text>
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+              </View>
+            )}
+          </View>
+
+          <KeyboardAvoidingView
+            style={styles.chatCard}
+            behavior={Platform.select({ ios: 'padding', android: undefined })}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 32 : 0}
+          >
+            <View style={styles.sessionCardHeader}>
+              <Text style={styles.sessionCardTitle}>Messages</Text>
+              <View style={[styles.connectionBadge, connectionBadgeStyle]}>
+                <Text style={styles.connectionBadgeLabel}>{connectionBadgeLabel}</Text>
+              </View>
+            </View>
+            <Text style={styles.sessionCardDescription}>
+              Chat with your guest using the native realtime channel. Messages sync over the same WebRTC data channel used on the web.
+            </Text>
+            <View style={styles.chatListWrapper}>
+              {messages.length === 0 ? (
+                <View style={styles.chatEmptyState}>
+                  <Text style={styles.chatEmptyText}>
+                    {connected ? 'Say hello to get things started.' : 'Waiting for the realtime channel to connect…'}
+                  </Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={messages}
+                  renderItem={renderMessage}
+                    keyExtractor={(item: Message) => item.messageId}
+                  style={styles.chatList}
+                  contentContainerStyle={styles.chatListContent}
+                />
+              )}
+            </View>
+            {error ? <Text style={styles.chatError}>{error}</Text> : null}
+            <View style={styles.chatComposerRow}>
+              <TextInput
+                style={styles.chatInput}
+                placeholder="Type a message…"
+                placeholderTextColor="rgba(255,255,255,0.6)"
+                value={draft}
+                onChangeText={setDraft}
+                editable={connected && !isReconnecting}
+                multiline
+              />
+              <TouchableOpacity style={[styles.sendButton, !canSend && styles.sendButtonDisabled]} onPress={handleSendMessage} disabled={!canSend}>
+                {canSend ? <Ionicons name="send" size={18} color={COLORS.midnight} /> : <Ionicons name="send" size={18} color="rgba(2,11,31,0.4)" />}
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.chatMetaLabel}>
+              Data channel: {dataChannelState ?? '—'} · Socket: {socketReady ? 'connected' : 'offline'}
+            </Text>
+          </KeyboardAvoidingView>
         </View>
       </SafeAreaView>
     </LinearGradient>
@@ -571,11 +2012,14 @@ const InAppSessionScreen: React.FC<{
 };
 
 const MainScreen: React.FC = () => {
+  const webRtcAvailable = isWebRtcSupported();
   const [showForm, setShowForm] = useState(false);
+  const [showJoinForm, setShowJoinForm] = useState(false);
   const [tokenResponse, setTokenResponse] = useState<TokenResponse | null>(null);
   const [inAppSession, setInAppSession] = useState(false);
   const [joiningInApp, setJoiningInApp] = useState(false);
   const [inAppParticipantId, setInAppParticipantId] = useState<string | null>(null);
+  const [participantRole, setParticipantRole] = useState<string | null>(null);
   const isInAppSessionActive = Boolean(tokenResponse && inAppSession);
 
   const handleReset = () => {
@@ -583,10 +2027,19 @@ const MainScreen: React.FC = () => {
     setInAppSession(false);
     setInAppParticipantId(null);
     setJoiningInApp(false);
+    setParticipantRole(null);
+    setShowJoinForm(false);
   };
 
   const handleStartInApp = async () => {
     if (!tokenResponse || joiningInApp) {
+      return;
+    }
+    if (!webRtcAvailable) {
+      Alert.alert(
+        'Development build required',
+        'Expo Go does not include the WebRTC native module. Run “npx expo run:ios” or “npx expo run:android” to install the Expo dev build before launching sessions here, or use “On web”.'
+      );
       return;
     }
 
@@ -594,6 +2047,8 @@ const MainScreen: React.FC = () => {
       setJoiningInApp(true);
       const payload = await joinSession(tokenResponse.token, inAppParticipantId);
       setInAppParticipantId(payload.participant_id);
+      setTokenResponse((prev: TokenResponse | null) => (prev ? { ...prev, token: payload.token || prev.token } : prev));
+      setParticipantRole(payload.role ?? 'host');
       setInAppSession(true);
     } catch (error: any) {
       Alert.alert('Cannot start session', error?.message ?? 'Unexpected error while launching the in-app session.');
@@ -604,7 +2059,29 @@ const MainScreen: React.FC = () => {
 
   const renderContent = () => {
     if (tokenResponse && inAppSession) {
-      if (!inAppParticipantId) {
+      if (!webRtcAvailable) {
+        return (
+          <LinearGradient
+            colors={[COLORS.glowSoft, COLORS.glowWarm, COLORS.glowSoft]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.sessionFallbackCard}
+          >
+            <Text style={styles.sessionFallbackTitle}>Development build required</Text>
+            <Text style={styles.sessionFallbackBody}>
+              Expo Go doesn’t ship the WebRTC native module. Install the Expo dev build (run “npx expo run:ios” or “npx expo
+              run:android”) and relaunch the app to continue hosting sessions natively.
+            </Text>
+            <TouchableOpacity style={styles.resetButton} onPress={() => setInAppSession(false)}>
+              <Text style={styles.resetButtonLabel}>Back to token</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.sessionFallbackLink} onPress={() => void Linking.openURL(EXPO_DEV_BUILD_DOCS_URL)}>
+              <Text style={styles.sessionFallbackLinkLabel}>View setup guide</Text>
+            </TouchableOpacity>
+          </LinearGradient>
+        );
+      }
+      if (!inAppParticipantId || !participantRole) {
         return (
           <LinearGradient
             colors={[COLORS.glowSoft, COLORS.glowWarm, COLORS.glowSoft]}
@@ -627,6 +2104,7 @@ const MainScreen: React.FC = () => {
         <InAppSessionScreen
           token={tokenResponse}
           participantId={inAppParticipantId}
+          participantRole={participantRole!}
           onExit={() => setInAppSession(false)}
         />
       );
@@ -639,6 +2117,7 @@ const MainScreen: React.FC = () => {
           onReset={handleReset}
           onStartInApp={handleStartInApp}
           joiningInApp={joiningInApp}
+          webRtcAvailable={webRtcAvailable}
         />
       );
     }
@@ -654,8 +2133,8 @@ const MainScreen: React.FC = () => {
         />
         <BigActionButton
           title="Got token"
-          description="Coming soon: instantly jump into live orbit."
-          onPress={() => Alert.alert('Coming soon', 'Session join will arrive with the WebRTC update!')}
+          description="Enter a shared key to join an existing orbit."
+          onPress={() => setShowJoinForm(true)}
           background="rgba(6, 36, 92, 0.78)"
           icon={<MaterialCommunityIcons name="shield-check" size={42} color={COLORS.aurora} />}
         />
@@ -680,16 +2159,45 @@ const MainScreen: React.FC = () => {
         </View>
       )}
       {renderContent()}
-      <NeedTokenForm
-        visible={showForm && !tokenResponse}
-        onClose={() => setShowForm(false)}
-        onGenerated={(token) => {
-          setShowForm(false);
-          setTokenResponse(token);
-          setInAppParticipantId(null);
-          setInAppSession(false);
+        <NeedTokenForm
+          visible={showForm && !tokenResponse}
+          onClose={() => setShowForm(false)}
+          onGenerated={(tokenData: TokenResponse) => {
+            setShowForm(false);
+            setTokenResponse(tokenData);
+            setInAppParticipantId(null);
+            setInAppSession(false);
+            setJoiningInApp(false);
+            setParticipantRole(null);
+          }}
+      />
+        <JoinTokenForm
+          visible={showJoinForm && !tokenResponse}
+          onClose={() => setShowJoinForm(false)}
+          onJoined={({ payload, token }: JoinTokenFormResult) => {
+          setShowJoinForm(false);
+          const now = Date.now();
+          const ttlGuess = payload.session_expires_at && payload.session_started_at
+            ? Math.max(
+                0,
+                Math.round(
+                  (new Date(payload.session_expires_at).getTime() - new Date(payload.session_started_at).getTime()) / 1000
+                )
+              )
+            : 3600;
+          setTokenResponse({
+            token: payload.token || token,
+            validity_expires_at: payload.session_expires_at ?? payload.session_started_at ?? new Date(now + ttlGuess * 1000).toISOString(),
+            session_ttl_seconds: ttlGuess,
+            message_char_limit: payload.message_char_limit ?? DEFAULT_MESSAGE_CHAR_LIMIT,
+            created_at: new Date().toISOString()
+          });
+          setInAppParticipantId(payload.participant_id);
+          setParticipantRole(payload.role ?? 'guest');
+          setInAppSession(true);
           setJoiningInApp(false);
         }}
+          webRtcAvailable={webRtcAvailable}
       />
     </LinearGradient>
   );
@@ -1005,6 +2513,33 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 12
   },
+  webrtcNotice: {
+    flexDirection: 'row',
+    gap: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 71, 111, 0.4)',
+    backgroundColor: 'rgba(239, 71, 111, 0.1)',
+    padding: 14,
+    marginBottom: 12
+  },
+  webrtcNoticeContent: {
+    flex: 1,
+    gap: 8
+  },
+  webrtcNoticeText: {
+    color: 'rgba(219, 237, 255, 0.9)',
+    lineHeight: 18,
+    fontSize: 13
+  },
+  webrtcNoticeLink: {
+    alignSelf: 'flex-start'
+  },
+  webrtcNoticeLinkLabel: {
+    color: COLORS.aurora,
+    fontWeight: '700',
+    textDecorationLine: 'underline'
+  },
   resetButton: {
     marginTop: 24,
     alignItems: 'center'
@@ -1070,28 +2605,299 @@ const styles = StyleSheet.create({
     color: 'rgba(219, 237, 255, 0.78)',
     lineHeight: 20
   },
-  sessionWebViewWrapper: {
+  sessionContent: {
     flex: 1,
-    borderRadius: 22,
-    overflow: 'hidden',
+    paddingBottom: 28,
+    gap: 18
+  },
+  sessionStatusCard: {
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: 'rgba(111, 214, 255, 0.4)',
-    backgroundColor: 'rgba(2, 11, 31, 0.7)'
+    borderColor: 'rgba(111, 214, 255, 0.45)',
+    backgroundColor: 'rgba(2, 11, 31, 0.78)',
+    padding: 20,
+    gap: 14
   },
-  sessionWebView: {
+  chatCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.38)',
+    backgroundColor: 'rgba(6, 36, 92, 0.66)',
+    padding: 20,
     flex: 1,
-    backgroundColor: 'transparent'
+    gap: 12,
+    minHeight: 320
   },
-  webViewLoadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+  sessionCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  sessionCardTitle: {
+    color: COLORS.ice,
+    fontSize: 18,
+    fontWeight: '700'
+  },
+  sessionCardDescription: {
+    color: 'rgba(219, 237, 255, 0.78)',
+    lineHeight: 20
+  },
+  chatListWrapper: {
+    flex: 1,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.2)',
+    backgroundColor: 'rgba(2, 11, 31, 0.7)',
+    padding: 12
+  },
+  chatList: {
+    flex: 1
+  },
+  chatListContent: {
+    gap: 12,
+    paddingBottom: 12
+  },
+  chatEmptyState: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(2, 11, 31, 0.72)',
-    gap: 12,
-    zIndex: 10
+    paddingVertical: 24
   },
-  webViewLoadingText: {
-    color: 'rgba(219, 237, 255, 0.86)',
+  chatEmptyText: {
+    color: 'rgba(219, 237, 255, 0.75)',
+    textAlign: 'center'
+  },
+  chatBubble: {
+    padding: 12,
+    borderRadius: 18,
+    backgroundColor: 'rgba(9, 30, 74, 0.72)'
+  },
+  chatBubbleSelf: {
+    alignSelf: 'flex-end',
+    backgroundColor: 'rgba(136, 230, 255, 0.18)'
+  },
+  chatBubblePeer: {
+    alignSelf: 'flex-start'
+  },
+  chatBubbleMeta: {
+    color: 'rgba(219, 237, 255, 0.6)',
+    fontSize: 12,
+    marginBottom: 6
+  },
+  chatBubbleText: {
+    color: COLORS.ice,
+    lineHeight: 20
+  },
+  chatComposerRow: {
+    marginTop: 12,
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'flex-end'
+  },
+  chatInput: {
+    flex: 1,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.3)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: COLORS.ice,
+    minHeight: 48,
+    backgroundColor: 'rgba(2, 11, 31, 0.6)'
+  },
+  chatError: {
+    color: COLORS.danger,
+    fontWeight: '600'
+  },
+  sendButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: COLORS.aurora,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  sendButtonDisabled: {
+    backgroundColor: 'rgba(111, 231, 255, 0.3)'
+  },
+  connectivityBanner: {
+    marginTop: 6,
+    padding: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12
+  },
+  connectivityBadgeReady: {
+    backgroundColor: 'rgba(111, 231, 255, 0.12)',
+    borderColor: 'rgba(111, 231, 255, 0.6)'
+  },
+  connectivityBadgeLimited: {
+    backgroundColor: 'rgba(255, 209, 102, 0.12)',
+    borderColor: 'rgba(255, 209, 102, 0.6)'
+  },
+  connectivityBadgeWarning: {
+    backgroundColor: 'rgba(239, 71, 111, 0.14)',
+    borderColor: 'rgba(239, 71, 111, 0.55)'
+  },
+  connectivityBannerText: {
+    flex: 1
+  },
+  connectivityBannerLabel: {
+    color: COLORS.ice,
+    fontWeight: '700'
+  },
+  connectivityBannerMessage: {
+    color: 'rgba(219, 237, 255, 0.78)',
+    fontSize: 12,
+    marginTop: 2
+  },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999
+  },
+  statusPillIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: COLORS.ice
+  },
+  statusPillLabel: {
+    color: COLORS.midnight,
+    fontWeight: '600',
+    fontSize: 13
+  },
+  statusPillSuccess: {
+    backgroundColor: COLORS.aurora
+  },
+  statusPillWaiting: {
+    backgroundColor: '#FFD166'
+  },
+  statusPillInactive: {
+    backgroundColor: 'rgba(219, 237, 255, 0.68)'
+  },
+  statusLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10
+  },
+  statusLoadingLabel: {
+    color: 'rgba(219, 237, 255, 0.82)',
+    fontWeight: '600'
+  },
+  statusErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(239, 71, 111, 0.16)',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 71, 111, 0.32)'
+  },
+  statusErrorLabel: {
+    color: COLORS.danger,
+    flex: 1,
+    fontWeight: '600'
+  },
+  statusMetricsContainer: {
+    gap: 12
+  },
+  statusMetricRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  statusMetricLabel: {
+    color: 'rgba(219, 237, 255, 0.7)',
+    fontWeight: '600'
+  },
+  statusMetricValue: {
+    color: COLORS.ice,
+    fontWeight: '600'
+  },
+  participantList: {
+    marginTop: 12,
+    gap: 12
+  },
+  participantRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 18,
+    backgroundColor: 'rgba(4, 23, 60, 0.66)',
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.24)'
+  },
+  participantDetails: {
+    flex: 1,
+    marginRight: 12
+  },
+  participantRoleLabel: {
+    color: COLORS.ice,
+    fontWeight: '700'
+  },
+  participantMeta: {
+    marginTop: 4,
+    color: 'rgba(219, 237, 255, 0.68)',
+    fontSize: 12
+  },
+  participantBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999
+  },
+  participantBadgeOnline: {
+    backgroundColor: 'rgba(136, 230, 255, 0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(136, 230, 255, 0.5)'
+  },
+  participantBadgeOffline: {
+    backgroundColor: 'rgba(255, 209, 102, 0.22)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 209, 102, 0.4)'
+  },
+  participantBadgeLabel: {
+    color: COLORS.ice,
+    fontWeight: '600',
+    fontSize: 12
+  },
+  participantEmpty: {
+    color: 'rgba(219, 237, 255, 0.65)',
+    fontStyle: 'italic'
+  },
+  chatMetaLabel: {
+    color: 'rgba(219, 237, 255, 0.7)',
+    fontWeight: '600'
+  },
+  connectionBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1
+  },
+  connectionBadgeOnline: {
+    borderColor: 'rgba(136, 230, 255, 0.6)',
+    backgroundColor: 'rgba(136, 230, 255, 0.2)'
+  },
+  connectionBadgeReconnecting: {
+    borderColor: 'rgba(255, 209, 102, 0.6)',
+    backgroundColor: 'rgba(255, 209, 102, 0.2)'
+  },
+  connectionBadgeIdle: {
+    borderColor: 'rgba(255, 108, 96, 0.4)',
+    backgroundColor: 'rgba(255, 108, 96, 0.2)'
+  },
+  connectionBadgeLabel: {
+    color: COLORS.ice,
     fontWeight: '600'
   },
   sessionFallbackCard: {
@@ -1117,5 +2923,72 @@ const styles = StyleSheet.create({
   sessionFallbackBody: {
     color: 'rgba(219, 237, 255, 0.78)',
     lineHeight: 20
+  },
+  sessionFallbackLink: {
+    alignItems: 'center'
+  },
+  sessionFallbackLinkLabel: {
+    color: COLORS.aurora,
+    fontWeight: '600',
+    textDecorationLine: 'underline'
+  },
+  joinOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24
+  },
+  joinCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge,
+    padding: 24,
+    gap: 16
+  },
+  joinHelper: {
+    color: 'rgba(219, 237, 255, 0.78)',
+    lineHeight: 20
+  },
+  joinInfoBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 71, 111, 0.4)',
+    backgroundColor: 'rgba(239, 71, 111, 0.12)',
+    padding: 12,
+    marginBottom: 4
+  },
+  joinInfoBannerText: {
+    flex: 1,
+    color: 'rgba(219, 237, 255, 0.85)',
+    lineHeight: 18,
+    fontSize: 13
+  },
+  joinInput: {
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.4)',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    color: COLORS.ice,
+    backgroundColor: 'rgba(2, 11, 31, 0.6)'
+  },
+  joinButton: {
+    borderRadius: 18,
+    backgroundColor: COLORS.aurora,
+    paddingVertical: 14,
+    alignItems: 'center'
+  },
+  joinButtonDisabled: {
+    backgroundColor: 'rgba(111, 231, 255, 0.4)'
+  },
+  joinButtonLabel: {
+    color: COLORS.midnight,
+    fontWeight: '700'
   }
 });
