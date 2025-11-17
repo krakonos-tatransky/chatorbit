@@ -45,6 +45,11 @@ LogBox.ignoreLogs([
   // when the keyboard feedback generator initializes. This does not affect functionality.
   'hapticpatternlibrary.plist',
   'Error creating CHHapticPattern',
+  // Simulators also emit RemoteTextInput warnings when focusing fields without a session id.
+  'RemoteTextInput',
+  'perform input operation requires a valid sessionID',
+  // Keyboards may warn about missing haptic assets while generating feedback.
+  'UIKBFeedbackGenerator'
 ]);
 const EXPO_DEV_BUILD_DOCS_URL = 'https://docs.expo.dev/development/introduction/';
 
