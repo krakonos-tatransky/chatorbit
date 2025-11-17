@@ -18,5 +18,7 @@ module.exports = (config) =>
       infoPlist.NSCameraUsageDescription = DEFAULT_CAMERA_MESSAGE;
     }
 
+    // Ensure the plist is attached even if modResults was initially undefined.
+    config.modResults = infoPlist;
     return config;
   });
