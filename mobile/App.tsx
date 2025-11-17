@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { ComponentType, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -28,14 +28,14 @@ import type {
   RTCIceCandidate as NativeRTCIceCandidate,
   RTCSessionDescription as NativeRTCSessionDescription,
   MediaStream as NativeMediaStream,
-  RTCTrackEvent as NativeRTCTrackEvent,
-  RTCView
+  RTCTrackEvent as NativeRTCTrackEvent
 } from 'react-native-webrtc';
 type RTCPeerConnection = NativeRTCPeerConnection;
 type RTCIceCandidate = NativeRTCIceCandidate;
 type RTCSessionDescription = NativeRTCSessionDescription;
 type MediaStream = NativeMediaStream;
 type RTCTrackEvent = NativeRTCTrackEvent;
+type RTCViewComponent = ComponentType<{ streamURL: string; objectFit?: string; mirror?: boolean }>;
 import { getIceServers, hasRelayIceServers } from './webrtc';
 
 const env = typeof process !== 'undefined' && process.env ? process.env : undefined;
@@ -52,6 +52,7 @@ type WebRtcBindings = {
   RTCPeerConnection: new (...args: any[]) => NativeRTCPeerConnection;
   RTCIceCandidate: new (...args: any[]) => NativeRTCIceCandidate;
   RTCSessionDescription: new (...args: any[]) => NativeRTCSessionDescription;
+  RTCView?: RTCViewComponent;
   mediaDevices?: {
     getUserMedia: (constraints: Record<string, unknown>) => Promise<MediaStream>;
   };
@@ -1244,6 +1245,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
 
   const { RTCPeerConnection: RTCPeerConnectionCtor, RTCIceCandidate: RTCIceCandidateCtor, RTCSessionDescription: RTCSessionDescriptionCtor } =
     webRtcBindings;
+  const RTCViewComponent = webRtcBindings.RTCView;
 
   const iceServers = useMemo(() => getIceServers(), []);
   const hasRelaySupport = useMemo(() => hasRelayIceServers(iceServers), [iceServers]);
@@ -2566,8 +2568,8 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             <View style={styles.videoPreviewRow}>
               <View style={styles.videoPane}>
                 <Text style={styles.videoPaneLabel}>Remote</Text>
-                {remoteVideoUrl ? (
-                  <RTCView streamURL={remoteVideoUrl} style={styles.videoSurface} objectFit="cover" />
+                {RTCViewComponent && remoteVideoUrl ? (
+                  <RTCViewComponent streamURL={remoteVideoUrl} style={styles.videoSurface} objectFit="cover" />
                 ) : (
                   <View style={styles.videoPlaceholder}>
                     <Ionicons name="videocam-outline" size={28} color={COLORS.ice} />
@@ -2577,8 +2579,8 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
               </View>
               <View style={styles.videoPane}>
                 <Text style={styles.videoPaneLabel}>You</Text>
-                {localVideoUrl ? (
-                  <RTCView streamURL={localVideoUrl} style={styles.videoSurface} objectFit="cover" mirror />
+                {RTCViewComponent && localVideoUrl ? (
+                  <RTCViewComponent streamURL={localVideoUrl} style={styles.videoSurface} objectFit="cover" mirror />
                 ) : (
                   <View style={styles.videoPlaceholder}>
                     <Ionicons name="person-circle-outline" size={28} color={COLORS.ice} />
