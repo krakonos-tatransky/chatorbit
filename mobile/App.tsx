@@ -1769,7 +1769,16 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         }
       }
     };
-  }, [RTCPeerConnectionCtor, attachDataChannel, iceServers, participantId, participantRole, processSignalPayload, sendSignal]);
+  }, [
+    RTCPeerConnectionCtor,
+    attachDataChannel,
+    iceServers,
+    participantId,
+    participantRole,
+    peerResetNonce,
+    processSignalPayload,
+    sendSignal
+  ]);
 
   const sessionStatusLabel = mapStatusLabel(sessionStatus?.status);
   const sessionStatusDescription = mapStatusDescription(sessionStatus?.status);
