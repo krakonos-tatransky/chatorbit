@@ -1183,6 +1183,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const dataChannelRef = useRef<PeerDataChannel | null>(null);
   const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
   const pendingSignalsRef = useRef<any[]>([]);
+  const pendingOutgoingSignalsRef = useRef<{ type: string; signalType: string; payload: unknown }[]>([]);
   const pendingCandidatesRef = useRef<any[]>([]);
   const capabilityAnnouncedRef = useRef(false);
   const peerSupportsEncryptionRef = useRef<boolean | null>(null);
@@ -1255,6 +1256,10 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   useEffect(() => {
     setSupportsEncryption(resolveCrypto() !== null);
   }, []);
+
+  useEffect(() => {
+    pendingOutgoingSignalsRef.current = [];
+  }, [token.token]);
 
   useEffect(() => {
     hashedMessagesRef.current.clear();
@@ -1387,21 +1392,33 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         return;
       }
       const socket = socketRef.current;
+      const message = { type: 'signal', signalType, payload };
       if (socket?.readyState !== WebSocket.OPEN) {
-        logSocket('signal skip: socket not open', signalType, socket?.readyState);
+        logSocket('signal queued: socket not open', signalType, socket?.readyState);
+        pendingOutgoingSignalsRef.current.push(message);
         return;
       }
       console.debug('rn-webrtc:signal:out', signalType, summarizeSignalPayload(signalType, payload));
-      socket.send(
-        JSON.stringify({
-          type: 'signal',
-          signalType,
-          payload
-        })
-      );
+      socket.send(JSON.stringify(message));
     },
     [logSocket, participantId, summarizeSignalPayload]
   );
+
+  const flushQueuedSignals = useCallback((socket?: WebSocket | null) => {
+    const targetSocket = socket ?? socketRef.current;
+    if (!targetSocket || targetSocket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    const backlog = pendingOutgoingSignalsRef.current.splice(0);
+    if (backlog.length === 0) {
+      return;
+    }
+    logSocket('flushing queued signals', backlog.length);
+    backlog.forEach((message) => {
+      console.debug('rn-webrtc:signal:out', message.signalType, summarizeSignalPayload(message.signalType, message.payload));
+      targetSocket.send(JSON.stringify(message));
+    });
+  }, [logSocket, summarizeSignalPayload]);
 
   const sendCapabilities = useCallback(() => {
     const channel = dataChannelRef.current;
@@ -1583,6 +1600,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         setSocketReady(true);
         setStatusError(null);
         reconnectAttemptsRef.current = 0;
+        flushQueuedSignals(socket);
       };
 
       socket.onerror = (event: Event) => {
@@ -1672,7 +1690,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       }
       socketRef.current = null;
     };
-  }, [handleSignal, logSocket, participantId, socketReconnectNonce, summarizeSignalPayload, token.token]);
+  }, [flushQueuedSignals, handleSignal, logSocket, participantId, socketReconnectNonce, summarizeSignalPayload, token.token]);
 
   const resetPeerConnection = useCallback(
     ({ recreate = true, delayMs }: { recreate?: boolean; delayMs?: number } = {}) => {
