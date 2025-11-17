@@ -4,6 +4,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Linking,
+  LogBox,
   Modal,
   NativeModules,
   Platform,
@@ -38,6 +39,13 @@ type RTCTrackEvent = NativeRTCTrackEvent;
 import { getIceServers, hasRelayIceServers } from './webrtc';
 
 const env = typeof process !== 'undefined' && process.env ? process.env : undefined;
+
+LogBox.ignoreLogs([
+  // iOS simulators do not ship the haptic pattern library, which triggers noisy warnings
+  // when the keyboard feedback generator initializes. This does not affect functionality.
+  'hapticpatternlibrary.plist',
+  'Error creating CHHapticPattern',
+]);
 const EXPO_DEV_BUILD_DOCS_URL = 'https://docs.expo.dev/development/introduction/';
 
 type WebRtcBindings = {
