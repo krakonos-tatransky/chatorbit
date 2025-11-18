@@ -2505,6 +2505,14 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         attachDataChannel(channel, pc);
       }
 
+      if (callStateRef.current !== 'idle') {
+        try {
+          await ensureCallMedia();
+        } catch (err) {
+          console.warn('Failed to restore call media on reconnect', err);
+        }
+      }
+
       const backlog = pendingSignalsRef.current.splice(0);
       if (backlog.length > 0) {
         logPeer(pc, 'replaying buffered signals', backlog.length);
@@ -2532,7 +2540,11 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         } catch (err) {
           console.warn('Failed to create offer', err);
         }
-      } else if (!pc.remoteDescription && !fallbackOfferTimeoutRef.current) {
+      } else if (
+        callStateRef.current === 'idle' &&
+        !pc.remoteDescription &&
+        !fallbackOfferTimeoutRef.current
+      ) {
         fallbackOfferTimeoutRef.current = setTimeout(async () => {
           fallbackOfferTimeoutRef.current = null;
           if (!peerConnectionRef.current || peerConnectionRef.current !== pc) {
@@ -2608,6 +2620,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     participantId,
     participantRole,
     peerResetNonce,
+    ensureCallMedia,
     processSignalPayload,
     sendSignal,
     schedulePeerConnectionRecovery
