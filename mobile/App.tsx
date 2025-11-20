@@ -645,7 +645,11 @@ const fetchSessionStatus = async (
   const rawBody = await response.text();
 
   if (!response.ok) {
-    throw new Error(extractFriendlyError(rawBody) || 'Unable to load the session status.');
+    const error: Error & { status?: number } = new Error(
+      extractFriendlyError(rawBody) || 'Unable to load the session status.'
+    );
+    error.status = response.status;
+    throw error;
   }
 
   try {
@@ -1211,6 +1215,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const [connectedParticipantIds, setConnectedParticipantIds] = useState<string[]>([]);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [statusLoading, setStatusLoading] = useState<boolean>(true);
+  const [sessionEnded, setSessionEnded] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
@@ -1247,6 +1252,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const peerSupportsEncryptionRef = useRef<boolean | null>(null);
   const callStateRef = useRef<'idle' | 'requesting' | 'incoming' | 'connecting' | 'active'>('idle');
   const sessionActiveRef = useRef(false);
+  const sessionEndedRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
   const socketReconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
@@ -1401,64 +1407,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     capabilityAnnouncedRef.current = false;
     peerSupportsEncryptionRef.current = null;
     setPeerSupportsEncryption(null);
+    setSessionEnded(false);
+    sessionEndedRef.current = false;
   }, [token.token]);
 
   useEffect(() => {
     sessionActiveRef.current = sessionStatus?.status === 'active';
   }, [sessionStatus?.status]);
-
-  useEffect(() => {
-    let isMounted = true;
-    const controller = new AbortController();
-    const loadStatus = async (showSpinner: boolean) => {
-      if (showSpinner) {
-        setStatusLoading(true);
-        setStatusError(null);
-      }
-      try {
-        const status = await fetchSessionStatus(token.token, controller.signal);
-        if (isMounted) {
-          setSessionStatus(status);
-          setRemainingSeconds(status.remaining_seconds ?? null);
-          if (status.connected_participants !== undefined) {
-            const connectedIds = Array.isArray(status.connected_participants)
-              ? status.connected_participants
-              : [];
-            setConnectedParticipantIds(connectedIds);
-            logSocket('http status', status.status, 'connected', connectedIds);
-          } else {
-            logSocket('http status missing connected_participants, keeping previous value');
-          }
-          setStatusError(null);
-        }
-      } catch (err: any) {
-        if (isMounted && !controller.signal.aborted) {
-          setStatusError(err?.message ?? 'Unable to load the session status.');
-        }
-      } finally {
-        if (isMounted && showSpinner) {
-          setStatusLoading(false);
-        }
-      }
-    };
-    loadStatus(true);
-
-    const interval = setInterval(() => {
-      loadStatus(false);
-    }, SESSION_POLL_INTERVAL_MS);
-
-    return () => {
-      isMounted = false;
-      controller.abort();
-      clearInterval(interval);
-    };
-  }, [logSocket, token.token]);
-
-  useEffect(() => {
-    if (sessionStatus) {
-      setRemainingSeconds(sessionStatus.remaining_seconds ?? null);
-    }
-  }, [sessionStatus?.remaining_seconds]);
 
   useEffect(() => {
     return () => {
@@ -1475,16 +1430,6 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       remoteVideoStreamRef.current = null;
     };
   }, []);
-
-  useEffect(() => {
-    if (remainingSeconds == null || remainingSeconds <= 0) {
-      return;
-    }
-    const timeout = setTimeout(() => {
-      setRemainingSeconds((prev: number | null) => (prev == null || prev <= 0 ? prev : prev - 1));
-    }, 1000);
-    return () => clearTimeout(timeout);
-  }, [remainingSeconds]);
 
   const getPeerLogId = useCallback(
     (pc: RTCPeerConnection | null | undefined) => {
@@ -1924,116 +1869,6 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     [processSignalPayload]
   );
 
-  useEffect(() => {
-    if (!participantId) {
-      return;
-    }
-    const url = `${WS_BASE_URL}/ws/sessions/${encodeURIComponent(token.token)}?participantId=${encodeURIComponent(participantId)}`;
-    let cancelled = false;
-
-    try {
-      logSocket('connecting', url, { participantId });
-      const socket = new WebSocket(url);
-      socketRef.current = socket;
-
-      socket.onopen = () => {
-        logSocket('open');
-        setSocketReady(true);
-        setStatusError(null);
-        reconnectAttemptsRef.current = 0;
-        flushQueuedSignals(socket);
-      };
-
-      socket.onerror = (event: Event) => {
-        logSocket('error', event);
-        setStatusError('Realtime connection interrupted. Attempting to reconnect…');
-      };
-
-      socket.onclose = (event: CloseEvent) => {
-        logSocket('close', { code: event.code, reason: event.reason, wasClean: event.wasClean });
-        socketRef.current = null;
-        setSocketReady(false);
-        if (!cancelled) {
-          setStatusError((prev: string | null) => prev ?? 'Realtime connection closed.');
-          if (!socketReconnectTimeoutRef.current) {
-            const attempt = reconnectAttemptsRef.current + 1;
-            reconnectAttemptsRef.current = attempt;
-            const delay = Math.min(3000, attempt * 600);
-            logSocket('reconnect scheduled', { attempt, delay });
-            socketReconnectTimeoutRef.current = setTimeout(() => {
-              socketReconnectTimeoutRef.current = null;
-              if (!cancelled) {
-                logSocket('reconnect firing', { attempt });
-                setSocketReconnectNonce((value: number) => value + 1);
-              }
-            }, delay);
-          }
-        }
-      };
-
-      socket.onmessage = (event: MessageEvent) => {
-        logSocket('message', event.data);
-        try {
-          const payload = JSON.parse(event.data) as SessionStatusSocketPayload | { type: string; signalType?: string };
-          if (payload.type === 'status') {
-            const { connected_participants, type: _ignored, ...rest } = payload as SessionStatusSocketPayload;
-            if (connected_participants !== undefined) {
-              const connectedIds = Array.isArray(connected_participants) ? connected_participants : [];
-              logSocket('status payload', rest.status, 'participants', connectedIds);
-              setConnectedParticipantIds(connectedIds);
-            } else {
-              logSocket('status payload missing connected_participants, keeping previous value');
-            }
-            setSessionStatus(rest);
-            setRemainingSeconds(rest.remaining_seconds ?? null);
-            setStatusLoading(false);
-          } else if (payload.type === 'signal') {
-            const signalType = payload.signalType ?? 'unknown';
-            logSocket('signal payload', signalType, summarizeSignalPayload(signalType, (payload as any).payload));
-            handleSignal(payload);
-          } else if (payload.type === 'session_closed') {
-            setStatusError('The session has been closed.');
-            setConnected(false);
-          } else if (payload.type === 'session_expired') {
-            setStatusError('The session has expired.');
-            setConnected(false);
-          } else if (payload.type === 'session_deleted') {
-            setStatusError('The session is no longer available.');
-            setConnected(false);
-          }
-        } catch (err) {
-          console.warn('Unable to process websocket payload', err);
-        }
-      };
-    } catch (err) {
-      console.warn('Unable to open realtime session socket', err);
-      setStatusError('Unable to open realtime connection. Some updates may be delayed.');
-      if (!socketReconnectTimeoutRef.current) {
-        socketReconnectTimeoutRef.current = setTimeout(() => {
-          socketReconnectTimeoutRef.current = null;
-          setSocketReconnectNonce((value: number) => value + 1);
-        }, 1500);
-      }
-      return;
-    }
-
-    return () => {
-      cancelled = true;
-      if (socketReconnectTimeoutRef.current) {
-        clearTimeout(socketReconnectTimeoutRef.current as TimeoutHandle);
-        socketReconnectTimeoutRef.current = null;
-      }
-      if (socketRef.current) {
-        try {
-          socketRef.current.close();
-        } catch (err) {
-          console.warn('Failed to close session socket', err);
-        }
-      }
-      socketRef.current = null;
-    };
-  }, [flushQueuedSignals, handleSignal, logSocket, participantId, socketReconnectNonce, summarizeSignalPayload, token.token]);
-
   const resetPeerConnection = useCallback(
     ({ recreate = true, delayMs }: { recreate?: boolean; delayMs?: number } = {}) => {
       if (iceRetryTimeoutRef.current) {
@@ -2101,6 +1936,251 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     },
     [logSocket, resetPeerConnection]
   );
+
+  const markSessionEnded = useCallback(
+    (message: string) => {
+      if (sessionEndedRef.current) {
+        return;
+      }
+      sessionEndedRef.current = true;
+      sessionActiveRef.current = false;
+      setSessionEnded(true);
+      setIsReconnecting(false);
+      setConnected(false);
+      setDataChannelState(null);
+      setCallState('idle');
+      setIncomingCallFrom(null);
+      setStatusError(message);
+      setSessionStatus((prev) => (prev ? { ...prev, status: 'expired', remaining_seconds: 0 } : prev));
+      if (socketReconnectTimeoutRef.current) {
+        clearTimeout(socketReconnectTimeoutRef.current as TimeoutHandle);
+        socketReconnectTimeoutRef.current = null;
+      }
+      if (iceRetryTimeoutRef.current) {
+        clearTimeout(iceRetryTimeoutRef.current as TimeoutHandle);
+        iceRetryTimeoutRef.current = null;
+      }
+      if (fallbackOfferTimeoutRef.current) {
+        clearTimeout(fallbackOfferTimeoutRef.current as TimeoutHandle);
+        fallbackOfferTimeoutRef.current = null;
+      }
+      resetPeerConnection({ recreate: false });
+      if (socketRef.current) {
+        try {
+          socketRef.current.close();
+        } catch (err) {
+          console.warn('Failed to close session socket', err);
+        }
+      }
+      socketRef.current = null;
+    },
+    [resetPeerConnection]
+  );
+
+  useEffect(() => {
+    if (sessionEnded) {
+      return;
+    }
+    let isMounted = true;
+    const controller = new AbortController();
+    const loadStatus = async (showSpinner: boolean) => {
+      if (showSpinner) {
+        setStatusLoading(true);
+        setStatusError(null);
+      }
+      try {
+        const status = await fetchSessionStatus(token.token, controller.signal);
+        if (isMounted) {
+          setSessionStatus(status);
+          setRemainingSeconds(status.remaining_seconds ?? null);
+          if (status.connected_participants !== undefined) {
+            const connectedIds = Array.isArray(status.connected_participants)
+              ? status.connected_participants
+              : [];
+            setConnectedParticipantIds(connectedIds);
+            logSocket('http status', status.status, 'connected', connectedIds);
+          } else {
+            logSocket('http status missing connected_participants, keeping previous value');
+          }
+          setStatusError(null);
+          if (status.status && status.status !== 'active') {
+            markSessionEnded('This session is no longer active.');
+          }
+        }
+      } catch (err: any) {
+        if (isMounted && !controller.signal.aborted) {
+          const statusCode = err?.status ?? err?.statusCode;
+          if (statusCode === 404) {
+            markSessionEnded('This session is no longer active.');
+            return;
+          }
+          setStatusError(err?.message ?? 'Unable to load the session status.');
+        }
+      } finally {
+        if (isMounted && showSpinner) {
+          setStatusLoading(false);
+        }
+      }
+    };
+    loadStatus(true);
+
+    const interval = setInterval(() => {
+      loadStatus(false);
+    }, SESSION_POLL_INTERVAL_MS);
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+      clearInterval(interval);
+    };
+  }, [logSocket, markSessionEnded, sessionEnded, token.token]);
+
+  useEffect(() => {
+    if (sessionStatus) {
+      setRemainingSeconds(sessionStatus.remaining_seconds ?? null);
+    }
+  }, [sessionStatus?.remaining_seconds]);
+
+  useEffect(() => {
+    if (sessionEnded) {
+      return;
+    }
+    if (remainingSeconds == null) {
+      return;
+    }
+    if (remainingSeconds <= 0) {
+      markSessionEnded('Session timer elapsed.');
+      return;
+    }
+    const timeout = setTimeout(() => {
+      setRemainingSeconds((prev: number | null) => (prev == null || prev <= 0 ? prev : prev - 1));
+    }, 1000);
+    return () => clearTimeout(timeout);
+  }, [markSessionEnded, remainingSeconds, sessionEnded]);
+
+  useEffect(() => {
+    if (!participantId || sessionEnded) {
+      return;
+    }
+    const url = `${WS_BASE_URL}/ws/sessions/${encodeURIComponent(token.token)}?participantId=${encodeURIComponent(participantId)}`;
+    let cancelled = false;
+
+    try {
+      logSocket('connecting', url, { participantId });
+      const socket = new WebSocket(url);
+      socketRef.current = socket;
+
+      socket.onopen = () => {
+        logSocket('open');
+        setSocketReady(true);
+        setStatusError(null);
+        reconnectAttemptsRef.current = 0;
+        flushQueuedSignals(socket);
+      };
+
+      socket.onerror = (event: Event) => {
+        logSocket('error', event);
+        if (!sessionEndedRef.current) {
+          setStatusError('Realtime connection interrupted. Attempting to reconnect…');
+        }
+      };
+
+      socket.onclose = (event: CloseEvent) => {
+        logSocket('close', { code: event.code, reason: event.reason, wasClean: event.wasClean });
+        socketRef.current = null;
+        setSocketReady(false);
+        if (cancelled || sessionEndedRef.current) {
+          return;
+        }
+        setStatusError((prev: string | null) => prev ?? 'Realtime connection closed.');
+        if (!socketReconnectTimeoutRef.current) {
+          const attempt = reconnectAttemptsRef.current + 1;
+          reconnectAttemptsRef.current = attempt;
+          const delay = Math.min(3000, attempt * 600);
+          logSocket('reconnect scheduled', { attempt, delay });
+          socketReconnectTimeoutRef.current = setTimeout(() => {
+            socketReconnectTimeoutRef.current = null;
+            if (!cancelled && !sessionEndedRef.current) {
+              logSocket('reconnect firing', { attempt });
+              setSocketReconnectNonce((value: number) => value + 1);
+            }
+          }, delay);
+        }
+      };
+
+      socket.onmessage = (event: MessageEvent) => {
+        logSocket('message', event.data);
+        try {
+          const payload = JSON.parse(event.data) as SessionStatusSocketPayload | { type: string; signalType?: string };
+          if (payload.type === 'status') {
+            const { connected_participants, type: _ignored, ...rest } = payload as SessionStatusSocketPayload;
+            if (connected_participants !== undefined) {
+              const connectedIds = Array.isArray(connected_participants) ? connected_participants : [];
+              logSocket('status payload', rest.status, 'participants', connectedIds);
+              setConnectedParticipantIds(connectedIds);
+            } else {
+              logSocket('status payload missing connected_participants, keeping previous value');
+            }
+            setSessionStatus(rest);
+            setRemainingSeconds(rest.remaining_seconds ?? null);
+            setStatusLoading(false);
+            if (rest.status && rest.status !== 'active') {
+              markSessionEnded('This session is no longer active.');
+            }
+          } else if (payload.type === 'signal') {
+            const signalType = payload.signalType ?? 'unknown';
+            logSocket('signal payload', signalType, summarizeSignalPayload(signalType, (payload as any).payload));
+            handleSignal(payload);
+          } else if (payload.type === 'session_closed') {
+            markSessionEnded('The session has been closed.');
+          } else if (payload.type === 'session_expired') {
+            markSessionEnded('The session has expired.');
+          } else if (payload.type === 'session_deleted') {
+            markSessionEnded('The session is no longer available.');
+          }
+        } catch (err) {
+          console.warn('Unable to process websocket payload', err);
+        }
+      };
+    } catch (err) {
+      console.warn('Unable to open realtime session socket', err);
+      if (!sessionEndedRef.current) {
+        setStatusError('Unable to open realtime connection. Some updates may be delayed.');
+        if (!socketReconnectTimeoutRef.current) {
+          socketReconnectTimeoutRef.current = setTimeout(() => {
+            socketReconnectTimeoutRef.current = null;
+            setSocketReconnectNonce((value: number) => value + 1);
+          }, 1500);
+        }
+      }
+      return;
+    }
+
+    return () => {
+      cancelled = true;
+      if (socketReconnectTimeoutRef.current) {
+        clearTimeout(socketReconnectTimeoutRef.current as TimeoutHandle);
+        socketReconnectTimeoutRef.current = null;
+      }
+      if (socketRef.current) {
+        try {
+          socketRef.current.close();
+        } catch (err) {
+          console.warn('Failed to close session socket', err);
+        }
+      }
+      socketRef.current = null;
+    };
+  }, [
+    flushQueuedSignals,
+    handleSignal,
+    logSocket,
+    markSessionEnded,
+    participantId,
+    sessionEnded,
+    summarizeSignalPayload,
+    token.token
+  ]);
 
   const attachDataChannel = useCallback(
     (channel: PeerDataChannel, owner: RTCPeerConnection | null) => {
