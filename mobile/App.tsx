@@ -1,8 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { ComponentType, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -16,7 +15,6 @@ import {
   TouchableOpacity,
   View
 } from 'react-native';
-import type { ListRenderItem } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -27,20 +25,31 @@ import { useFonts } from 'expo-font';
 import type {
   RTCPeerConnection as NativeRTCPeerConnection,
   RTCIceCandidate as NativeRTCIceCandidate,
-  RTCSessionDescription as NativeRTCSessionDescription
+  RTCSessionDescription as NativeRTCSessionDescription,
+  MediaStream as NativeMediaStream,
+  RTCTrackEvent as NativeRTCTrackEvent
 } from 'react-native-webrtc';
 type RTCPeerConnection = NativeRTCPeerConnection;
 type RTCIceCandidate = NativeRTCIceCandidate;
 type RTCSessionDescription = NativeRTCSessionDescription;
+type MediaStream = NativeMediaStream;
+type RTCTrackEvent = NativeRTCTrackEvent;
+type RTCViewComponent = ComponentType<{ streamURL: string; objectFit?: string; mirror?: boolean }>;
 import { getIceServers, hasRelayIceServers } from './webrtc';
+import { applyNativeConsoleFilters } from './src/native/consoleFilters';
+import { API_BASE_URL, DEFAULT_TERMS_TEXT, MOBILE_CLIENT_IDENTITY, WS_BASE_URL } from './src/session/config';
 
-const env = typeof process !== 'undefined' && process.env ? process.env : undefined;
+applyNativeConsoleFilters();
 const EXPO_DEV_BUILD_DOCS_URL = 'https://docs.expo.dev/development/introduction/';
 
 type WebRtcBindings = {
   RTCPeerConnection: new (...args: any[]) => NativeRTCPeerConnection;
   RTCIceCandidate: new (...args: any[]) => NativeRTCIceCandidate;
   RTCSessionDescription: new (...args: any[]) => NativeRTCSessionDescription;
+  RTCView?: RTCViewComponent;
+  mediaDevices?: {
+    getUserMedia: (constraints: Record<string, unknown>) => Promise<MediaStream>;
+  };
 };
 
 const WEBRTC_NATIVE_MODULE_CANDIDATES = ['WebRTCModule', 'WebRTC'];
@@ -85,30 +94,6 @@ const getWebRtcBindings = (): WebRtcBindings | null => {
 };
 
 const isWebRtcSupported = (): boolean => getWebRtcBindings() !== null;
-
-const readEnvValue = (...keys: string[]): string | undefined => {
-  if (!env) {
-    return undefined;
-  }
-  for (const key of keys) {
-    const value = env[key];
-    if (typeof value === 'string' && value.trim().length > 0) {
-      return value.trim();
-    }
-  }
-  return undefined;
-};
-
-const stripTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
-
-const API_BASE_URL = stripTrailingSlash(
-  readEnvValue('EXPO_PUBLIC_API_BASE_URL', 'NEXT_PUBLIC_API_BASE_URL', 'API_BASE_URL') ||
-    'https://endpoints.chatorbit.com/api'
-);
-const WS_BASE_URL = stripTrailingSlash(
-  readEnvValue('EXPO_PUBLIC_WS_BASE_URL', 'NEXT_PUBLIC_WS_BASE_URL', 'WS_BASE_URL') ||
-    'wss://endpoints.chatorbit.com'
-);
 const COLORS = {
   midnight: '#020B1F',
   abyss: '#041335',
@@ -125,10 +110,6 @@ const COLORS = {
   cobaltShadow: 'rgba(3, 20, 46, 0.6)',
   danger: '#EF476F'
 };
-
-const MOBILE_CLIENT_IDENTITY = 'mobile-app-host';
-
-const TERMS_TEXT = `Welcome to ChatOrbit!\n\nBefore generating secure session tokens, please take a moment to review these highlights:\n\n• Tokens are valid only for the duration selected during creation.\n• Share your token only with trusted participants.\n• Generated sessions may be monitored for quality and abuse prevention.\n• Using the token implies that you agree to abide by ChatOrbit community guidelines.\n\nThis preview app is designed for rapid testing of the ChatOrbit realtime experience. By continuing you acknowledge that:\n\n1. You are authorised to request access tokens on behalf of your organisation or team.\n2. All interactions facilitated by the token must respect local regulations regarding recorded communication.\n3. ChatOrbit may contact you for product feedback using the email or account associated with your workspace.\n4. Abuse of the system, including sharing illicit content, will result in automatic suspension of the workspace.\n\nScroll to the bottom of this message to enable the Accept button. Thank you for helping us keep the orbit safe and collaborative!`;
 
 type DurationOption = {
   label: string;
@@ -598,7 +579,11 @@ const fetchSessionStatus = async (
   const rawBody = await response.text();
 
   if (!response.ok) {
-    throw new Error(extractFriendlyError(rawBody) || 'Unable to load the session status.');
+    const error: Error & { status?: number } = new Error(
+      extractFriendlyError(rawBody) || 'Unable to load the session status.'
+    );
+    error.status = response.status;
+    throw error;
   }
 
   try {
@@ -712,7 +697,7 @@ const statusVariant = (status: string | undefined) => {
           onScroll={handleScroll}
           scrollEventThrottle={24}
         >
-          <Text style={styles.termsText}>{TERMS_TEXT}</Text>
+          <Text style={styles.termsText}>{DEFAULT_TERMS_TEXT}</Text>
         </ScrollView>
         <TouchableOpacity
           accessibilityRole="button"
@@ -1164,6 +1149,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const [connectedParticipantIds, setConnectedParticipantIds] = useState<string[]>([]);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [statusLoading, setStatusLoading] = useState<boolean>(true);
+  const [sessionEnded, setSessionEnded] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
@@ -1171,6 +1157,16 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const [dataChannelState, setDataChannelState] = useState<DataChannelState | null>(null);
   const [supportsEncryption, setSupportsEncryption] = useState<boolean | null>(null);
   const [peerSupportsEncryption, setPeerSupportsEncryption] = useState<boolean | null>(null);
+  const [callState, setCallState] = useState<'idle' | 'requesting' | 'incoming' | 'connecting' | 'active'>(
+    'idle'
+  );
+  const [isLocalAudioMuted, setIsLocalAudioMuted] = useState(false);
+  const [isLocalVideoMuted, setIsLocalVideoMuted] = useState(false);
+  const [isCallFullscreen, setIsCallFullscreen] = useState(false);
+  const [preferredCameraFacing, setPreferredCameraFacing] = useState<'user' | 'environment'>('user');
+  const [incomingCallFrom, setIncomingCallFrom] = useState<string | null>(null);
+  const [localVideoStream, setLocalVideoStream] = useState<MediaStream | null>(null);
+  const [remoteVideoStream, setRemoteVideoStream] = useState<MediaStream | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [socketReady, setSocketReady] = useState(false);
   const [socketReconnectNonce, setSocketReconnectNonce] = useState(0);
@@ -1179,17 +1175,29 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
 
   const socketRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const peerLogCounterRef = useRef(0);
+  const connectedParticipantIdsRef = useRef<string[]>([]);
+  const remoteParticipantJoinedRef = useRef(false);
   const dataChannelRef = useRef<PeerDataChannel | null>(null);
   const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
   const pendingSignalsRef = useRef<any[]>([]);
+  const pendingCallMessagesRef = useRef<Array<{ action: string; detail: Record<string, unknown> }>>([]);
+  const pendingOutgoingSignalsRef = useRef<{ type: string; signalType: string; payload: unknown }[]>([]);
   const pendingCandidatesRef = useRef<any[]>([]);
   const capabilityAnnouncedRef = useRef(false);
   const peerSupportsEncryptionRef = useRef<boolean | null>(null);
+  const callStateRef = useRef<'idle' | 'requesting' | 'incoming' | 'connecting' | 'active'>('idle');
   const sessionActiveRef = useRef(false);
+  const sessionEndedRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
   const socketReconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const fallbackOfferTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const pendingHostOfferRef = useRef(false);
   const hasSentOfferRef = useRef(false);
+  const localAudioStreamRef = useRef<MediaStream | null>(null);
+  const localVideoStreamRef = useRef<MediaStream | null>(null);
+  const remoteVideoStreamRef = useRef<MediaStream | null>(null);
 
   const webRtcBindings = useMemo(() => getWebRtcBindings(), []);
 
@@ -1218,6 +1226,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
 
   const { RTCPeerConnection: RTCPeerConnectionCtor, RTCIceCandidate: RTCIceCandidateCtor, RTCSessionDescription: RTCSessionDescriptionCtor } =
     webRtcBindings;
+  const RTCViewComponent = webRtcBindings.RTCView;
 
   const iceServers = useMemo(() => getIceServers(), []);
   const hasRelaySupport = useMemo(() => hasRelayIceServers(iceServers), [iceServers]);
@@ -1250,10 +1259,83 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const connectionBadgeLabel = connected ? 'Connected' : isReconnecting ? 'Reconnecting…' : socketReady ? 'Waiting for peer' : 'Offline';
   const connectionBadgeStyle =
     connected ? styles.connectionBadgeOnline : isReconnecting ? styles.connectionBadgeReconnecting : styles.connectionBadgeIdle;
+  const videoReady = connected && dataChannelState === 'open';
+  const videoStatusLabel =
+    callState === 'active'
+      ? 'Video live'
+      : callState === 'connecting'
+        ? 'Connecting…'
+      : callState === 'incoming'
+        ? 'Incoming request'
+        : callState === 'requesting'
+          ? 'Requested…'
+          : 'Idle';
+  const videoStatusStyle =
+    callState === 'active'
+      ? styles.videoBadgeActive
+      : callState === 'incoming'
+        ? styles.videoBadgeIncoming
+        : callState === 'requesting'
+          ? styles.videoBadgePending
+          : styles.videoBadgeIdle;
+  const localVideoUrl = useMemo(() => (localVideoStream as any)?.toURL?.() ?? null, [localVideoStream]);
+  const remoteVideoUrl = useMemo(() => (remoteVideoStream as any)?.toURL?.() ?? null, [remoteVideoStream]);
+  const videoPreviewRowStyle = useMemo(
+    () => [styles.videoPreviewRow, isCallFullscreen && styles.videoPreviewRowFullscreen],
+    [isCallFullscreen]
+  );
+  const videoPaneStyle = useMemo(
+    () => [styles.videoPane, isCallFullscreen && styles.videoPaneFullscreen],
+    [isCallFullscreen]
+  );
+  const videoSurfaceStyle = useMemo(
+    () => [styles.videoSurface, isCallFullscreen && styles.videoSurfaceFullscreen],
+    [isCallFullscreen]
+  );
 
   useEffect(() => {
     setSupportsEncryption(resolveCrypto() !== null);
   }, []);
+
+  useEffect(() => {
+    callStateRef.current = callState;
+  }, [callState]);
+
+  useEffect(() => {
+    if (callState === 'idle') {
+      setIsCallFullscreen(false);
+    }
+  }, [callState]);
+
+  useEffect(() => {
+    const stream = localAudioStreamRef.current;
+    if (!stream) {
+      return;
+    }
+    stream
+      .getTracks()
+      .filter((track) => track.kind === 'audio')
+      .forEach((track) => {
+        track.enabled = !isLocalAudioMuted;
+      });
+  }, [isLocalAudioMuted]);
+
+  useEffect(() => {
+    const stream = localVideoStreamRef.current;
+    if (!stream) {
+      return;
+    }
+    stream
+      .getTracks()
+      .filter((track) => track.kind === 'video')
+      .forEach((track) => {
+        track.enabled = !isLocalVideoMuted;
+      });
+  }, [isLocalVideoMuted]);
+
+  useEffect(() => {
+    pendingOutgoingSignalsRef.current = [];
+  }, [token.token]);
 
   useEffect(() => {
     hashedMessagesRef.current.clear();
@@ -1262,6 +1344,11 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     capabilityAnnouncedRef.current = false;
     peerSupportsEncryptionRef.current = null;
     setPeerSupportsEncryption(null);
+    connectedParticipantIdsRef.current = [];
+    setConnectedParticipantIds([]);
+    remoteParticipantJoinedRef.current = false;
+    setSessionEnded(false);
+    sessionEndedRef.current = false;
   }, [token.token]);
 
   useEffect(() => {
@@ -1269,79 +1356,121 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   }, [sessionStatus?.status]);
 
   useEffect(() => {
-    let isMounted = true;
-    const controller = new AbortController();
-    const loadStatus = async (showSpinner: boolean) => {
-      if (showSpinner) {
-        setStatusLoading(true);
-        setStatusError(null);
-      }
-      try {
-        const status = await fetchSessionStatus(token.token, controller.signal);
-        if (isMounted) {
-          setSessionStatus(status);
-          setRemainingSeconds(status.remaining_seconds ?? null);
-          setConnectedParticipantIds(Array.isArray(status.connected_participants) ? status.connected_participants : []);
-          setStatusError(null);
-        }
-      } catch (err: any) {
-        if (isMounted && !controller.signal.aborted) {
-          setStatusError(err?.message ?? 'Unable to load the session status.');
-        }
-      } finally {
-        if (isMounted && showSpinner) {
-          setStatusLoading(false);
-        }
-      }
-    };
-    loadStatus(true);
-
-    const interval = setInterval(() => {
-      loadStatus(false);
-    }, SESSION_POLL_INTERVAL_MS);
-
     return () => {
-      isMounted = false;
-      controller.abort();
-      clearInterval(interval);
+      const stream = localAudioStreamRef.current;
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+      localAudioStreamRef.current = null;
+      const videoStream = localVideoStreamRef.current;
+      if (videoStream) {
+        videoStream.getTracks().forEach((track) => track.stop());
+      }
+      localVideoStreamRef.current = null;
+      remoteVideoStreamRef.current = null;
     };
-  }, [token.token]);
+  }, []);
 
-  useEffect(() => {
-    if (sessionStatus) {
-      setRemainingSeconds(sessionStatus.remaining_seconds ?? null);
-    }
-  }, [sessionStatus?.remaining_seconds]);
+  const getPeerLogId = useCallback(
+    (pc: RTCPeerConnection | null | undefined) => {
+      if (!pc) {
+        return 'none';
+      }
+      const key = '__chatorbitPeerId';
+      const anyPeer = pc as RTCPeerConnection & { [key]?: number };
+      if (anyPeer[key] != null) {
+        return anyPeer[key];
+      }
+      const nextId = peerLogCounterRef.current++;
+      anyPeer[key] = nextId;
+      return nextId;
+    },
+    [clearRemoteVideo, stopLocalVideoTracks]
+  );
 
-  useEffect(() => {
-    if (remainingSeconds == null || remainingSeconds <= 0) {
-      return;
+  const logPeer = useCallback(
+    (pc: RTCPeerConnection | null | undefined, message: string, ...detail: unknown[]) => {
+      const id = getPeerLogId(pc);
+      console.debug(`rn-webrtc:pc:${id} ${message}`, ...detail);
+    },
+    [getPeerLogId]
+  );
+
+  const logSocket = useCallback((message: string, ...detail: unknown[]) => {
+    console.debug('rn-webrtc:ws', message, ...detail);
+  }, []);
+
+  const hasRemoteParticipant = useCallback(() => {
+    return remoteParticipantJoinedRef.current;
+  }, []);
+
+  const updateRemoteParticipantPresence = useCallback(
+    (participants?: SessionParticipant[]) => {
+      if (!participants) {
+        return;
+      }
+      const hasRemote = Boolean(participants.some((participant) => participant.participant_id !== participantId));
+      remoteParticipantJoinedRef.current = hasRemote;
+    },
+    [participantId]
+  );
+
+  const summarizeSignalPayload = useCallback((signalType: string, payload: unknown) => {
+    if (!payload) {
+      return 'no-payload';
     }
-    const timeout = setTimeout(() => {
-      setRemainingSeconds((prev: number | null) => (prev == null || prev <= 0 ? prev : prev - 1));
-    }, 1000);
-    return () => clearTimeout(timeout);
-  }, [remainingSeconds]);
+    if (signalType === 'iceCandidate' && typeof payload === 'object' && payload !== null) {
+      const candidate = payload as { candidate?: string; sdpMid?: string; sdpMLineIndex?: number };
+      return {
+        sdpMid: candidate.sdpMid,
+        sdpMLineIndex: candidate.sdpMLineIndex,
+        hasCandidate: Boolean(candidate.candidate)
+      };
+    }
+    if ((signalType === 'offer' || signalType === 'answer') && typeof payload === 'object' && payload !== null) {
+      const desc = payload as { type?: string; sdp?: string };
+      return {
+        type: desc.type,
+        sdpLength: desc.sdp?.length ?? 0
+      };
+    }
+    return payload;
+  }, []);
 
   const sendSignal = useCallback(
     (signalType: string, payload: unknown) => {
       if (!participantId) {
+        logSocket('signal skip: missing participant', signalType);
         return;
       }
       const socket = socketRef.current;
+      const message = { type: 'signal', signalType, payload };
       if (socket?.readyState !== WebSocket.OPEN) {
+        logSocket('signal queued: socket not open', signalType, socket?.readyState);
+        pendingOutgoingSignalsRef.current.push(message);
         return;
       }
-      socket.send(
-        JSON.stringify({
-          type: 'signal',
-          signalType,
-          payload
-        })
-      );
+      console.debug('rn-webrtc:signal:out', signalType, summarizeSignalPayload(signalType, payload));
+      socket.send(JSON.stringify(message));
     },
-    [participantId]
+    [logSocket, participantId, summarizeSignalPayload]
   );
+
+  const flushQueuedSignals = useCallback((socket?: WebSocket | null) => {
+    const targetSocket = socket ?? socketRef.current;
+    if (!targetSocket || targetSocket.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    const backlog = pendingOutgoingSignalsRef.current.splice(0);
+    if (backlog.length === 0) {
+      return;
+    }
+    logSocket('flushing queued signals', backlog.length);
+    backlog.forEach((message) => {
+      console.debug('rn-webrtc:signal:out', message.signalType, summarizeSignalPayload(message.signalType, message.payload));
+      targetSocket.send(JSON.stringify(message));
+    });
+  }, [logSocket, summarizeSignalPayload]);
 
   const sendCapabilities = useCallback(() => {
     const channel = dataChannelRef.current;
@@ -1372,6 +1501,49 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     }
   }, [sendCapabilities, supportsEncryption]);
 
+  const flushPendingCallMessages = useCallback(
+    (channel?: PeerDataChannel | null) => {
+      const target = channel ?? dataChannelRef.current;
+      if (!target || target.readyState !== 'open' || !participantId) {
+        return;
+      }
+      const queue = pendingCallMessagesRef.current.splice(0);
+      for (const { action, detail } of queue) {
+        try {
+          target.send(JSON.stringify({ type: 'call', action, from: participantId, ...detail }));
+          logPeer(peerConnectionRef.current, 'sent call control (queued)', action);
+        } catch (err) {
+          console.warn('Failed to flush call control message', err);
+          pendingCallMessagesRef.current.unshift({ action, detail });
+          break;
+        }
+      }
+    },
+    [logPeer, participantId]
+  );
+
+  const sendCallMessage = useCallback(
+    (action: string, detail: Record<string, unknown> = {}) => {
+      if (!participantId) {
+        return;
+      }
+      const channel = dataChannelRef.current;
+      const payload = { type: 'call', action, from: participantId, ...detail };
+      if (!channel || channel.readyState !== 'open') {
+        pendingCallMessagesRef.current.push({ action, detail });
+        return;
+      }
+      try {
+        channel.send(JSON.stringify(payload));
+        logPeer(peerConnectionRef.current, 'sent call control', action);
+      } catch (err) {
+        console.warn('Failed to send call control message', err);
+        pendingCallMessagesRef.current.push({ action, detail });
+      }
+    },
+    [logPeer, participantId]
+  );
+
   const handlePeerMessage = useCallback(
     async (rawMessage: string) => {
       try {
@@ -1380,6 +1552,100 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           const remoteSupports = Boolean(payload.supportsEncryption);
           peerSupportsEncryptionRef.current = remoteSupports;
           setPeerSupportsEncryption(remoteSupports);
+          return;
+        }
+        if (payload.type === 'call') {
+          const action = payload.action as string;
+          const from = payload.from as string | undefined;
+          if (!from || from === participantId) {
+            return;
+          }
+            if (action === 'request') {
+              if (callState === 'active' || callState === 'connecting') {
+                sendCallMessage('busy');
+              return;
+            }
+            if (callState === 'requesting') {
+              setCallState('connecting');
+              try {
+                await ensureCallMedia();
+                if (callStateRef.current === 'connecting') {
+                  sendCallMessage('accept');
+                  requestMediaRenegotiation();
+                }
+              } catch (err) {
+                console.warn('Failed to auto-accept call request', err);
+                setCallState('idle');
+                sendCallMessage('reject');
+                stopLocalVideoTracks();
+                stopLocalAudioTracks();
+                clearRemoteVideo();
+                resetCallControls();
+              }
+              return;
+            }
+            setIncomingCallFrom(from);
+            setCallState('incoming');
+            return;
+          }
+          if (action === 'accept') {
+            setIncomingCallFrom(null);
+            setCallState((prev) => (prev === 'requesting' ? 'connecting' : prev));
+            try {
+              await ensureCallMedia();
+              requestMediaRenegotiation();
+            } catch (err) {
+              console.warn('Unable to attach media after acceptance', err);
+              setCallState('idle');
+              stopLocalVideoTracks();
+              stopLocalAudioTracks();
+              clearRemoteVideo();
+              resetCallControls();
+            }
+            return;
+          }
+          if (action === 'reject') {
+            setIncomingCallFrom(null);
+            setCallState('idle');
+            stopLocalVideoTracks();
+            stopLocalAudioTracks();
+            clearRemoteVideo();
+            resetCallControls();
+            return;
+          }
+          if (action === 'end') {
+            setIncomingCallFrom(null);
+            setCallState('idle');
+            stopLocalVideoTracks();
+            stopLocalAudioTracks();
+            clearRemoteVideo();
+            resetCallControls();
+            return;
+          }
+          if (action === 'cancel') {
+            if (callState !== 'idle') {
+              setCallState('idle');
+              stopLocalVideoTracks();
+              stopLocalAudioTracks();
+              clearRemoteVideo();
+              resetCallControls();
+            }
+            return;
+          }
+          if (action === 'busy') {
+            if (callState === 'requesting') {
+              setCallState('idle');
+              stopLocalVideoTracks();
+              stopLocalAudioTracks();
+              clearRemoteVideo();
+              resetCallControls();
+              setError('Peer is busy with another video chat.');
+            }
+            return;
+          }
+          if (action === 'renegotiate') {
+            void negotiateMediaUpdate(peerConnectionRef.current, 'peer requested media update');
+          }
           return;
         }
         if (payload.type === 'message') {
@@ -1392,25 +1658,62 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             peerSupportsEncryptionRef.current = encryptionMode !== 'none';
             setPeerSupportsEncryption(encryptionMode !== 'none');
           }
-          let content: string;
-          if (encryptionMode === 'none') {
-            content = incoming.content ?? '';
-          } else {
-            setError('Encrypted messages are not supported on this device.');
+          try {
+            let content: string;
+            if (encryptionMode === 'none') {
+              content = incoming.content ?? '';
+            } else {
+              if (supportsEncryption !== true) {
+                setError('Received encrypted message but encryption is not supported.');
+                return;
+              }
+              if (!incoming.encryptedContent) {
+                setError('Missing encrypted payload.');
+                return;
+              }
+              const key = await deriveKey(token.token);
+              try {
+                content = await decryptText(key, incoming.encryptedContent);
+              } catch (err) {
+                setError('Failed to decrypt message.');
+                return;
+              }
+            }
+            if (incoming.hash) {
+              const expectedHash = await computeMessageHash(
+                incoming.sessionId,
+                incoming.participantId,
+                incoming.messageId,
+                content
+              );
+              if (expectedHash !== incoming.hash) {
+                console.warn('Hash mismatch for message', incoming.messageId);
+                setError('Ignored a message with mismatched hash.');
+                return;
+              }
+            }
+            hashedMessagesRef.current.set(incoming.messageId, {
+              ...incoming,
+              content,
+              encryption: encryptionMode,
+              deleted: false
+            });
+            setMessages((prev: Message[]) =>
+              upsertMessage(prev, {
+                messageId: incoming.messageId,
+                participantId: incoming.participantId,
+                role: incoming.role,
+                content,
+                createdAt: incoming.createdAt
+              })
+            );
+            setError(null);
+            return;
+          } catch (err) {
+            console.warn('Unable to process incoming message', err);
+            setError('Unable to process an incoming message.');
             return;
           }
-          hashedMessagesRef.current.set(incoming.messageId, { ...incoming, content, deleted: false });
-          setMessages((prev: Message[]) =>
-            upsertMessage(prev, {
-              messageId: incoming.messageId,
-              participantId: incoming.participantId,
-              role: incoming.role,
-              content,
-              createdAt: incoming.createdAt
-            })
-          );
-          setError(null);
-          return;
         }
         if (payload.type === 'delete') {
           const messageId = payload.messageId as string | undefined;
@@ -1424,7 +1727,18 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         console.warn('Unable to process data channel message', err);
       }
     },
-    [token.token]
+    [
+      callState,
+      clearRemoteVideo,
+      ensureCallMedia,
+      negotiateMediaUpdate,
+      participantId,
+      requestMediaRenegotiation,
+      sendCallMessage,
+      stopLocalAudioTracks,
+      stopLocalVideoTracks,
+      token.token
+    ]
   );
 
   const flushPendingCandidates = useCallback(
@@ -1433,6 +1747,9 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         return;
       }
       const backlog = pendingCandidatesRef.current.splice(0);
+      if (backlog.length > 0) {
+        logPeer(pc, 'flushing buffered ice candidates', backlog.length);
+      }
       for (const candidate of backlog) {
         try {
           await pc.addIceCandidate(new RTCIceCandidateCtor(candidate));
@@ -1441,7 +1758,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         }
       }
     },
-    [RTCIceCandidateCtor]
+    [RTCIceCandidateCtor, logPeer]
   );
 
   const processSignalPayload = useCallback(
@@ -1449,17 +1766,28 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       const signalType = payload.signalType as string;
       const detail = payload.payload;
       if (signalType === 'offer' && detail) {
+        if (fallbackOfferTimeoutRef.current) {
+          clearTimeout(fallbackOfferTimeoutRef.current as TimeoutHandle);
+          fallbackOfferTimeoutRef.current = null;
+        }
+        logPeer(pc, 'received offer');
         await pc.setRemoteDescription(new RTCSessionDescriptionCtor(detail));
+        logPeer(pc, 'applied remote offer');
         await flushPendingCandidates(pc);
         const answer = await pc.createAnswer();
+        logPeer(pc, 'created answer');
         await pc.setLocalDescription(answer);
+        logPeer(pc, 'set local answer');
         sendSignal('answer', answer);
       } else if (signalType === 'answer' && detail) {
+        logPeer(pc, 'received answer');
         await pc.setRemoteDescription(new RTCSessionDescriptionCtor(detail));
+        logPeer(pc, 'applied remote answer');
         await flushPendingCandidates(pc);
       } else if (signalType === 'iceCandidate') {
         if (!detail) {
           try {
+            logPeer(pc, 'received end-of-candidates');
             await pc.addIceCandidate(null);
           } catch (err) {
             console.warn('Failed to process end-of-candidates signal', err);
@@ -1467,130 +1795,45 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           return;
         }
         if (!pc.remoteDescription) {
+          logPeer(pc, 'buffering ice candidate (no remote description yet)');
           pendingCandidatesRef.current.push(detail);
           return;
         }
         try {
+          logPeer(pc, 'adding ice candidate');
           await pc.addIceCandidate(new RTCIceCandidateCtor(detail));
         } catch (err) {
           console.warn('Failed to process ICE candidate', err);
         }
       }
     },
-    [RTCIceCandidateCtor, RTCSessionDescriptionCtor, flushPendingCandidates, sendSignal]
+    [RTCIceCandidateCtor, RTCSessionDescriptionCtor, flushPendingCandidates, logPeer, sendSignal]
   );
 
-    const handleSignal = useCallback(
-      (payload: any) => {
-        const pc = peerConnectionRef.current;
-        if (!pc) {
-          pendingSignalsRef.current.push(payload);
-          return;
-        }
-        void processSignalPayload(pc, payload);
-      },
-      [processSignalPayload]
-    );
-
-    useEffect(() => {
-      if (!participantId) {
+  const handleSignal = useCallback(
+    (payload: any) => {
+      remoteParticipantJoinedRef.current = true;
+      const pc = peerConnectionRef.current;
+      if (!pc) {
+        console.debug('rn-webrtc:signal:buffered', payload.signalType);
+        pendingSignalsRef.current.push(payload);
         return;
       }
-      const url = `${WS_BASE_URL}/ws/sessions/${encodeURIComponent(token.token)}?participantId=${encodeURIComponent(participantId)}`;
-      let cancelled = false;
+      console.debug('rn-webrtc:signal:in', payload.signalType);
+      void processSignalPayload(pc, payload);
+    },
+    [processSignalPayload]
+  );
 
-      try {
-        const socket = new WebSocket(url);
-        socketRef.current = socket;
-
-        socket.onopen = () => {
-          setSocketReady(true);
-          setStatusError(null);
-          reconnectAttemptsRef.current = 0;
-        };
-
-        socket.onerror = () => {
-          setStatusError('Realtime connection interrupted. Attempting to reconnect…');
-        };
-
-        socket.onclose = () => {
-          socketRef.current = null;
-          setSocketReady(false);
-          if (!cancelled) {
-            setStatusError((prev: string | null) => prev ?? 'Realtime connection closed.');
-            if (!socketReconnectTimeoutRef.current) {
-              const attempt = reconnectAttemptsRef.current + 1;
-              reconnectAttemptsRef.current = attempt;
-              const delay = Math.min(3000, attempt * 600);
-              socketReconnectTimeoutRef.current = setTimeout(() => {
-                socketReconnectTimeoutRef.current = null;
-                if (!cancelled) {
-                  setSocketReconnectNonce((value: number) => value + 1);
-                }
-              }, delay);
-            }
-          }
-        };
-
-        socket.onmessage = (event: MessageEvent) => {
-          try {
-            const payload = JSON.parse(event.data) as SessionStatusSocketPayload | { type: string; signalType?: string };
-            if (payload.type === 'status') {
-              const { connected_participants, type: _ignored, ...rest } = payload as SessionStatusSocketPayload;
-              setSessionStatus(rest);
-              setRemainingSeconds(rest.remaining_seconds ?? null);
-              setConnectedParticipantIds(Array.isArray(connected_participants) ? connected_participants : []);
-              setStatusLoading(false);
-            } else if (payload.type === 'signal') {
-              handleSignal(payload);
-            } else if (payload.type === 'session_closed') {
-              setStatusError('The session has been closed.');
-              setConnected(false);
-            } else if (payload.type === 'session_expired') {
-              setStatusError('The session has expired.');
-              setConnected(false);
-            } else if (payload.type === 'session_deleted') {
-              setStatusError('The session is no longer available.');
-              setConnected(false);
-            }
-          } catch (err) {
-            console.warn('Unable to process websocket payload', err);
-          }
-        };
-      } catch (err) {
-        console.warn('Unable to open realtime session socket', err);
-        setStatusError('Unable to open realtime connection. Some updates may be delayed.');
-        if (!socketReconnectTimeoutRef.current) {
-          socketReconnectTimeoutRef.current = setTimeout(() => {
-            socketReconnectTimeoutRef.current = null;
-            setSocketReconnectNonce((value: number) => value + 1);
-          }, 1500);
-        }
-        return;
-      }
-
-      return () => {
-        cancelled = true;
-        if (socketReconnectTimeoutRef.current) {
-          clearTimeout(socketReconnectTimeoutRef.current as TimeoutHandle);
-          socketReconnectTimeoutRef.current = null;
-        }
-        if (socketRef.current) {
-          try {
-            socketRef.current.close();
-          } catch (err) {
-            console.warn('Failed to close session socket', err);
-          }
-        }
-        socketRef.current = null;
-      };
-    }, [handleSignal, participantId, socketReconnectNonce, token.token]);
-
-    const resetPeerConnection = useCallback(
-      ({ recreate = true, delayMs }: { recreate?: boolean; delayMs?: number } = {}) => {
+  const resetPeerConnection = useCallback(
+    ({ recreate = true, delayMs }: { recreate?: boolean; delayMs?: number } = {}) => {
       if (iceRetryTimeoutRef.current) {
         clearTimeout(iceRetryTimeoutRef.current as TimeoutHandle);
         iceRetryTimeoutRef.current = null;
+      }
+      if (fallbackOfferTimeoutRef.current) {
+        clearTimeout(fallbackOfferTimeoutRef.current as TimeoutHandle);
+        fallbackOfferTimeoutRef.current = null;
       }
       const existing = peerConnectionRef.current;
       if (existing) {
@@ -1617,17 +1860,22 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       hasSentOfferRef.current = false;
       setConnected(false);
       setDataChannelState(null);
+      stopLocalVideoTracks();
+      stopLocalAudioTracks();
+      clearRemoteVideo();
+      setCallState('idle');
+      setIncomingCallFrom(null);
       if (!recreate) {
         return;
       }
       if (delayMs && delayMs > 0) {
-          iceRetryTimeoutRef.current = setTimeout(() => {
-            iceRetryTimeoutRef.current = null;
-            setPeerResetNonce((value: number) => value + 1);
-          }, delayMs);
-        } else {
+        iceRetryTimeoutRef.current = setTimeout(() => {
+          iceRetryTimeoutRef.current = null;
           setPeerResetNonce((value: number) => value + 1);
-        }
+        }, delayMs);
+      } else {
+        setPeerResetNonce((value: number) => value + 1);
+      }
     },
     []
   );
@@ -1635,28 +1883,290 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const schedulePeerConnectionRecovery = useCallback(
     (reason: string, { delayMs = 1000 }: { delayMs?: number } = {}) => {
       console.warn('Scheduling peer connection recovery', reason);
+      logSocket('peer recovery', reason, 'delayMs', delayMs);
       if (!sessionActiveRef.current) {
         return;
       }
       setIsReconnecting(true);
       resetPeerConnection({ delayMs });
     },
+    [logSocket, resetPeerConnection]
+  );
+
+  const markSessionEnded = useCallback(
+    (message: string) => {
+      if (sessionEndedRef.current) {
+        return;
+      }
+      sessionEndedRef.current = true;
+      sessionActiveRef.current = false;
+      remoteParticipantJoinedRef.current = false;
+      setSessionEnded(true);
+      setIsReconnecting(false);
+      setConnected(false);
+      setDataChannelState(null);
+      setCallState('idle');
+      setIncomingCallFrom(null);
+      setStatusError(message);
+      setSessionStatus((prev) => (prev ? { ...prev, status: 'expired', remaining_seconds: 0 } : prev));
+      if (socketReconnectTimeoutRef.current) {
+        clearTimeout(socketReconnectTimeoutRef.current as TimeoutHandle);
+        socketReconnectTimeoutRef.current = null;
+      }
+      if (iceRetryTimeoutRef.current) {
+        clearTimeout(iceRetryTimeoutRef.current as TimeoutHandle);
+        iceRetryTimeoutRef.current = null;
+      }
+      if (fallbackOfferTimeoutRef.current) {
+        clearTimeout(fallbackOfferTimeoutRef.current as TimeoutHandle);
+        fallbackOfferTimeoutRef.current = null;
+      }
+      resetPeerConnection({ recreate: false });
+      if (socketRef.current) {
+        try {
+          socketRef.current.close();
+        } catch (err) {
+          console.warn('Failed to close session socket', err);
+        }
+      }
+      socketRef.current = null;
+    },
     [resetPeerConnection]
   );
 
-    const attachDataChannel = useCallback(
-      (channel: PeerDataChannel, owner: RTCPeerConnection | null) => {
+  useEffect(() => {
+    if (sessionEnded) {
+      return;
+    }
+    let isMounted = true;
+    const controller = new AbortController();
+    const loadStatus = async (showSpinner: boolean) => {
+      if (showSpinner) {
+        setStatusLoading(true);
+        setStatusError(null);
+      }
+      try {
+        const status = await fetchSessionStatus(token.token, controller.signal);
+        if (isMounted) {
+          updateRemoteParticipantPresence(status.participants);
+          setSessionStatus(status);
+          setRemainingSeconds(status.remaining_seconds ?? null);
+          if (status.connected_participants !== undefined) {
+            const connectedIds = Array.isArray(status.connected_participants)
+              ? status.connected_participants
+              : [];
+            setConnectedParticipantIds(connectedIds);
+            connectedParticipantIdsRef.current = connectedIds;
+            logSocket('http status', status.status, 'connected', connectedIds);
+          } else {
+            logSocket('http status missing connected_participants, keeping previous value');
+          }
+          setStatusError(null);
+          if (status.status && status.status !== 'active') {
+            markSessionEnded('This session is no longer active.');
+          }
+        }
+      } catch (err: any) {
+        if (isMounted && !controller.signal.aborted) {
+          const statusCode = err?.status ?? err?.statusCode;
+          if (statusCode === 404) {
+            markSessionEnded('This session is no longer active.');
+            return;
+          }
+          setStatusError(err?.message ?? 'Unable to load the session status.');
+        }
+      } finally {
+        if (isMounted && showSpinner) {
+          setStatusLoading(false);
+        }
+      }
+    };
+    loadStatus(true);
+
+    const interval = setInterval(() => {
+      loadStatus(false);
+    }, SESSION_POLL_INTERVAL_MS);
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+      clearInterval(interval);
+    };
+  }, [logSocket, markSessionEnded, sessionEnded, token.token, updateRemoteParticipantPresence]);
+
+  useEffect(() => {
+    if (sessionStatus) {
+      setRemainingSeconds(sessionStatus.remaining_seconds ?? null);
+    }
+  }, [sessionStatus?.remaining_seconds]);
+
+  useEffect(() => {
+    if (sessionEnded) {
+      return;
+    }
+    if (remainingSeconds == null) {
+      return;
+    }
+    if (remainingSeconds <= 0) {
+      markSessionEnded('Session timer elapsed.');
+      return;
+    }
+    const timeout = setTimeout(() => {
+      setRemainingSeconds((prev: number | null) => (prev == null || prev <= 0 ? prev : prev - 1));
+    }, 1000);
+    return () => clearTimeout(timeout);
+  }, [markSessionEnded, remainingSeconds, sessionEnded]);
+
+  useEffect(() => {
+    if (!participantId || sessionEnded) {
+      return;
+    }
+    const url = `${WS_BASE_URL}/ws/sessions/${encodeURIComponent(token.token)}?participantId=${encodeURIComponent(participantId)}`;
+    let cancelled = false;
+
+    try {
+      logSocket('connecting', url, { participantId });
+      const socket = new WebSocket(url);
+      socketRef.current = socket;
+
+      socket.onopen = () => {
+        logSocket('open');
+        setSocketReady(true);
+        setStatusError(null);
+        reconnectAttemptsRef.current = 0;
+        flushQueuedSignals(socket);
+      };
+
+      socket.onerror = (event: Event) => {
+        logSocket('error', event);
+        if (!sessionEndedRef.current) {
+          setStatusError('Realtime connection interrupted. Attempting to reconnect…');
+        }
+      };
+
+      socket.onclose = (event: CloseEvent) => {
+        logSocket('close', { code: event.code, reason: event.reason, wasClean: event.wasClean });
+        socketRef.current = null;
+        setSocketReady(false);
+        if (cancelled || sessionEndedRef.current) {
+          return;
+        }
+        setStatusError((prev: string | null) => prev ?? 'Realtime connection closed.');
+        if (!socketReconnectTimeoutRef.current) {
+          const attempt = reconnectAttemptsRef.current + 1;
+          reconnectAttemptsRef.current = attempt;
+          const delay = Math.min(3000, attempt * 600);
+          logSocket('reconnect scheduled', { attempt, delay });
+          socketReconnectTimeoutRef.current = setTimeout(() => {
+            socketReconnectTimeoutRef.current = null;
+            if (!cancelled && !sessionEndedRef.current) {
+              logSocket('reconnect firing', { attempt });
+              setSocketReconnectNonce((value: number) => value + 1);
+            }
+          }, delay);
+        }
+      };
+
+      socket.onmessage = (event: MessageEvent) => {
+        logSocket('message', event.data);
+        try {
+          const payload = JSON.parse(event.data) as SessionStatusSocketPayload | { type: string; signalType?: string };
+          if (payload.type === 'status') {
+            const { connected_participants, type: _ignored, ...rest } = payload as SessionStatusSocketPayload;
+            if (connected_participants !== undefined) {
+              const connectedIds = Array.isArray(connected_participants) ? connected_participants : [];
+              logSocket('status payload', rest.status, 'participants', connectedIds);
+              setConnectedParticipantIds(connectedIds);
+              connectedParticipantIdsRef.current = connectedIds;
+            } else {
+              logSocket('status payload missing connected_participants, keeping previous value');
+            }
+            updateRemoteParticipantPresence(rest.participants);
+            setSessionStatus(rest);
+            setRemainingSeconds(rest.remaining_seconds ?? null);
+            setStatusLoading(false);
+            if (rest.status && rest.status !== 'active') {
+              markSessionEnded('This session is no longer active.');
+            }
+          } else if (payload.type === 'signal') {
+            const signalType = payload.signalType ?? 'unknown';
+            logSocket('signal payload', signalType, summarizeSignalPayload(signalType, (payload as any).payload));
+            handleSignal(payload);
+          } else if (payload.type === 'session_closed') {
+            markSessionEnded('The session has been closed.');
+          } else if (payload.type === 'session_expired') {
+            markSessionEnded('The session has expired.');
+          } else if (payload.type === 'session_deleted') {
+            markSessionEnded('The session is no longer available.');
+          }
+        } catch (err) {
+          console.warn('Unable to process websocket payload', err);
+        }
+      };
+    } catch (err) {
+      console.warn('Unable to open realtime session socket', err);
+      if (!sessionEndedRef.current) {
+        setStatusError('Unable to open realtime connection. Some updates may be delayed.');
+        if (!socketReconnectTimeoutRef.current) {
+          socketReconnectTimeoutRef.current = setTimeout(() => {
+            socketReconnectTimeoutRef.current = null;
+            setSocketReconnectNonce((value: number) => value + 1);
+          }, 1500);
+        }
+      }
+      return;
+    }
+
+    return () => {
+      cancelled = true;
+      if (socketReconnectTimeoutRef.current) {
+        clearTimeout(socketReconnectTimeoutRef.current as TimeoutHandle);
+        socketReconnectTimeoutRef.current = null;
+      }
+      if (socketRef.current) {
+        try {
+          socketRef.current.close();
+        } catch (err) {
+          console.warn('Failed to close session socket', err);
+        }
+      }
+      socketRef.current = null;
+    };
+  }, [
+    flushQueuedSignals,
+    handleSignal,
+    logSocket,
+    markSessionEnded,
+    participantId,
+    sessionEnded,
+    summarizeSignalPayload,
+    token.token,
+    updateRemoteParticipantPresence
+  ]);
+
+  const attachDataChannel = useCallback(
+    (channel: PeerDataChannel, owner: RTCPeerConnection | null) => {
+      logPeer(owner, 'attach data channel', channel.label, channel.readyState);
       dataChannelRef.current = channel;
       setDataChannelState(channel.readyState as DataChannelState);
-      channel.onopen = () => {
+      const markOpen = () => {
+        logPeer(owner, 'data channel open', channel.label);
         setConnected(true);
         setError(null);
         setIsReconnecting(false);
         capabilityAnnouncedRef.current = false;
         sendCapabilities();
+        flushPendingCallMessages(channel);
         setDataChannelState('open');
       };
+      if (channel.readyState === 'open') {
+        markOpen();
+      }
+      channel.onopen = () => {
+        markOpen();
+      };
       channel.onclose = () => {
+        logPeer(owner, 'data channel closed', channel.label);
         setConnected(false);
         setDataChannelState(channel.readyState as DataChannelState);
         capabilityAnnouncedRef.current = false;
@@ -1667,6 +2177,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         }
       };
       channel.onerror = () => {
+        logPeer(owner, 'data channel error', channel.label);
         setConnected(false);
         setDataChannelState(channel.readyState as DataChannelState);
         if (owner && peerConnectionRef.current === owner && sessionActiveRef.current) {
@@ -1677,85 +2188,471 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         void handlePeerMessage(event.data);
       };
     },
-    [handlePeerMessage, schedulePeerConnectionRecovery, sendCapabilities]
+    [flushPendingCallMessages, handlePeerMessage, schedulePeerConnectionRecovery, sendCapabilities]
   );
+
+  const ensureLocalAudioStream = useCallback(async () => {
+    if (!webRtcBindings?.mediaDevices?.getUserMedia) {
+      logSocket('mediaDevices missing; audio unavailable');
+      return null;
+    }
+    if (localAudioStreamRef.current) {
+      return localAudioStreamRef.current;
+    }
+    try {
+      const stream = await webRtcBindings.mediaDevices.getUserMedia({ audio: true });
+      localAudioStreamRef.current = stream;
+      return stream;
+    } catch (err) {
+      console.warn('Unable to start local audio stream', err);
+      return null;
+    }
+  }, [logSocket, webRtcBindings]);
+
+  const stopLocalAudioTracks = useCallback(() => {
+    const stream = localAudioStreamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+    localAudioStreamRef.current = null;
+    const pc = peerConnectionRef.current;
+    if (pc && typeof pc.getSenders === 'function') {
+      pc.getSenders().forEach((sender) => {
+        if (sender.track?.kind === 'audio') {
+          try {
+            pc.removeTrack(sender);
+          } catch (err) {
+            console.warn('Failed to remove audio sender', err);
+          }
+        }
+      });
+    }
+  }, []);
+
+  const stopLocalVideoTracks = useCallback(() => {
+    const stream = localVideoStreamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+    localVideoStreamRef.current = null;
+    setLocalVideoStream(null);
+    const pc = peerConnectionRef.current;
+    if (pc && typeof pc.getSenders === 'function') {
+      pc.getSenders().forEach((sender) => {
+        if (sender.track?.kind === 'video') {
+          try {
+            pc.removeTrack(sender);
+          } catch (err) {
+            console.warn('Failed to remove video sender', err);
+          }
+        }
+      });
+    }
+  }, []);
+
+  const clearRemoteVideo = useCallback(() => {
+    remoteVideoStreamRef.current = null;
+    setRemoteVideoStream(null);
+  }, []);
+
+  const resetCallControls = useCallback(() => {
+    setIsLocalAudioMuted(false);
+    setIsLocalVideoMuted(false);
+    setIsCallFullscreen(false);
+  }, []);
+
+  const negotiateMediaUpdate = useCallback(
+    async (pc: RTCPeerConnection | null, reason: string) => {
+      if (!pc) {
+        return;
+      }
+      if (pc.signalingState === 'closed') {
+        return;
+      }
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendSignal('offer', offer);
+        logPeer(pc, 'sent renegotiation offer', reason);
+      } catch (err) {
+        console.warn('Failed to renegotiate media', err);
+      }
+    },
+    [logPeer, sendSignal]
+  );
+
+  const requestMediaRenegotiation = useCallback(() => {
+    if (participantRole === 'host') {
+      void negotiateMediaUpdate(peerConnectionRef.current, 'requested media update');
+    } else {
+      sendCallMessage('renegotiate');
+    }
+  }, [negotiateMediaUpdate, participantRole, sendCallMessage]);
+
+  const ensureCallMedia = useCallback(
+    async (options: { attach?: boolean } = {}) => {
+      const { attach = true } = options;
+      const pc = peerConnectionRef.current;
+      if (!pc || !webRtcBindings?.mediaDevices?.getUserMedia) {
+        return null;
+      }
+
+      const attachSenders = (kind: 'audio' | 'video', stream: MediaStream) => {
+        const hasSender = pc.getSenders?.().some((sender) => sender.track?.kind === kind);
+        if (!hasSender && typeof pc.addTransceiver === 'function') {
+          try {
+            pc.addTransceiver(kind, { direction: 'sendrecv' });
+          } catch (err) {
+            console.warn(`Failed to add ${kind} transceiver`, err);
+          }
+        }
+        stream
+          .getTracks()
+          .filter((track) => track.kind === kind)
+          .forEach((track) => {
+            try {
+              pc.addTrack(track, stream);
+              logPeer(pc, `added local ${kind} track`, track.id);
+            } catch (err) {
+              console.warn(`Failed to attach local ${kind} track`, err);
+            }
+          });
+      };
+
+      let videoStream = localVideoStreamRef.current;
+      if (!videoStream) {
+        try {
+          videoStream = await webRtcBindings.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: preferredCameraFacing } }
+          });
+          localVideoStreamRef.current = videoStream;
+          setLocalVideoStream(videoStream);
+        } catch (err) {
+          console.warn('Unable to start local video stream', err);
+          return null;
+        }
+      }
+
+      videoStream
+        .getTracks()
+        .filter((track) => track.kind === 'video')
+        .forEach((track) => {
+          track.enabled = !isLocalVideoMuted;
+        });
+
+      if (videoStream && attach) {
+        attachSenders('video', videoStream);
+      }
+
+      if (attach) {
+        const audioStream = await ensureLocalAudioStream();
+        if (audioStream) {
+          audioStream
+            .getTracks()
+            .filter((track) => track.kind === 'audio')
+            .forEach((track) => {
+              track.enabled = !isLocalAudioMuted;
+            });
+          attachSenders('audio', audioStream);
+        }
+      }
+
+      return videoStream;
+    },
+    [ensureLocalAudioStream, isLocalAudioMuted, isLocalVideoMuted, logPeer, preferredCameraFacing, webRtcBindings]
+  );
+
+  const createAndSendOffer = useCallback(
+    async (pc: RTCPeerConnection, reason: string, ensureDataChannel?: boolean) => {
+      try {
+        if (!sessionActiveRef.current) {
+          logPeer(pc, 'skipping offer (session inactive)', reason);
+          return;
+        }
+        if (!hasRemoteParticipant()) {
+          if (participantRole === 'host') {
+            pendingHostOfferRef.current = true;
+          }
+          logPeer(pc, 'skipping offer (no remote participant yet)', reason);
+          return;
+        }
+        if (ensureDataChannel && !dataChannelRef.current) {
+          const channel = pc.createDataChannel('chat') as unknown as PeerDataChannel;
+          logPeer(pc, 'created data channel (fallback)', channel.label);
+          attachDataChannel(channel, pc);
+        }
+        const offer = await pc.createOffer();
+        if (peerConnectionRef.current !== pc || pc.signalingState === 'closed') {
+          logPeer(pc, 'offer abandoned (stale peer)');
+          return;
+        }
+        await pc.setLocalDescription(offer);
+        if (peerConnectionRef.current !== pc || pc.signalingState === 'closed') {
+          logPeer(pc, 'offer abandoned after setLocalDescription (stale peer)');
+          return;
+        }
+        logPeer(pc, 'sending offer', reason);
+        sendSignal('offer', offer);
+        hasSentOfferRef.current = true;
+        pendingHostOfferRef.current = false;
+      } catch (err) {
+        console.warn('Failed to create offer', err);
+      }
+    },
+    [attachDataChannel, hasRemoteParticipant, logPeer, participantRole, sendSignal]
+  );
+
+  const toggleLocalAudio = useCallback(() => {
+    setIsLocalAudioMuted((prev) => {
+      const next = !prev;
+      const stream = localAudioStreamRef.current;
+      if (stream) {
+        stream.getAudioTracks().forEach((track) => {
+          track.enabled = !next;
+        });
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleLocalVideo = useCallback(() => {
+    setIsLocalVideoMuted((prev) => {
+      const next = !prev;
+      const stream = localVideoStreamRef.current;
+      if (stream) {
+        stream.getVideoTracks().forEach((track) => {
+          track.enabled = !next;
+        });
+      }
+      return next;
+    });
+  }, []);
+
+  const flipCamera = useCallback(() => {
+    const stream = localVideoStreamRef.current;
+    const track = stream?.getVideoTracks?.()[0];
+    const switchable = track as unknown as { _switchCamera?: () => void } | undefined;
+    if (switchable?._switchCamera) {
+      switchable._switchCamera();
+      setPreferredCameraFacing((prev) => (prev === 'user' ? 'environment' : 'user'));
+    }
+  }, []);
+
+  const toggleCallFullscreen = useCallback(() => {
+    setIsCallFullscreen((prev) => !prev);
+  }, []);
+
+  const requestVideoChat = useCallback(async () => {
+    if (callState !== 'idle') {
+      return;
+    }
+    const stream = await ensureCallMedia({ attach: false });
+    if (!stream) {
+      setError('Unable to access the camera for video chat.');
+      return;
+    }
+    setCallState('requesting');
+    setIncomingCallFrom(null);
+    sendCallMessage('request');
+  }, [callState, ensureCallMedia, sendCallMessage]);
+
+  const acceptVideoChat = useCallback(async () => {
+    if (!incomingCallFrom) {
+      return;
+    }
+    const stream = await ensureCallMedia();
+    if (!stream) {
+      setError('Unable to access the camera for video chat.');
+      sendCallMessage('reject');
+      return;
+    }
+    setCallState('connecting');
+    setIncomingCallFrom(null);
+    sendCallMessage('accept');
+    requestMediaRenegotiation();
+  }, [ensureCallMedia, incomingCallFrom, requestMediaRenegotiation, sendCallMessage]);
+
+  const declineVideoChat = useCallback(() => {
+    sendCallMessage('reject');
+    setIncomingCallFrom(null);
+    setCallState('idle');
+    stopLocalVideoTracks();
+    stopLocalAudioTracks();
+    clearRemoteVideo();
+    resetCallControls();
+  }, [clearRemoteVideo, resetCallControls, sendCallMessage, stopLocalAudioTracks, stopLocalVideoTracks]);
+
+  const endVideoChat = useCallback(() => {
+    if (callState === 'requesting') {
+      sendCallMessage('cancel');
+    } else {
+      sendCallMessage('end');
+    }
+    setCallState('idle');
+    setIncomingCallFrom(null);
+    stopLocalVideoTracks();
+    stopLocalAudioTracks();
+    clearRemoteVideo();
+    resetCallControls();
+  }, [callState, clearRemoteVideo, resetCallControls, sendCallMessage, stopLocalAudioTracks, stopLocalVideoTracks]);
+
+  useEffect(() => {
+    if (remoteVideoStream && (callState === 'connecting' || callState === 'requesting')) {
+      setCallState('active');
+    }
+  }, [callState, remoteVideoStream]);
 
   useEffect(() => {
     if (!participantId) {
       return;
     }
-    const peerConnection = new RTCPeerConnectionCtor({ iceServers });
-    peerConnectionRef.current = peerConnection;
+    let cancelled = false;
+    let peerConnection: RTCPeerConnection | null = null;
 
-    const handleIceCandidate = (event: RTCPeerConnectionIceEvent) => {
-      if (event.candidate && event.candidate.candidate) {
-        const candidate = typeof event.candidate.toJSON === 'function' ? event.candidate.toJSON() : event.candidate;
-        sendSignal('iceCandidate', candidate);
-      } else {
-        sendSignal('iceCandidate', null);
-      }
-    };
+    const setupPeerConnection = async () => {
+      const pc = new RTCPeerConnectionCtor({ iceServers });
+      peerConnection = pc;
+      logPeer(pc, 'ctor', iceServers.length ? 'with-ice' : 'no-ice');
+      peerConnectionRef.current = pc;
 
-    const handleConnectionStateChange = () => {
-      const state = peerConnection.connectionState;
-      if (state === 'connected') {
-        setIsReconnecting(false);
-        if (dataChannelRef.current?.readyState === 'open') {
-          setConnected(true);
+      const handleIceCandidate = (event: RTCPeerConnectionIceEvent) => {
+        if (event.candidate && event.candidate.candidate) {
+          const candidate = typeof event.candidate.toJSON === 'function' ? event.candidate.toJSON() : event.candidate;
+          logPeer(pc, 'emit ice candidate');
+          sendSignal('iceCandidate', candidate);
+        } else {
+          logPeer(pc, 'emit end-of-candidates');
+          sendSignal('iceCandidate', null);
         }
-      } else if (state === 'failed' || state === 'disconnected') {
-        setConnected(false);
-        if (sessionActiveRef.current) {
-          schedulePeerConnectionRecovery(`connection ${state}`, { delayMs: state === 'failed' ? 0 : 1200 });
-        }
-      } else if (state === 'closed') {
-        setConnected(false);
-      }
-    };
-
-      const handleDataChannel = (event: RTCDataChannelEvent) => {
-        attachDataChannel(event.channel as unknown as PeerDataChannel, peerConnection);
       };
 
-    const peerConnectionAny = peerConnection as RTCPeerConnection & {
-      onicecandidate?: ((event: RTCPeerConnectionIceEvent) => void) | null;
-      onconnectionstatechange?: (() => void) | null;
-      ondatachannel?: ((event: RTCDataChannelEvent) => void) | null;
-    };
+      const handleConnectionStateChange = () => {
+        logPeer(pc, 'connection state change', pc.connectionState, pc.iceConnectionState);
+        const state = pc.connectionState;
+        if (state === 'connected') {
+          setIsReconnecting(false);
+          if (dataChannelRef.current?.readyState === 'open') {
+            setConnected(true);
+          }
+        } else if (state === 'failed' || state === 'disconnected') {
+          setConnected(false);
+          if (sessionActiveRef.current) {
+            schedulePeerConnectionRecovery(`connection ${state}`, { delayMs: state === 'failed' ? 0 : 1200 });
+          }
+        } else if (state === 'closed') {
+          setConnected(false);
+        }
+      };
 
-    peerConnectionAny.onicecandidate = handleIceCandidate;
-    peerConnectionAny.onconnectionstatechange = handleConnectionStateChange;
-    peerConnectionAny.ondatachannel = handleDataChannel;
+      const handleDataChannel = (event: RTCDataChannelEvent) => {
+        logPeer(pc, 'incoming data channel', event.channel?.label);
+        attachDataChannel(event.channel as unknown as PeerDataChannel, pc);
+      };
+
+      const handleTrack = (event: RTCTrackEvent) => {
+        logPeer(pc, 'remote track', event.track?.kind, event.streams?.length ?? 0);
+        if (event.track?.kind === 'audio') {
+          event.track.enabled = true;
+          return;
+        }
+        if (event.track?.kind === 'video') {
+          const stream = event.streams?.[0] ?? new MediaStream([event.track]);
+          remoteVideoStreamRef.current = stream as unknown as MediaStream;
+          setRemoteVideoStream(stream as unknown as MediaStream);
+          return;
+        }
+      };
+
+      const handleNegotiationNeeded = () => {
+        void negotiateMediaUpdate(pc, 'onnegotiationneeded');
+      };
+
+      const peerConnectionAny = pc as RTCPeerConnection & {
+        onicecandidate?: ((event: RTCPeerConnectionIceEvent) => void) | null;
+        onconnectionstatechange?: (() => void) | null;
+        ondatachannel?: ((event: RTCDataChannelEvent) => void) | null;
+        ontrack?: ((event: RTCTrackEvent) => void) | null;
+        onnegotiationneeded?: (() => void) | null;
+      };
+
+      peerConnectionAny.onicecandidate = handleIceCandidate;
+      peerConnectionAny.onconnectionstatechange = handleConnectionStateChange;
+      peerConnectionAny.ondatachannel = handleDataChannel;
+      peerConnectionAny.ontrack = handleTrack;
+      peerConnectionAny.onnegotiationneeded = handleNegotiationNeeded;
 
       if (participantRole === 'host') {
-        const channel = peerConnection.createDataChannel('chat') as unknown as PeerDataChannel;
-        attachDataChannel(channel, peerConnection);
+        const channel = pc.createDataChannel('chat') as unknown as PeerDataChannel;
+        logPeer(pc, 'created data channel', channel.label);
+        attachDataChannel(channel, pc);
       }
 
-    const backlog = pendingSignalsRef.current.splice(0);
-    if (backlog.length > 0) {
-      backlog.forEach((item) => {
-        void processSignalPayload(peerConnection, item);
-      });
-    }
-
-    if (participantRole === 'host') {
-      void (async () => {
+      if (callStateRef.current !== 'idle') {
         try {
-          const offer = await peerConnection.createOffer();
-          await peerConnection.setLocalDescription(offer);
-          sendSignal('offer', offer);
-          hasSentOfferRef.current = true;
+          await ensureCallMedia();
         } catch (err) {
-          console.warn('Failed to create offer', err);
+          console.warn('Failed to restore call media on reconnect', err);
         }
-      })();
-    }
+      }
+
+      const backlog = pendingSignalsRef.current.splice(0);
+      if (backlog.length > 0) {
+        logPeer(pc, 'replaying buffered signals', backlog.length);
+        backlog.forEach((item) => {
+          void processSignalPayload(pc, item);
+        });
+      }
+
+      const readyForOffer = sessionActiveRef.current && hasRemoteParticipant();
+      if (participantRole === 'host' && !readyForOffer) {
+        logPeer(pc, 'deferring offer until remote participant joins');
+        pendingHostOfferRef.current = true;
+      }
+      const canScheduleOffer =
+        participantRole === 'host' &&
+        !fallbackOfferTimeoutRef.current &&
+        !hasSentOfferRef.current &&
+        readyForOffer;
+
+      if (canScheduleOffer) {
+        fallbackOfferTimeoutRef.current = setTimeout(() => {
+          fallbackOfferTimeoutRef.current = null;
+          if (!peerConnectionRef.current || peerConnectionRef.current !== pc) {
+            return;
+          }
+          if (pc.signalingState !== 'stable' || pc.remoteDescription) {
+            return;
+          }
+          void createAndSendOffer(
+            pc,
+            participantRole === 'host' ? 'host-init' : 'guest-fallback',
+            participantRole === 'guest'
+          );
+        }, participantRole === 'host' ? 0 : 750);
+      }
+    };
+
+    void setupPeerConnection();
 
     return () => {
+      cancelled = true;
+      if (!peerConnection) {
+        return;
+      }
+      if (fallbackOfferTimeoutRef.current) {
+        clearTimeout(fallbackOfferTimeoutRef.current as TimeoutHandle);
+        fallbackOfferTimeoutRef.current = null;
+      }
+      const peerConnectionAny = peerConnection as RTCPeerConnection & {
+        onicecandidate?: ((event: RTCPeerConnectionIceEvent) => void) | null;
+        onconnectionstatechange?: (() => void) | null;
+        ondatachannel?: ((event: RTCDataChannelEvent) => void) | null;
+        ontrack?: ((event: RTCTrackEvent) => void) | null;
+      };
       peerConnectionAny.onicecandidate = null;
       peerConnectionAny.onconnectionstatechange = null;
       peerConnectionAny.ondatachannel = null;
+      peerConnectionAny.ontrack = null;
       try {
         peerConnection.close();
       } catch (err) {
@@ -1769,7 +2666,54 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         }
       }
     };
-  }, [RTCPeerConnectionCtor, attachDataChannel, iceServers, participantId, participantRole, processSignalPayload, sendSignal]);
+  }, [
+    RTCPeerConnectionCtor,
+    attachDataChannel,
+    iceServers,
+    participantId,
+    participantRole,
+    peerResetNonce,
+    ensureCallMedia,
+    createAndSendOffer,
+    hasRemoteParticipant,
+    processSignalPayload,
+    sendSignal,
+    schedulePeerConnectionRecovery
+  ]);
+
+  useEffect(() => {
+    const pc = peerConnectionRef.current;
+    if (!pc || pc.signalingState === 'closed') {
+      return;
+    }
+    if (!sessionActiveRef.current || !hasRemoteParticipant()) {
+      return;
+    }
+    if (participantRole !== 'host' || fallbackOfferTimeoutRef.current || hasSentOfferRef.current) {
+      return;
+    }
+
+    if (pendingHostOfferRef.current) {
+      pendingHostOfferRef.current = false;
+      fallbackOfferTimeoutRef.current = setTimeout(() => {
+        fallbackOfferTimeoutRef.current = null;
+        if (!peerConnectionRef.current || peerConnectionRef.current !== pc) {
+          return;
+        }
+        if (pc.signalingState !== 'stable' || pc.remoteDescription) {
+          return;
+        }
+        void createAndSendOffer(pc, 'host-resume');
+      }, 0);
+      return;
+    }
+  }, [
+    connectedParticipantIds,
+    createAndSendOffer,
+    hasRemoteParticipant,
+    participantRole,
+    sessionStatus?.status
+  ]);
 
   const sessionStatusLabel = mapStatusLabel(sessionStatus?.status);
   const sessionStatusDescription = mapStatusDescription(sessionStatus?.status);
@@ -1862,10 +2806,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     }
   }, [connected, draft, participantId, participantRole, peerSupportsEncryption, sessionStatus?.message_char_limit, supportsEncryption, token.token]);
 
-    const renderMessage: ListRenderItem<Message> = ({ item }) => {
+    const renderMessage = (item: Message) => {
       const isSelf = item.participantId === participantId;
       return (
-        <View style={[styles.chatBubble, isSelf ? styles.chatBubbleSelf : styles.chatBubblePeer]}>
+        <View
+          key={item.messageId}
+          style={[styles.chatBubble, isSelf ? styles.chatBubbleSelf : styles.chatBubblePeer]}
+        >
           <Text style={styles.chatBubbleMeta}>
             {item.role === 'host' ? 'Host' : 'Guest'} ·{' '}
             {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -1888,7 +2835,12 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             <Text style={styles.inAppSubtitle}>Keep this screen open while participants join.</Text>
           </View>
         </View>
-        <View style={styles.sessionContent}>
+        <ScrollView
+          style={styles.sessionScroll}
+          contentContainerStyle={styles.sessionContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+        >
           <View style={styles.sessionStatusCard}>
             <View style={styles.sessionCardHeader}>
               <Text style={styles.sessionCardTitle}>Session status</Text>
@@ -1955,6 +2907,119 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             )}
           </View>
 
+          <View style={styles.videoCard}>
+            <View style={styles.sessionCardHeader}>
+              <Text style={styles.sessionCardTitle}>Video chat</Text>
+              <View style={[styles.connectionBadge, videoStatusStyle]}>
+                <Text style={styles.connectionBadgeLabel}>{videoStatusLabel}</Text>
+              </View>
+            </View>
+            <Text style={styles.sessionCardDescription}>
+              Request a video call once both peers are connected. When accepted, your camera preview appears alongside the
+              remote feed.
+            </Text>
+            <View style={videoPreviewRowStyle}>
+              <View style={videoPaneStyle}>
+                <Text style={styles.videoPaneLabel}>Remote</Text>
+                {RTCViewComponent && remoteVideoUrl ? (
+                  <RTCViewComponent streamURL={remoteVideoUrl} style={videoSurfaceStyle} objectFit="cover" />
+                ) : (
+                  <View style={styles.videoPlaceholder}>
+                    <Ionicons name="videocam-outline" size={28} color={COLORS.ice} />
+                    <Text style={styles.videoPlaceholderText}>Waiting for remote video…</Text>
+                  </View>
+                )}
+              </View>
+              <View style={videoPaneStyle}>
+                <Text style={styles.videoPaneLabel}>You</Text>
+                {RTCViewComponent && localVideoUrl ? (
+                  <RTCViewComponent streamURL={localVideoUrl} style={videoSurfaceStyle} objectFit="cover" mirror />
+                ) : (
+                  <View style={styles.videoPlaceholder}>
+                    <Ionicons name="person-circle-outline" size={28} color={COLORS.ice} />
+                    <Text style={styles.videoPlaceholderText}>Camera preview</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+            {incomingCallFrom ? (
+              <View style={styles.videoActionsRow}>
+                <TouchableOpacity style={[styles.primaryButton, styles.videoAcceptButton]} onPress={acceptVideoChat}>
+                  <Ionicons name="videocam" size={18} color={COLORS.midnight} />
+                  <Text style={[styles.primaryButtonLabel, styles.videoAcceptLabel]}>Accept video</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.secondaryButton, styles.videoDeclineButton]} onPress={declineVideoChat}>
+                  <Text style={styles.secondaryButtonLabel}>Decline</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.videoActionsRow}>
+                <TouchableOpacity
+                  style={[styles.primaryButton, !videoReady && styles.primaryButtonDisabled]}
+                  disabled={!videoReady}
+                  onPress={callState === 'idle' ? requestVideoChat : endVideoChat}
+                >
+                  {callState === 'idle' ? (
+                    <Ionicons name="videocam-outline" size={18} color={COLORS.midnight} />
+                  ) : (
+                    <Ionicons name="close" size={18} color={COLORS.midnight} />
+                  )}
+                  <Text style={[styles.primaryButtonLabel, !videoReady && styles.primaryButtonLabelDisabled]}>
+                    {callState === 'idle'
+                      ? videoReady
+                        ? 'Request video chat'
+                        : 'Waiting for connection…'
+                      : callState === 'active'
+                        ? 'End video'
+                        : 'Cancel request'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {(callState === 'connecting' || callState === 'active') && (
+              <View style={[styles.videoControlsRow, isCallFullscreen && styles.videoControlsRowFullscreen]}>
+                <TouchableOpacity style={styles.videoIconButton} onPress={toggleCallFullscreen}>
+                  <Ionicons
+                    name={isCallFullscreen ? 'contract-outline' : 'expand-outline'}
+                    size={18}
+                    color={COLORS.midnight}
+                  />
+                  <Text style={styles.videoIconLabel}>{isCallFullscreen ? 'Exit full screen' : 'Full screen'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.videoIconButton, isLocalVideoMuted && styles.videoIconButtonMuted]}
+                  onPress={toggleLocalVideo}
+                >
+                  <Ionicons
+                    name={isLocalVideoMuted ? 'videocam-off' : 'videocam'}
+                    size={18}
+                    color={COLORS.midnight}
+                  />
+                  <Text style={styles.videoIconLabel}>{isLocalVideoMuted ? 'Camera off' : 'Camera on'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.videoIconButton, isLocalAudioMuted && styles.videoIconButtonMuted]}
+                  onPress={toggleLocalAudio}
+                >
+                  <Ionicons
+                    name={isLocalAudioMuted ? 'mic-off' : 'mic'}
+                    size={18}
+                    color={COLORS.midnight}
+                  />
+                  <Text style={styles.videoIconLabel}>{isLocalAudioMuted ? 'Mic muted' : 'Mic live'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.videoIconButton} onPress={flipCamera}>
+                  <Ionicons name="camera-reverse-outline" size={18} color={COLORS.midnight} />
+                  <Text style={styles.videoIconLabel}>Switch camera</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.videoIconButton, styles.videoEndButton]} onPress={endVideoChat}>
+                  <Ionicons name="call" size={18} color={COLORS.ice} />
+                  <Text style={[styles.videoIconLabel, styles.videoEndLabel]}>End call</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+
           <KeyboardAvoidingView
             style={styles.chatCard}
             behavior={Platform.select({ ios: 'padding', android: undefined })}
@@ -1977,13 +3042,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
                   </Text>
                 </View>
               ) : (
-                <FlatList
-                  data={messages}
-                  renderItem={renderMessage}
-                    keyExtractor={(item: Message) => item.messageId}
+                <ScrollView
                   style={styles.chatList}
                   contentContainerStyle={styles.chatListContent}
-                />
+                  keyboardShouldPersistTaps="handled"
+                >
+                  {messages.map(renderMessage)}
+                </ScrollView>
               )}
             </View>
             {error ? <Text style={styles.chatError}>{error}</Text> : null}
@@ -2005,7 +3070,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
               Data channel: {dataChannelState ?? '—'} · Socket: {socketReady ? 'connected' : 'offline'}
             </Text>
           </KeyboardAvoidingView>
-        </View>
+        </ScrollView>
       </SafeAreaView>
     </LinearGradient>
   );
@@ -2605,8 +3670,11 @@ const styles = StyleSheet.create({
     color: 'rgba(219, 237, 255, 0.78)',
     lineHeight: 20
   },
+  sessionScroll: {
+    flex: 1
+  },
   sessionContent: {
-    flex: 1,
+    flexGrow: 1,
     paddingBottom: 28,
     gap: 18
   },
@@ -2627,6 +3695,14 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 12,
     minHeight: 320
+  },
+  videoCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.38)',
+    backgroundColor: 'rgba(4, 23, 60, 0.72)',
+    padding: 20,
+    gap: 12
   },
   sessionCardHeader: {
     flexDirection: 'row',
@@ -2708,6 +3784,129 @@ const styles = StyleSheet.create({
   chatError: {
     color: COLORS.danger,
     fontWeight: '600'
+  },
+  videoPreviewRow: {
+    flexDirection: 'row',
+    gap: 12
+  },
+  videoPreviewRowFullscreen: {
+    flexDirection: 'column'
+  },
+  videoPane: {
+    flex: 1,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.25)',
+    overflow: 'hidden',
+    backgroundColor: 'rgba(2, 11, 31, 0.6)'
+  },
+  videoPaneFullscreen: {
+    width: '100%'
+  },
+  videoPaneLabel: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: 'rgba(219, 237, 255, 0.78)',
+    fontWeight: '600'
+  },
+  videoSurface: {
+    width: '100%',
+    height: 180,
+    backgroundColor: 'black'
+  },
+  videoSurfaceFullscreen: {
+    height: 260
+  },
+  videoPlaceholder: {
+    height: 180,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8
+  },
+  videoPlaceholderText: {
+    color: 'rgba(219, 237, 255, 0.7)'
+  },
+  videoActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 4,
+    alignItems: 'center'
+  },
+  videoControlsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 12
+  },
+  videoControlsRowFullscreen: {
+    justifyContent: 'space-between'
+  },
+  videoIconButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(136, 230, 255, 0.35)',
+    backgroundColor: 'rgba(136, 230, 255, 0.18)'
+  },
+  videoIconButtonMuted: {
+    backgroundColor: 'rgba(255, 209, 102, 0.15)',
+    borderColor: 'rgba(255, 209, 102, 0.45)'
+  },
+  videoIconLabel: {
+    color: COLORS.midnight,
+    fontWeight: '700'
+  },
+  videoEndButton: {
+    backgroundColor: 'rgba(239, 71, 111, 0.9)',
+    borderColor: 'rgba(239, 71, 111, 0.9)'
+  },
+  videoEndLabel: {
+    color: COLORS.ice
+  },
+  primaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: COLORS.aurora,
+    borderRadius: 14,
+    flex: 1
+  },
+  primaryButtonDisabled: {
+    backgroundColor: 'rgba(111, 231, 255, 0.3)'
+  },
+  primaryButtonLabel: {
+    color: COLORS.midnight,
+    fontWeight: '700'
+  },
+  primaryButtonLabelDisabled: {
+    color: 'rgba(2,11,31,0.5)'
+  },
+  secondaryButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(219, 237, 255, 0.4)'
+  },
+  secondaryButtonLabel: {
+    color: COLORS.ice,
+    fontWeight: '600'
+  },
+  videoAcceptButton: {
+    backgroundColor: COLORS.aurora
+  },
+  videoAcceptLabel: {
+    color: COLORS.midnight
+  },
+  videoDeclineButton: {
+    borderColor: 'rgba(239, 71, 111, 0.65)'
   },
   sendButton: {
     width: 48,
@@ -2899,6 +4098,22 @@ const styles = StyleSheet.create({
   connectionBadgeLabel: {
     color: COLORS.ice,
     fontWeight: '600'
+  },
+  videoBadgeActive: {
+    borderColor: 'rgba(136, 230, 255, 0.7)',
+    backgroundColor: 'rgba(136, 230, 255, 0.18)'
+  },
+  videoBadgeIncoming: {
+    borderColor: 'rgba(255, 209, 102, 0.65)',
+    backgroundColor: 'rgba(255, 209, 102, 0.2)'
+  },
+  videoBadgePending: {
+    borderColor: 'rgba(219, 237, 255, 0.4)',
+    backgroundColor: 'rgba(219, 237, 255, 0.15)'
+  },
+  videoBadgeIdle: {
+    borderColor: 'rgba(111, 214, 255, 0.25)',
+    backgroundColor: 'rgba(111, 214, 255, 0.08)'
   },
   sessionFallbackCard: {
     width: '100%',

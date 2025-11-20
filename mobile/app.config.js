@@ -4,6 +4,16 @@
 module.exports = ({ config }) => {
   const baseConfig = config ?? {};
   const plugins = baseConfig.plugins ?? [];
+  const baseIOS = baseConfig.ios ?? {};
+  const infoPlist = { ...(baseIOS.infoPlist ?? {}) };
+  if (!infoPlist.NSMicrophoneUsageDescription) {
+    infoPlist.NSMicrophoneUsageDescription =
+      'ChatOrbit uses the microphone for secure, real-time audio conversations between participants.';
+  }
+  if (!infoPlist.NSCameraUsageDescription) {
+    infoPlist.NSCameraUsageDescription =
+      'ChatOrbit uses the camera for secure, real-time video conversations between participants.';
+  }
 
   return {
     ...baseConfig,
@@ -17,7 +27,8 @@ module.exports = ({ config }) => {
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.chatorbit.token',
-      ...(baseConfig.ios ?? {}),
+      ...baseIOS,
+      infoPlist,
     },
     android: {
       package: 'com.chatorbit.token',
@@ -27,6 +38,6 @@ module.exports = ({ config }) => {
       bundler: 'metro',
       ...(baseConfig.web ?? {}),
     },
-    plugins: [...plugins, 'expo-font'],
+    plugins: [...plugins, 'expo-font', './plugins/withMicrophoneUsage'],
   };
 };
