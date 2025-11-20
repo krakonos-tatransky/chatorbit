@@ -2609,8 +2609,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         pendingHostOfferRef.current = true;
       }
       const canScheduleOffer =
-        (participantRole === 'host' ||
-          (callStateRef.current === 'idle' && !pc.remoteDescription)) &&
+        participantRole === 'host' &&
         !fallbackOfferTimeoutRef.current &&
         !hasSentOfferRef.current &&
         readyForOffer;
@@ -2690,13 +2689,11 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     if (!sessionActiveRef.current || !hasRemoteParticipant()) {
       return;
     }
-    if (fallbackOfferTimeoutRef.current || hasSentOfferRef.current) {
+    if (participantRole !== 'host' || fallbackOfferTimeoutRef.current || hasSentOfferRef.current) {
       return;
     }
 
-    const canGuestOffer = participantRole === 'guest' && callStateRef.current === 'idle' && !pc.remoteDescription;
-
-    if (participantRole === 'host' && pendingHostOfferRef.current) {
+    if (pendingHostOfferRef.current) {
       pendingHostOfferRef.current = false;
       fallbackOfferTimeoutRef.current = setTimeout(() => {
         fallbackOfferTimeoutRef.current = null;
@@ -2709,19 +2706,6 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         void createAndSendOffer(pc, 'host-resume');
       }, 0);
       return;
-    }
-
-    if (canGuestOffer) {
-      fallbackOfferTimeoutRef.current = setTimeout(() => {
-        fallbackOfferTimeoutRef.current = null;
-        if (!peerConnectionRef.current || peerConnectionRef.current !== pc) {
-          return;
-        }
-        if (pc.signalingState !== 'stable' || pc.remoteDescription) {
-          return;
-        }
-        void createAndSendOffer(pc, 'guest-resume', true);
-      }, 750);
     }
   }, [
     connectedParticipantIds,
