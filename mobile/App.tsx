@@ -1243,6 +1243,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const peerLogCounterRef = useRef(0);
   const connectedParticipantIdsRef = useRef<string[]>([]);
+  const remoteParticipantJoinedRef = useRef(false);
   const dataChannelRef = useRef<PeerDataChannel | null>(null);
   const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
   const pendingSignalsRef = useRef<any[]>([]);
@@ -1411,6 +1412,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     setPeerSupportsEncryption(null);
     connectedParticipantIdsRef.current = [];
     setConnectedParticipantIds([]);
+    remoteParticipantJoinedRef.current = false;
     setSessionEnded(false);
     sessionEndedRef.current = false;
   }, [token.token]);
@@ -1465,8 +1467,19 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   }, []);
 
   const hasRemoteParticipant = useCallback(() => {
-    return connectedParticipantIdsRef.current.some((id) => id !== participantId);
-  }, [participantId]);
+    return remoteParticipantJoinedRef.current;
+  }, []);
+
+  const updateRemoteParticipantPresence = useCallback(
+    (participants?: SessionParticipant[]) => {
+      if (!participants) {
+        return;
+      }
+      const hasRemote = Boolean(participants.some((participant) => participant.participant_id !== participantId));
+      remoteParticipantJoinedRef.current = hasRemote;
+    },
+    [participantId]
+  );
 
   const summarizeSignalPayload = useCallback((signalType: string, payload: unknown) => {
     if (!payload) {
@@ -1865,6 +1878,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
 
   const handleSignal = useCallback(
     (payload: any) => {
+      remoteParticipantJoinedRef.current = true;
       const pc = peerConnectionRef.current;
       if (!pc) {
         console.debug('rn-webrtc:signal:buffered', payload.signalType);
@@ -1952,6 +1966,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       }
       sessionEndedRef.current = true;
       sessionActiveRef.current = false;
+      remoteParticipantJoinedRef.current = false;
       setSessionEnded(true);
       setIsReconnecting(false);
       setConnected(false);
@@ -1999,6 +2014,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       try {
         const status = await fetchSessionStatus(token.token, controller.signal);
         if (isMounted) {
+          updateRemoteParticipantPresence(status.participants);
           setSessionStatus(status);
           setRemainingSeconds(status.remaining_seconds ?? null);
           if (status.connected_participants !== undefined) {
@@ -2042,7 +2058,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       controller.abort();
       clearInterval(interval);
     };
-  }, [logSocket, markSessionEnded, sessionEnded, token.token]);
+  }, [logSocket, markSessionEnded, sessionEnded, token.token, updateRemoteParticipantPresence]);
 
   useEffect(() => {
     if (sessionStatus) {
@@ -2131,6 +2147,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             } else {
               logSocket('status payload missing connected_participants, keeping previous value');
             }
+            updateRemoteParticipantPresence(rest.participants);
             setSessionStatus(rest);
             setRemainingSeconds(rest.remaining_seconds ?? null);
             setStatusLoading(false);
@@ -2189,7 +2206,8 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     participantId,
     sessionEnded,
     summarizeSignalPayload,
-    token.token
+    token.token,
+    updateRemoteParticipantPresence
   ]);
 
   const attachDataChannel = useCallback(
