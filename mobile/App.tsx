@@ -1242,6 +1242,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const socketRef = useRef<WebSocket | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const peerLogCounterRef = useRef(0);
+  const connectedParticipantIdsRef = useRef<string[]>([]);
   const dataChannelRef = useRef<PeerDataChannel | null>(null);
   const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
   const pendingSignalsRef = useRef<any[]>([]);
@@ -1257,6 +1258,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const socketReconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
   const fallbackOfferTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const pendingHostOfferRef = useRef(false);
   const hasSentOfferRef = useRef(false);
   const localAudioStreamRef = useRef<MediaStream | null>(null);
   const localVideoStreamRef = useRef<MediaStream | null>(null);
@@ -1407,6 +1409,8 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     capabilityAnnouncedRef.current = false;
     peerSupportsEncryptionRef.current = null;
     setPeerSupportsEncryption(null);
+    connectedParticipantIdsRef.current = [];
+    setConnectedParticipantIds([]);
     setSessionEnded(false);
     sessionEndedRef.current = false;
   }, [token.token]);
@@ -1459,6 +1463,10 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const logSocket = useCallback((message: string, ...detail: unknown[]) => {
     console.debug('rn-webrtc:ws', message, ...detail);
   }, []);
+
+  const hasRemoteParticipant = useCallback(() => {
+    return connectedParticipantIdsRef.current.some((id) => id !== participantId);
+  }, [participantId]);
 
   const summarizeSignalPayload = useCallback((signalType: string, payload: unknown) => {
     if (!payload) {
@@ -1998,6 +2006,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
               ? status.connected_participants
               : [];
             setConnectedParticipantIds(connectedIds);
+            connectedParticipantIdsRef.current = connectedIds;
             logSocket('http status', status.status, 'connected', connectedIds);
           } else {
             logSocket('http status missing connected_participants, keeping previous value');
@@ -2118,6 +2127,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
               const connectedIds = Array.isArray(connected_participants) ? connected_participants : [];
               logSocket('status payload', rest.status, 'participants', connectedIds);
               setConnectedParticipantIds(connectedIds);
+              connectedParticipantIdsRef.current = connectedIds;
             } else {
               logSocket('status payload missing connected_participants, keeping previous value');
             }
@@ -2400,6 +2410,46 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     [ensureLocalAudioStream, isLocalAudioMuted, isLocalVideoMuted, logPeer, preferredCameraFacing, webRtcBindings]
   );
 
+  const createAndSendOffer = useCallback(
+    async (pc: RTCPeerConnection, reason: string, ensureDataChannel?: boolean) => {
+      try {
+        if (!sessionActiveRef.current) {
+          logPeer(pc, 'skipping offer (session inactive)', reason);
+          return;
+        }
+        if (!hasRemoteParticipant()) {
+          if (participantRole === 'host') {
+            pendingHostOfferRef.current = true;
+          }
+          logPeer(pc, 'skipping offer (no remote participant yet)', reason);
+          return;
+        }
+        if (ensureDataChannel && !dataChannelRef.current) {
+          const channel = pc.createDataChannel('chat') as unknown as PeerDataChannel;
+          logPeer(pc, 'created data channel (fallback)', channel.label);
+          attachDataChannel(channel, pc);
+        }
+        const offer = await pc.createOffer();
+        if (peerConnectionRef.current !== pc || pc.signalingState === 'closed') {
+          logPeer(pc, 'offer abandoned (stale peer)');
+          return;
+        }
+        await pc.setLocalDescription(offer);
+        if (peerConnectionRef.current !== pc || pc.signalingState === 'closed') {
+          logPeer(pc, 'offer abandoned after setLocalDescription (stale peer)');
+          return;
+        }
+        logPeer(pc, 'sending offer', reason);
+        sendSignal('offer', offer);
+        hasSentOfferRef.current = true;
+        pendingHostOfferRef.current = false;
+      } catch (err) {
+        console.warn('Failed to create offer', err);
+      }
+    },
+    [attachDataChannel, hasRemoteParticipant, logPeer, participantRole, sendSignal]
+  );
+
   const toggleLocalAudio = useCallback(() => {
     setIsLocalAudioMuted((prev) => {
       const next = !prev;
@@ -2601,31 +2651,20 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         });
       }
 
-      if (participantRole === 'host') {
-        try {
-          logPeer(pc, 'creating offer');
-          const offer = await pc.createOffer();
-          if (peerConnectionRef.current !== pc || pc.signalingState === 'closed') {
-            logPeer(pc, 'offer abandoned (stale peer)');
-            return;
-          }
-          await pc.setLocalDescription(offer);
-          if (peerConnectionRef.current !== pc || pc.signalingState === 'closed') {
-            logPeer(pc, 'offer abandoned after setLocalDescription (stale peer)');
-            return;
-          }
-          logPeer(pc, 'sending offer');
-          sendSignal('offer', offer);
-          hasSentOfferRef.current = true;
-        } catch (err) {
-          console.warn('Failed to create offer', err);
-        }
-      } else if (
-        callStateRef.current === 'idle' &&
-        !pc.remoteDescription &&
-        !fallbackOfferTimeoutRef.current
-      ) {
-        fallbackOfferTimeoutRef.current = setTimeout(async () => {
+      const readyForOffer = sessionActiveRef.current && hasRemoteParticipant();
+      if (participantRole === 'host' && !readyForOffer) {
+        logPeer(pc, 'deferring offer until remote participant joins');
+        pendingHostOfferRef.current = true;
+      }
+      const canScheduleOffer =
+        (participantRole === 'host' ||
+          (callStateRef.current === 'idle' && !pc.remoteDescription)) &&
+        !fallbackOfferTimeoutRef.current &&
+        !hasSentOfferRef.current &&
+        readyForOffer;
+
+      if (canScheduleOffer) {
+        fallbackOfferTimeoutRef.current = setTimeout(() => {
           fallbackOfferTimeoutRef.current = null;
           if (!peerConnectionRef.current || peerConnectionRef.current !== pc) {
             return;
@@ -2633,29 +2672,12 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           if (pc.signalingState !== 'stable' || pc.remoteDescription) {
             return;
           }
-          try {
-            if (!dataChannelRef.current) {
-              const channel = pc.createDataChannel('chat') as unknown as PeerDataChannel;
-              logPeer(pc, 'created data channel (fallback)', channel.label);
-              attachDataChannel(channel, pc);
-            }
-            logPeer(pc, 'creating fallback offer as guest');
-            const offer = await pc.createOffer();
-            if (peerConnectionRef.current !== pc || pc.signalingState === 'closed') {
-              logPeer(pc, 'fallback offer abandoned (stale peer)');
-              return;
-            }
-            await pc.setLocalDescription(offer);
-            if (peerConnectionRef.current !== pc || pc.signalingState === 'closed') {
-              logPeer(pc, 'fallback offer abandoned after setLocalDescription (stale peer)');
-              return;
-            }
-            sendSignal('offer', offer);
-            hasSentOfferRef.current = true;
-          } catch (err) {
-            console.warn('Failed to create fallback offer', err);
-          }
-        }, 750);
+          void createAndSendOffer(
+            pc,
+            participantRole === 'host' ? 'host-init' : 'guest-fallback',
+            participantRole === 'guest'
+          );
+        }, participantRole === 'host' ? 0 : 750);
       }
     };
 
@@ -2701,9 +2723,60 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     participantRole,
     peerResetNonce,
     ensureCallMedia,
+    createAndSendOffer,
+    hasRemoteParticipant,
     processSignalPayload,
     sendSignal,
     schedulePeerConnectionRecovery
+  ]);
+
+  useEffect(() => {
+    const pc = peerConnectionRef.current;
+    if (!pc || pc.signalingState === 'closed') {
+      return;
+    }
+    if (!sessionActiveRef.current || !hasRemoteParticipant()) {
+      return;
+    }
+    if (fallbackOfferTimeoutRef.current || hasSentOfferRef.current) {
+      return;
+    }
+
+    const canGuestOffer = participantRole === 'guest' && callStateRef.current === 'idle' && !pc.remoteDescription;
+
+    if (participantRole === 'host' && pendingHostOfferRef.current) {
+      pendingHostOfferRef.current = false;
+      fallbackOfferTimeoutRef.current = setTimeout(() => {
+        fallbackOfferTimeoutRef.current = null;
+        if (!peerConnectionRef.current || peerConnectionRef.current !== pc) {
+          return;
+        }
+        if (pc.signalingState !== 'stable' || pc.remoteDescription) {
+          return;
+        }
+        void createAndSendOffer(pc, 'host-resume');
+      }, 0);
+      return;
+    }
+
+    if (canGuestOffer) {
+      fallbackOfferTimeoutRef.current = setTimeout(() => {
+        fallbackOfferTimeoutRef.current = null;
+        if (!peerConnectionRef.current || peerConnectionRef.current !== pc) {
+          return;
+        }
+        if (pc.signalingState !== 'stable' || pc.remoteDescription) {
+          return;
+        }
+        void createAndSendOffer(pc, 'guest-resume', true);
+      }, 750);
+    }
+  }, [
+    connectedParticipantIds,
+    createAndSendOffer,
+    hasRemoteParticipant,
+    participantRole,
+    sessionStatus?.status
   ]);
 
   const sessionStatusLabel = mapStatusLabel(sessionStatus?.status);
