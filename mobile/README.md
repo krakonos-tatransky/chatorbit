@@ -236,3 +236,13 @@ launch screens while exploring the prototype, you can place the appropriate PNG 
 ## Next steps
 
 Future milestones include layering in the WebRTC video call controls, camera/microphone previews, and richer moderation tooling that already exists in the desktop cockpit.
+
+## Session architecture parity
+
+The mobile session flow now mirrors the web SessionView layering:
+
+- `src/session/config.ts` centralizes API/WS endpoints and shared constants that match the Next.js session view defaults.
+- `src/native/consoleFilters.ts` applies the same simulator warning suppression used during web development so logs stay focused on signaling.
+- The React component retains the existing layout while delegating environment and console concerns to the new helpers, making the WebRTC and signaling paths easier to compare against `frontend/components/session-view.tsx`.
+
+When updating connection logic, cross-check the ordering of offers, answers, and ICE handling with the web implementation to keep recovery behaviour consistent across platforms.
