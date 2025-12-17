@@ -1650,74 +1650,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     [participantRole, reconnectBaseDelayMs, resetPeerConnection, setIsReconnecting],
   );
 
-  const clearConnectionHealthTimers = useCallback(() => {
-    if (connectionHealthTimeoutRef.current) {
-      clearTimeout(connectionHealthTimeoutRef.current);
-      connectionHealthTimeoutRef.current = null;
-    }
-    if (connectionFailureEscalationRef.current) {
-      clearTimeout(connectionFailureEscalationRef.current);
-      connectionFailureEscalationRef.current = null;
-    }
-  }, []);
-
-  const handlePeerInterruption = useCallback(
-    (pc: RTCPeerConnection, reason: string) => {
-      if (peerConnectionRef.current !== pc || !sessionActiveRef.current) {
-        return;
-      }
-
-      const preferRelay = shouldPreferRelayRouting();
-
-      if (participantRole === "host") {
-        void (async () => {
-          const restarted = await requestIceRestart(reason, { preferRelay });
-          if (!restarted) {
-            schedulePeerConnectionRecovery(pc, reason, { delayMs: reconnectBaseDelayMs });
-          }
-        })();
-        return;
-      }
-
-      schedulePeerConnectionRecovery(pc, reason, { delayMs: 0 });
-    },
-    [
-      participantRole,
-      reconnectBaseDelayMs,
-      requestIceRestart,
-      schedulePeerConnectionRecovery,
-      shouldPreferRelayRouting,
-    ],
-  );
-
-  const scheduleConnectionHealthCheck = useCallback(
-    (pc: RTCPeerConnection, reason: string) => {
-      if (peerConnectionRef.current !== pc || !sessionActiveRef.current) {
-        return;
-      }
-
-      clearConnectionHealthTimers();
-
-      connectionHealthTimeoutRef.current = setTimeout(() => {
-        connectionHealthTimeoutRef.current = null;
-        handlePeerInterruption(pc, reason);
-      }, CONNECTION_HEALTH_TIMEOUT_MS);
-
-      connectionFailureEscalationRef.current = setTimeout(() => {
-        connectionFailureEscalationRef.current = null;
-        schedulePeerConnectionRecovery(pc, `${reason} (escalated)`, {
-          delayMs: reconnectBaseDelayMs,
-        });
-      }, CONNECTION_FAILURE_ESCALATION_MS);
-    },
-    [
-      clearConnectionHealthTimers,
-      handlePeerInterruption,
-      reconnectBaseDelayMs,
-      schedulePeerConnectionRecovery,
-    ],
-  );
-
   const forceRelayRouting = useCallback(
     (reason: string) => {
       if (!hasRelayIceServers) {
@@ -1873,6 +1805,74 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       }
     },
     [forceRelayRouting, participantRole, sendSignal, setIsReconnecting],
+  );
+
+  const clearConnectionHealthTimers = useCallback(() => {
+    if (connectionHealthTimeoutRef.current) {
+      clearTimeout(connectionHealthTimeoutRef.current);
+      connectionHealthTimeoutRef.current = null;
+    }
+    if (connectionFailureEscalationRef.current) {
+      clearTimeout(connectionFailureEscalationRef.current);
+      connectionFailureEscalationRef.current = null;
+    }
+  }, []);
+
+  const handlePeerInterruption = useCallback(
+    (pc: RTCPeerConnection, reason: string) => {
+      if (peerConnectionRef.current !== pc || !sessionActiveRef.current) {
+        return;
+      }
+
+      const preferRelay = shouldPreferRelayRouting();
+
+      if (participantRole === "host") {
+        void (async () => {
+          const restarted = await requestIceRestart(reason, { preferRelay });
+          if (!restarted) {
+            schedulePeerConnectionRecovery(pc, reason, { delayMs: reconnectBaseDelayMs });
+          }
+        })();
+        return;
+      }
+
+      schedulePeerConnectionRecovery(pc, reason, { delayMs: 0 });
+    },
+    [
+      participantRole,
+      reconnectBaseDelayMs,
+      requestIceRestart,
+      schedulePeerConnectionRecovery,
+      shouldPreferRelayRouting,
+    ],
+  );
+
+  const scheduleConnectionHealthCheck = useCallback(
+    (pc: RTCPeerConnection, reason: string) => {
+      if (peerConnectionRef.current !== pc || !sessionActiveRef.current) {
+        return;
+      }
+
+      clearConnectionHealthTimers();
+
+      connectionHealthTimeoutRef.current = setTimeout(() => {
+        connectionHealthTimeoutRef.current = null;
+        handlePeerInterruption(pc, reason);
+      }, CONNECTION_HEALTH_TIMEOUT_MS);
+
+      connectionFailureEscalationRef.current = setTimeout(() => {
+        connectionFailureEscalationRef.current = null;
+        schedulePeerConnectionRecovery(pc, `${reason} (escalated)`, {
+          delayMs: reconnectBaseDelayMs,
+        });
+      }, CONNECTION_FAILURE_ESCALATION_MS);
+    },
+    [
+      clearConnectionHealthTimers,
+      handlePeerInterruption,
+      reconnectBaseDelayMs,
+      schedulePeerConnectionRecovery,
+    ],
   );
 
   useEffect(() => {
