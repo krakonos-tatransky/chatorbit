@@ -1,5 +1,6 @@
 import { StyleSheet, Platform } from 'react-native';
 import { COLORS } from './colors';
+import { SPACING } from './layout';
 
 export const styles = StyleSheet.create({
   loadingContainer: {
@@ -11,17 +12,17 @@ export const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'flex-start',
-    paddingTop: 64,
-    paddingHorizontal: 24
+    paddingTop: SPACING.CONTAINER_TOP,
+    paddingHorizontal: SPACING.CONTAINER_HORIZONTAL
   },
   containerInSession: {
-    paddingTop: 24,
-    paddingHorizontal: 12
+    paddingTop: SPACING.IN_SESSION_TOP,
+    paddingHorizontal: SPACING.IN_SESSION_HORIZONTAL
   },
   termsCard: {
-    borderRadius: 28,
-    padding: 24,
-    paddingTop: 48,
+    borderRadius: SPACING.CARD_RADIUS,
+    padding: SPACING.CARD_PADDING,
+    paddingTop: SPACING.CARD_PADDING_TOP_LARGE,
     width: '100%',
     maxWidth: 420,
     flex: 1,
@@ -55,10 +56,10 @@ export const styles = StyleSheet.create({
     lineHeight: 24
   },
   acceptButton: {
-    marginTop: 20,
+    marginTop: SPACING.CONTENT_GAP,
     backgroundColor: COLORS.aurora,
-    borderRadius: 16,
-    paddingVertical: 16,
+    borderRadius: SPACING.BUTTON_RADIUS,
+    paddingVertical: SPACING.BUTTON_PADDING,
     alignItems: 'center'
   },
   acceptButtonDisabled: {
@@ -88,11 +89,11 @@ export const styles = StyleSheet.create({
   actionRow: {
     width: '100%',
     maxWidth: 520,
-    gap: 16
+    gap: SPACING.SECTION_GAP
   },
   bigActionButton: {
-    borderRadius: 24,
-    padding: 20,
+    borderRadius: SPACING.ACTION_RADIUS,
+    padding: SPACING.CONTENT_GAP,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -105,16 +106,16 @@ export const styles = StyleSheet.create({
     elevation: 8
   },
   bigActionIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: SPACING.LARGE_ICON,
+    height: SPACING.LARGE_ICON,
+    borderRadius: SPACING.LARGE_ICON / 2,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(79, 183, 255, 0.16)'
   },
   bigActionTextContainer: {
     flex: 1,
-    marginLeft: 16
+    marginLeft: SPACING.SECTION_GAP
   },
   bigActionTitle: {
     color: COLORS.ice,
