@@ -3,10 +3,10 @@ import { ActivityIndicator, Alert, Modal, Text, TextInput, TouchableOpacity, Vie
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 
-import { COLORS } from '../constants/colors';
-import { styles } from '../constants/styles';
-import { joinSession } from '../utils/session';
-import { JoinResponse } from '../types';
+import { COLORS } from '../../constants/colors';
+import { styles } from '../../constants/styles';
+import { joinSession } from '../../utils/session';
+import { JoinResponse } from '../../types';
 
 export type JoinTokenFormResult = { payload: JoinResponse; token: string };
 

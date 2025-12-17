@@ -34,18 +34,19 @@ type RTCSessionDescription = NativeRTCSessionDescription;
 type MediaStream = NativeMediaStream;
 type RTCTrackEvent = NativeRTCTrackEvent;
 type RTCViewComponent = ComponentType<{ streamURL: string; objectFit?: string; mirror?: boolean }>;
-import { getIceServers, hasRelayIceServers } from './webrtc';
+import { getIceServers, hasRelayIceServers } from './src/utils/webrtc';
 import { applyNativeConsoleFilters } from './src/native/consoleFilters';
 import { API_BASE_URL, MOBILE_CLIENT_IDENTITY, WS_BASE_URL } from './src/session/config';
-import { COLORS } from './src/constants/colors';
+import { COLORS, SESSION_CONFIG, TIMINGS, WEBRTC_CONFIG } from './src/constants';
 import { styles } from './src/constants/styles';
-import { DEFAULT_MESSAGE_CHAR_LIMIT, SESSION_TTL_MINUTES, durationOptions, tokenTierOptions, validityOptions } from './src/constants/options';
-import { AcceptScreen } from './src/components/AcceptScreen';
-import { BigActionButton } from './src/components/BigActionButton';
-import { NeedTokenForm } from './src/components/NeedTokenForm';
-import { JoinTokenForm, JoinTokenFormResult } from './src/components/JoinTokenForm';
-import { TokenResultCard } from './src/components/TokenResultCard';
+import { durationOptions, tokenTierOptions, validityOptions } from './src/constants/options';
+import { AcceptScreen, BigActionButton } from './src/components';
+import { NeedTokenForm, JoinTokenForm, JoinTokenFormResult } from './src/components/forms';
+import { TokenResultCard } from './src/components/session';
 import { fetchSessionStatus, joinSession } from './src/utils/session';
+import { computeMessageHash, decryptText, deriveKey, encryptText, generateMessageId } from './src/utils/crypto';
+import { upsertMessage } from './src/utils/errorHandling';
+import { formatJoinedAt, formatRemainingTime, mapStatusDescription, mapStatusLabel, statusVariant } from './src/utils/formatting';
 import {
   DataChannelState,
   DurationOption,
@@ -62,7 +63,7 @@ import {
 } from './src/types';
 
 applyNativeConsoleFilters();
-const EXPO_DEV_BUILD_DOCS_URL = 'https://docs.expo.dev/development/introduction/';
+const EXPO_DEV_BUILD_DOCS_URL = WEBRTC_CONFIG.EXPO_DEV_BUILD_DOCS_URL;
 
 type WebRtcBindings = {
   RTCPeerConnection: new (...args: any[]) => NativeRTCPeerConnection;
@@ -74,7 +75,6 @@ type WebRtcBindings = {
   };
 };
 
-const WEBRTC_NATIVE_MODULE_CANDIDATES = ['WebRTCModule', 'WebRTC'];
 let cachedWebRtcBindings: WebRtcBindings | null | undefined;
 
 const getWebRtcBindings = (): WebRtcBindings | null => {
@@ -102,7 +102,7 @@ const getWebRtcBindings = (): WebRtcBindings | null => {
   }
 
   const nativeModules = NativeModules as Record<string, unknown> | null;
-  const hasNativeModule = WEBRTC_NATIVE_MODULE_CANDIDATES.some((name) => Boolean(nativeModules?.[name]));
+  const hasNativeModule = WEBRTC_CONFIG.NATIVE_MODULE_CANDIDATES.some((name) => Boolean(nativeModules?.[name]));
 
   if (!hasNativeModule) {
     console.warn(
@@ -117,7 +117,7 @@ const getWebRtcBindings = (): WebRtcBindings | null => {
 
 const isWebRtcSupported = (): boolean => getWebRtcBindings() !== null;
 
-const SESSION_POLL_INTERVAL_MS = 12000;
+const SESSION_POLL_INTERVAL_MS = TIMINGS.SESSION_POLL_INTERVAL;
 
 type PeerDataChannel = ReturnType<RTCPeerConnection['createDataChannel']> & {
   onopen: (() => void) | null;
@@ -126,353 +126,9 @@ type PeerDataChannel = ReturnType<RTCPeerConnection['createDataChannel']> & {
   onmessage: ((event: MessageEvent) => void) | null;
 };
 
-type CryptoLike = {
-  subtle: SubtleCrypto;
-  getRandomValues<T extends ArrayBufferView | null>(array: T): T;
-  randomUUID?: () => string;
-};
-
 type TimeoutHandle = ReturnType<typeof setTimeout> | number;
 
-const textEncoder = typeof TextEncoder !== 'undefined' ? new TextEncoder() : null;
-const textDecoder = typeof TextDecoder !== 'undefined' ? new TextDecoder() : null;
-
-function resolveCrypto(): CryptoLike | null {
-  const globalScope: any =
-    typeof globalThis !== 'undefined'
-      ? globalThis
-      : typeof self !== 'undefined'
-        ? self
-        : typeof window !== 'undefined'
-          ? window
-          : undefined;
-
-  if (!globalScope) {
-    return null;
-  }
-
-  const candidates = [
-    globalScope.crypto,
-    globalScope.msCrypto,
-    globalScope?.webkitCrypto,
-    globalScope.navigator?.crypto
-  ].filter(Boolean);
-
-  for (const candidate of candidates) {
-    const subtle: SubtleCrypto | undefined = candidate.subtle ?? candidate.webkitSubtle ?? candidate.webcrypto?.subtle;
-    const getRandomValues: CryptoLike['getRandomValues'] | undefined =
-      typeof candidate.getRandomValues === 'function'
-        ? candidate.getRandomValues.bind(candidate)
-        : typeof candidate.webcrypto?.getRandomValues === 'function'
-          ? candidate.webcrypto.getRandomValues.bind(candidate.webcrypto)
-          : undefined;
-    const randomUUID: CryptoLike['randomUUID'] | undefined =
-      typeof candidate.randomUUID === 'function'
-        ? candidate.randomUUID.bind(candidate)
-        : typeof candidate.webcrypto?.randomUUID === 'function'
-          ? candidate.webcrypto.randomUUID.bind(candidate.webcrypto)
-          : undefined;
-
-    if (subtle && getRandomValues) {
-      return { subtle, getRandomValues, randomUUID };
-    }
-  }
-
-  return null;
-}
-
-const cryptoLike = resolveCrypto();
-
-function encodeUtf8(value: string): Uint8Array {
-  if (textEncoder) {
-    return textEncoder.encode(value);
-  }
-  const encoded = unescape(encodeURIComponent(value));
-  const bytes = new Uint8Array(encoded.length);
-  for (let index = 0; index < encoded.length; index += 1) {
-    bytes[index] = encoded.charCodeAt(index);
-  }
-  return bytes;
-}
-
-function decodeUtf8(bytes: Uint8Array): string {
-  if (textDecoder) {
-    return textDecoder.decode(bytes);
-  }
-  let binary = '';
-  bytes.forEach((value) => {
-    binary += String.fromCharCode(value);
-  });
-  return decodeURIComponent(escape(binary));
-}
-
-function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  const buffer = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(buffer).set(bytes);
-  return buffer;
-}
-
-function toBase64(bytes: Uint8Array): string {
-  let binary = '';
-  bytes.forEach((value) => {
-    binary += String.fromCharCode(value);
-  });
-  if (typeof btoa === 'function') {
-    return btoa(binary);
-  }
-  const globalBuffer = (globalThis as { Buffer?: any }).Buffer;
-  if (globalBuffer) {
-    return globalBuffer.from(bytes).toString('base64');
-  }
-  throw new Error('Base64 encoding is not supported in this environment.');
-}
-
-function fromBase64(value: string): Uint8Array {
-  if (typeof atob === 'function') {
-    const binary = atob(value);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
-    }
-    return bytes;
-  }
-  const globalBuffer = (globalThis as { Buffer?: any }).Buffer;
-  if (globalBuffer) {
-    return globalBuffer.from(value, 'base64');
-  }
-  throw new Error('Base64 decoding is not supported in this environment.');
-}
-
-function rotateRight(value: number, amount: number): number {
-  return ((value >>> amount) | (value << (32 - amount))) >>> 0;
-}
-
-function sha256Bytes(input: string): Uint8Array {
-  const message = encodeUtf8(input);
-  const messageLength = message.length;
-  const paddedLength = (messageLength + 9 + 63) & ~63;
-  const buffer = new ArrayBuffer(paddedLength);
-  const bytes = new Uint8Array(buffer);
-  bytes.set(message);
-  bytes[messageLength] = 0x80;
-  const view = new DataView(buffer);
-  const bitLength = messageLength * 8;
-  const highBits = Math.floor(bitLength / 0x100000000);
-  const lowBits = bitLength >>> 0;
-  view.setUint32(paddedLength - 8, highBits, false);
-  view.setUint32(paddedLength - 4, lowBits, false);
-
-  const hash = new Uint32Array([
-    0x6a09e667,
-    0xbb67ae85,
-    0x3c6ef372,
-    0xa54ff53a,
-    0x510e527f,
-    0x9b05688c,
-    0x1f83d9ab,
-    0x5be0cd19
-  ]);
-
-  const k = new Uint32Array([
-    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
-  ]);
-
-  const words = new Uint32Array(64);
-
-  for (let offset = 0; offset < paddedLength; offset += 64) {
-    for (let index = 0; index < 16; index += 1) {
-      words[index] = view.getUint32(offset + index * 4, false);
-    }
-    for (let index = 16; index < 64; index += 1) {
-      const s0 = rotateRight(words[index - 15], 7) ^ rotateRight(words[index - 15], 18) ^ (words[index - 15] >>> 3);
-      const s1 = rotateRight(words[index - 2], 17) ^ rotateRight(words[index - 2], 19) ^ (words[index - 2] >>> 10);
-      words[index] = (words[index - 16] + s0 + words[index - 7] + s1) >>> 0;
-    }
-
-    let a = hash[0];
-    let b = hash[1];
-    let c = hash[2];
-    let d = hash[3];
-    let e = hash[4];
-    let f = hash[5];
-    let g = hash[6];
-    let h = hash[7];
-
-    for (let index = 0; index < 64; index += 1) {
-      const S1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
-      const ch = (e & f) ^ (~e & g);
-      const temp1 = (h + S1 + ch + k[index] + words[index]) >>> 0;
-      const S0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
-      const maj = (a & b) ^ (a & c) ^ (b & c);
-      const temp2 = (S0 + maj) >>> 0;
-
-      h = g;
-      g = f;
-      f = e;
-      e = (d + temp1) >>> 0;
-      d = c;
-      c = b;
-      b = a;
-      a = (temp1 + temp2) >>> 0;
-    }
-
-    hash[0] = (hash[0] + a) >>> 0;
-    hash[1] = (hash[1] + b) >>> 0;
-    hash[2] = (hash[2] + c) >>> 0;
-    hash[3] = (hash[3] + d) >>> 0;
-    hash[4] = (hash[4] + e) >>> 0;
-    hash[5] = (hash[5] + f) >>> 0;
-    hash[6] = (hash[6] + g) >>> 0;
-    hash[7] = (hash[7] + h) >>> 0;
-  }
-
-  const result = new Uint8Array(32);
-  const outputView = new DataView(result.buffer);
-  for (let index = 0; index < 8; index += 1) {
-    outputView.setUint32(index * 4, hash[index], false);
-  }
-  return result;
-}
-
-function generateMessageId(): string {
-  if (cryptoLike?.randomUUID) {
-    return cryptoLike.randomUUID().replace(/-/g, '');
-  }
-  return `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 14)}`;
-}
-
-async function deriveKey(token: string): Promise<CryptoKey> {
-  if (!cryptoLike?.subtle) {
-    throw new Error('Web Crypto API is not available.');
-  }
-  const digest = await cryptoLike.subtle.digest('SHA-256', toArrayBuffer(encodeUtf8(token)));
-  return cryptoLike.subtle.importKey('raw', digest, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
-}
-
-async function encryptText(key: CryptoKey, plaintext: string): Promise<string> {
-  if (!cryptoLike?.subtle || !cryptoLike?.getRandomValues) {
-    throw new Error('Web Crypto API is not available.');
-  }
-  const iv = cryptoLike.getRandomValues(new Uint8Array(12));
-  const encoded = encodeUtf8(plaintext);
-  const encrypted = await cryptoLike.subtle.encrypt({ name: 'AES-GCM', iv }, key, toArrayBuffer(encoded));
-  const combined = new Uint8Array(iv.length + encrypted.byteLength);
-  combined.set(iv, 0);
-  combined.set(new Uint8Array(encrypted), iv.length);
-  return toBase64(combined);
-}
-
-async function decryptText(key: CryptoKey, payload: string): Promise<string> {
-  if (!cryptoLike?.subtle) {
-    throw new Error('Web Crypto API is not available.');
-  }
-  const bytes = fromBase64(payload);
-  if (bytes.length < 13) {
-    throw new Error('Encrypted payload is not valid.');
-  }
-  const iv = bytes.slice(0, 12);
-  const cipher = bytes.slice(12);
-  const decrypted = await cryptoLike.subtle.decrypt({ name: 'AES-GCM', iv }, key, toArrayBuffer(cipher));
-  return decodeUtf8(new Uint8Array(decrypted));
-}
-
-async function computeMessageHash(sessionId: string, participantId: string, messageId: string, content: string): Promise<string> {
-  if (cryptoLike?.subtle) {
-    const digest = await cryptoLike.subtle.digest(
-      'SHA-256',
-      toArrayBuffer(encodeUtf8(`${sessionId}:${participantId}:${messageId}:${content}`))
-    );
-    return toBase64(new Uint8Array(digest));
-  }
-  return toBase64(sha256Bytes(`${sessionId}:${participantId}:${messageId}:${content}`));
-}
-
-function upsertMessage(list: Message[], message: Message): Message[] {
-  const next = list.filter((item) => item.messageId !== message.messageId);
-  next.push(message);
-  next.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  return next;
-}
-
-
-const formatRemainingTime = (seconds: number | null) => {
-  if (seconds == null) {
-    return 'Session will begin once a guest joins.';
-  }
-  if (seconds <= 0) {
-    return 'Session timer elapsed.';
-  }
-  const rounded = Math.max(0, Math.floor(seconds));
-  const hours = Math.floor(rounded / 3600);
-  const minutes = Math.floor((rounded % 3600) / 60);
-  const secs = rounded % 60;
-  if (hours > 0) {
-    return `${hours}h ${minutes.toString().padStart(2, '0')}m remaining`;
-  }
-  return `${minutes}m ${secs.toString().padStart(2, '0')}s remaining`;
-};
-
-const formatJoinedAt = (isoString: string) => {
-  const date = new Date(isoString);
-  if (Number.isNaN(date.getTime())) {
-    return 'Joined time unavailable';
-  }
-  return `Joined ${date.toLocaleString()}`;
-};
-
-const mapStatusLabel = (status: string | undefined) => {
-  switch (status) {
-    case 'active':
-      return 'Active';
-    case 'issued':
-      return 'Waiting';
-    case 'closed':
-      return 'Closed';
-    case 'expired':
-      return 'Expired';
-    case 'deleted':
-      return 'Deleted';
-    default:
-      return 'Unknown';
-  }
-};
-
-const mapStatusDescription = (status: string | undefined) => {
-  switch (status) {
-    case 'active':
-      return 'Both participants are connected to the live session.';
-    case 'issued':
-      return 'Share the token with your guest to begin the session.';
-    case 'closed':
-      return 'This session has been closed.';
-    case 'expired':
-      return 'This session expired before both participants connected.';
-    case 'deleted':
-      return 'This session is no longer available.';
-    default:
-      return 'Session status is being determined.';
-  }
-};
-
-const statusVariant = (status: string | undefined) => {
-  switch (status) {
-    case 'active':
-      return 'success';
-    case 'issued':
-      return 'waiting';
-    default:
-      return 'inactive';
-  }
-};
-
-  type InAppSessionScreenProps = {
+type InAppSessionScreenProps = {
   token: TokenResponse;
   participantId: string;
   participantRole: string;

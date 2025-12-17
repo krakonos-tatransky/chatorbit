@@ -4,10 +4,10 @@ import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
-import { COLORS } from '../constants/colors';
-import { styles } from '../constants/styles';
-import { joinSession } from '../utils/session';
-import { TokenResponse } from '../types';
+import { COLORS } from '../../constants/colors';
+import { styles } from '../../constants/styles';
+import { joinSession } from '../../utils/session';
+import { TokenResponse } from '../../types';
 
 export type TokenResultCardProps = {
   token: TokenResponse;

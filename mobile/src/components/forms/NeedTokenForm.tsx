@@ -6,17 +6,17 @@ import { Picker } from '@react-native-picker/picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
-import { COLORS } from '../constants/colors';
-import { styles } from '../constants/styles';
+import { COLORS } from '../../constants/colors';
+import { styles } from '../../constants/styles';
 import {
   DEFAULT_MESSAGE_CHAR_LIMIT,
   SESSION_TTL_MINUTES,
   durationOptions,
   tokenTierOptions,
   validityOptions
-} from '../constants/options';
-import { API_BASE_URL } from '../session/config';
-import { DurationOption, TokenResponse, TokenTierOption, ValidityOption } from '../types';
+} from '../../constants/options';
+import { API_BASE_URL } from '../../session/config';
+import { DurationOption, TokenResponse, TokenTierOption, ValidityOption } from '../../types';
 
 export type NeedTokenFormProps = {
   visible: boolean;
