@@ -1,6 +1,7 @@
 "use client";
 
 import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
+/* eslint-disable no-console */
 import { useCallback, useEffect, useMemo, useRef, useState, useId } from "react";
 import { createPortal } from "react-dom";
 
@@ -2414,7 +2415,21 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         console.error("Unable to parse data channel payload", cause);
       }
     },
-    [ensureEncryptionKey, sendCapabilities, supportsEncryption, token],
+      [
+        attachLocalMedia,
+        callState,
+        ensureEncryptionKey,
+        participantRole,
+        renegotiate,
+        requestRenegotiation,
+        sendCallMessage,
+        sendCapabilities,
+        showCallNotice,
+        stopLocalMediaTracks,
+        supportsEncryption,
+        teardownCall,
+        token,
+      ],
   );
 
   const attachDataChannel = useCallback(
@@ -2937,7 +2952,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     }
 
     bootstrap();
-  }, [participantId, sessionEnded, token]);
+    }, [participantId, sessionEnded, termsAccepted, token]);
 
   useEffect(() => {
     if (!participantId || !sessionStatus) {

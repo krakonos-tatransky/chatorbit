@@ -1,3 +1,5 @@
+/* eslint-disable no-console */
+
 let resolvedApiBase: string | null | undefined;
 let resolvedWsBase: string | null | undefined;
 let warnedAboutApiFallback = false;
