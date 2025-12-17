@@ -169,12 +169,17 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const [peerResetNonce, setPeerResetNonce] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
-  const socketRef = useRef<WebSocket | null>(null);
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const connectionRefs = useRef({
+    socket: null as WebSocket | null,
+    peerConnection: null as RTCPeerConnection | null,
+    dataChannel: null as PeerDataChannel | null,
+    localAudioStream: null as MediaStream | null,
+    localVideoStream: null as MediaStream | null,
+    remoteVideoStream: null as MediaStream | null
+  });
   const peerLogCounterRef = useRef(0);
   const connectedParticipantIdsRef = useRef<string[]>([]);
   const remoteParticipantJoinedRef = useRef(false);
-  const dataChannelRef = useRef<PeerDataChannel | null>(null);
   const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
   const pendingSignalsRef = useRef<any[]>([]);
   const pendingCallMessagesRef = useRef<Array<{ action: string; detail: Record<string, unknown> }>>([]);
@@ -191,9 +196,6 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const fallbackOfferTimeoutRef = useRef<TimeoutHandle | null>(null);
   const pendingHostOfferRef = useRef(false);
   const hasSentOfferRef = useRef(false);
-  const localAudioStreamRef = useRef<MediaStream | null>(null);
-  const localVideoStreamRef = useRef<MediaStream | null>(null);
-  const remoteVideoStreamRef = useRef<MediaStream | null>(null);
 
   const webRtcBindings = useMemo(() => getWebRtcBindings(), []);
 
@@ -304,7 +306,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   }, [callState]);
 
   useEffect(() => {
-    const stream = localAudioStreamRef.current;
+    const stream = connectionRefs.current.localAudioStream;
     if (!stream) {
       return;
     }
@@ -317,7 +319,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   }, [isLocalAudioMuted]);
 
   useEffect(() => {
-    const stream = localVideoStreamRef.current;
+    const stream = connectionRefs.current.localVideoStream;
     if (!stream) {
       return;
     }
@@ -353,17 +355,17 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
 
   useEffect(() => {
     return () => {
-      const stream = localAudioStreamRef.current;
+      const stream = connectionRefs.current.localAudioStream;
       if (stream) {
         stream.getTracks().forEach((track) => track.stop());
       }
-      localAudioStreamRef.current = null;
-      const videoStream = localVideoStreamRef.current;
+      connectionRefs.current.localAudioStream = null;
+      const videoStream = connectionRefs.current.localVideoStream;
       if (videoStream) {
         videoStream.getTracks().forEach((track) => track.stop());
       }
-      localVideoStreamRef.current = null;
-      remoteVideoStreamRef.current = null;
+      connectionRefs.current.localVideoStream = null;
+      connectionRefs.current.remoteVideoStream = null;
     };
   }, []);
 
@@ -439,7 +441,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         logSocket('signal skip: missing participant', signalType);
         return;
       }
-      const socket = socketRef.current;
+      const socket = connectionRefs.current.socket;
       const message = { type: 'signal', signalType, payload };
       if (socket?.readyState !== WebSocket.OPEN) {
         logSocket('signal queued: socket not open', signalType, socket?.readyState);
@@ -453,7 +455,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   );
 
   const flushQueuedSignals = useCallback((socket?: WebSocket | null) => {
-    const targetSocket = socket ?? socketRef.current;
+    const targetSocket = socket ?? connectionRefs.current.socket;
     if (!targetSocket || targetSocket.readyState !== WebSocket.OPEN) {
       return;
     }
@@ -469,7 +471,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   }, [logSocket, summarizeSignalPayload]);
 
   const sendCapabilities = useCallback(() => {
-    const channel = dataChannelRef.current;
+    const channel = connectionRefs.current.dataChannel;
     if (!channel || channel.readyState !== 'open') {
       return;
     }
@@ -492,14 +494,14 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     if (capabilityAnnouncedRef.current) {
       return;
     }
-    if (dataChannelRef.current?.readyState === 'open') {
+    if (connectionRefs.current.dataChannel?.readyState === 'open') {
       sendCapabilities();
     }
   }, [sendCapabilities, supportsEncryption]);
 
   const flushPendingCallMessages = useCallback(
     (channel?: PeerDataChannel | null) => {
-      const target = channel ?? dataChannelRef.current;
+      const target = channel ?? connectionRefs.current.dataChannel;
       if (!target || target.readyState !== 'open' || !participantId) {
         return;
       }
@@ -507,7 +509,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       for (const { action, detail } of queue) {
         try {
           target.send(JSON.stringify({ type: 'call', action, from: participantId, ...detail }));
-          logPeer(peerConnectionRef.current, 'sent call control (queued)', action);
+          logPeer(connectionRefs.current.peerConnection, 'sent call control (queued)', action);
         } catch (err) {
           console.warn('Failed to flush call control message', err);
           pendingCallMessagesRef.current.unshift({ action, detail });
@@ -523,7 +525,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       if (!participantId) {
         return;
       }
-      const channel = dataChannelRef.current;
+      const channel = connectionRefs.current.dataChannel;
       const payload = { type: 'call', action, from: participantId, ...detail };
       if (!channel || channel.readyState !== 'open') {
         pendingCallMessagesRef.current.push({ action, detail });
@@ -531,7 +533,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       }
       try {
         channel.send(JSON.stringify(payload));
-        logPeer(peerConnectionRef.current, 'sent call control', action);
+        logPeer(connectionRefs.current.peerConnection, 'sent call control', action);
       } catch (err) {
         console.warn('Failed to send call control message', err);
         pendingCallMessagesRef.current.push({ action, detail });
@@ -640,7 +642,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             return;
           }
           if (action === 'renegotiate') {
-            void negotiateMediaUpdate(peerConnectionRef.current, 'peer requested media update');
+            void negotiateMediaUpdate(connectionRefs.current.peerConnection, 'peer requested media update');
           }
           return;
         }
@@ -809,7 +811,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const handleSignal = useCallback(
     (payload: any) => {
       remoteParticipantJoinedRef.current = true;
-      const pc = peerConnectionRef.current;
+      const pc = connectionRefs.current.peerConnection;
       if (!pc) {
         console.debug('rn-webrtc:signal:buffered', payload.signalType);
         pendingSignalsRef.current.push(payload);
@@ -832,7 +834,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         clearTimeout(fallbackOfferTimeoutRef.current as TimeoutHandle);
         fallbackOfferTimeoutRef.current = null;
       }
-      const existing = peerConnectionRef.current;
+      const existing = connectionRefs.current.peerConnection;
       if (existing) {
         try {
           existing.close();
@@ -840,15 +842,15 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           console.warn('Failed to close RTCPeerConnection', err);
         }
       }
-      peerConnectionRef.current = null;
-      if (dataChannelRef.current) {
+      connectionRefs.current.peerConnection = null;
+      if (connectionRefs.current.dataChannel) {
         try {
-          dataChannelRef.current.close();
+          connectionRefs.current.dataChannel.close();
         } catch (err) {
           console.warn('Failed to close data channel', err);
         }
       }
-      dataChannelRef.current = null;
+      connectionRefs.current.dataChannel = null;
       capabilityAnnouncedRef.current = false;
       peerSupportsEncryptionRef.current = null;
       setPeerSupportsEncryption(null);
@@ -919,14 +921,14 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         fallbackOfferTimeoutRef.current = null;
       }
       resetPeerConnection({ recreate: false });
-      if (socketRef.current) {
+      if (connectionRefs.current.socket) {
         try {
-          socketRef.current.close();
+          connectionRefs.current.socket.close();
         } catch (err) {
           console.warn('Failed to close session socket', err);
         }
       }
-      socketRef.current = null;
+      connectionRefs.current.socket = null;
     },
     [resetPeerConnection]
   );
@@ -1024,7 +1026,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     try {
       logSocket('connecting', url, { participantId });
       const socket = new WebSocket(url);
-      socketRef.current = socket;
+      connectionRefs.current.socket = socket;
 
       socket.onopen = () => {
         logSocket('open');
@@ -1043,7 +1045,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
 
       socket.onclose = (event: CloseEvent) => {
         logSocket('close', { code: event.code, reason: event.reason, wasClean: event.wasClean });
-        socketRef.current = null;
+        connectionRefs.current.socket = null;
         setSocketReady(false);
         if (cancelled || sessionEndedRef.current) {
           return;
@@ -1052,7 +1054,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         if (!socketReconnectTimeoutRef.current) {
           const attempt = reconnectAttemptsRef.current + 1;
           reconnectAttemptsRef.current = attempt;
-          const delay = Math.min(3000, attempt * 600);
+          const delay = Math.min(TIMINGS.RECONNECT_MAX_DELAY, attempt * TIMINGS.RECONNECT_BASE_DELAY);
           logSocket('reconnect scheduled', { attempt, delay });
           socketReconnectTimeoutRef.current = setTimeout(() => {
             socketReconnectTimeoutRef.current = null;
@@ -1108,7 +1110,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           socketReconnectTimeoutRef.current = setTimeout(() => {
             socketReconnectTimeoutRef.current = null;
             setSocketReconnectNonce((value: number) => value + 1);
-          }, 1500);
+          }, TIMINGS.SOCKET_RECONNECT_BASE);
         }
       }
       return;
@@ -1120,14 +1122,14 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         clearTimeout(socketReconnectTimeoutRef.current as TimeoutHandle);
         socketReconnectTimeoutRef.current = null;
       }
-      if (socketRef.current) {
+      if (connectionRefs.current.socket) {
         try {
-          socketRef.current.close();
+          connectionRefs.current.socket.close();
         } catch (err) {
           console.warn('Failed to close session socket', err);
         }
       }
-      socketRef.current = null;
+      connectionRefs.current.socket = null;
     };
   }, [
     flushQueuedSignals,
@@ -1144,7 +1146,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const attachDataChannel = useCallback(
     (channel: PeerDataChannel, owner: RTCPeerConnection | null) => {
       logPeer(owner, 'attach data channel', channel.label, channel.readyState);
-      dataChannelRef.current = channel;
+      connectionRefs.current.dataChannel = channel;
       setDataChannelState(channel.readyState as DataChannelState);
       const markOpen = () => {
         logPeer(owner, 'data channel open', channel.label);
@@ -1169,7 +1171,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         capabilityAnnouncedRef.current = false;
         peerSupportsEncryptionRef.current = null;
         setPeerSupportsEncryption(null);
-        if (owner && peerConnectionRef.current === owner && sessionActiveRef.current) {
+        if (owner && connectionRefs.current.peerConnection === owner && sessionActiveRef.current) {
           schedulePeerConnectionRecovery('data channel closed');
         }
       };
@@ -1177,7 +1179,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         logPeer(owner, 'data channel error', channel.label);
         setConnected(false);
         setDataChannelState(channel.readyState as DataChannelState);
-        if (owner && peerConnectionRef.current === owner && sessionActiveRef.current) {
+        if (owner && connectionRefs.current.peerConnection === owner && sessionActiveRef.current) {
           schedulePeerConnectionRecovery('data channel error');
         }
       };
@@ -1193,12 +1195,12 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       logSocket('mediaDevices missing; audio unavailable');
       return null;
     }
-    if (localAudioStreamRef.current) {
-      return localAudioStreamRef.current;
+    if (connectionRefs.current.localAudioStream) {
+      return connectionRefs.current.localAudioStream;
     }
     try {
       const stream = await webRtcBindings.mediaDevices.getUserMedia({ audio: true });
-      localAudioStreamRef.current = stream;
+      connectionRefs.current.localAudioStream = stream;
       return stream;
     } catch (err) {
       console.warn('Unable to start local audio stream', err);
@@ -1207,12 +1209,12 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   }, [logSocket, webRtcBindings]);
 
   const stopLocalAudioTracks = useCallback(() => {
-    const stream = localAudioStreamRef.current;
+    const stream = connectionRefs.current.localAudioStream;
     if (stream) {
       stream.getTracks().forEach((track) => track.stop());
     }
-    localAudioStreamRef.current = null;
-    const pc = peerConnectionRef.current;
+    connectionRefs.current.localAudioStream = null;
+    const pc = connectionRefs.current.peerConnection;
     if (pc && typeof pc.getSenders === 'function') {
       pc.getSenders().forEach((sender) => {
         if (sender.track?.kind === 'audio') {
@@ -1227,13 +1229,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   }, []);
 
   const stopLocalVideoTracks = useCallback(() => {
-    const stream = localVideoStreamRef.current;
+    const stream = connectionRefs.current.localVideoStream;
     if (stream) {
       stream.getTracks().forEach((track) => track.stop());
     }
-    localVideoStreamRef.current = null;
+    connectionRefs.current.localVideoStream = null;
     setLocalVideoStream(null);
-    const pc = peerConnectionRef.current;
+    const pc = connectionRefs.current.peerConnection;
     if (pc && typeof pc.getSenders === 'function') {
       pc.getSenders().forEach((sender) => {
         if (sender.track?.kind === 'video') {
@@ -1248,7 +1250,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   }, []);
 
   const clearRemoteVideo = useCallback(() => {
-    remoteVideoStreamRef.current = null;
+    connectionRefs.current.remoteVideoStream = null;
     setRemoteVideoStream(null);
   }, []);
 
@@ -1280,7 +1282,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
 
   const requestMediaRenegotiation = useCallback(() => {
     if (participantRole === 'host') {
-      void negotiateMediaUpdate(peerConnectionRef.current, 'requested media update');
+      void negotiateMediaUpdate(connectionRefs.current.peerConnection, 'requested media update');
     } else {
       sendCallMessage('renegotiate');
     }
@@ -1289,7 +1291,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const ensureCallMedia = useCallback(
     async (options: { attach?: boolean } = {}) => {
       const { attach = true } = options;
-      const pc = peerConnectionRef.current;
+    const pc = connectionRefs.current.peerConnection;
       if (!pc || !webRtcBindings?.mediaDevices?.getUserMedia) {
         return null;
       }
@@ -1316,13 +1318,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           });
       };
 
-      let videoStream = localVideoStreamRef.current;
+      let videoStream = connectionRefs.current.localVideoStream;
       if (!videoStream) {
         try {
           videoStream = await webRtcBindings.mediaDevices.getUserMedia({
             video: { facingMode: { ideal: preferredCameraFacing } }
           });
-          localVideoStreamRef.current = videoStream;
+          connectionRefs.current.localVideoStream = videoStream;
           setLocalVideoStream(videoStream);
         } catch (err) {
           console.warn('Unable to start local video stream', err);
@@ -1373,18 +1375,18 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           logPeer(pc, 'skipping offer (no remote participant yet)', reason);
           return;
         }
-        if (ensureDataChannel && !dataChannelRef.current) {
+        if (ensureDataChannel && !connectionRefs.current.dataChannel) {
           const channel = pc.createDataChannel('chat') as unknown as PeerDataChannel;
           logPeer(pc, 'created data channel (fallback)', channel.label);
           attachDataChannel(channel, pc);
         }
         const offer = await pc.createOffer();
-        if (peerConnectionRef.current !== pc || pc.signalingState === 'closed') {
+        if (connectionRefs.current.peerConnection !== pc || pc.signalingState === 'closed') {
           logPeer(pc, 'offer abandoned (stale peer)');
           return;
         }
         await pc.setLocalDescription(offer);
-        if (peerConnectionRef.current !== pc || pc.signalingState === 'closed') {
+        if (connectionRefs.current.peerConnection !== pc || pc.signalingState === 'closed') {
           logPeer(pc, 'offer abandoned after setLocalDescription (stale peer)');
           return;
         }
@@ -1402,7 +1404,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const toggleLocalAudio = useCallback(() => {
     setIsLocalAudioMuted((prev) => {
       const next = !prev;
-      const stream = localAudioStreamRef.current;
+      const stream = connectionRefs.current.localAudioStream;
       if (stream) {
         stream.getAudioTracks().forEach((track) => {
           track.enabled = !next;
@@ -1415,7 +1417,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const toggleLocalVideo = useCallback(() => {
     setIsLocalVideoMuted((prev) => {
       const next = !prev;
-      const stream = localVideoStreamRef.current;
+      const stream = connectionRefs.current.localVideoStream;
       if (stream) {
         stream.getVideoTracks().forEach((track) => {
           track.enabled = !next;
@@ -1426,7 +1428,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   }, []);
 
   const flipCamera = useCallback(() => {
-    const stream = localVideoStreamRef.current;
+    const stream = connectionRefs.current.localVideoStream;
     const track = stream?.getVideoTracks?.()[0];
     const switchable = track as unknown as { _switchCamera?: () => void } | undefined;
     if (switchable?._switchCamera) {
@@ -1510,7 +1512,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       const pc = new RTCPeerConnectionCtor({ iceServers });
       peerConnection = pc;
       logPeer(pc, 'ctor', iceServers.length ? 'with-ice' : 'no-ice');
-      peerConnectionRef.current = pc;
+      connectionRefs.current.peerConnection = pc;
 
       const handleIceCandidate = (event: RTCPeerConnectionIceEvent) => {
         if (event.candidate && event.candidate.candidate) {
@@ -1528,13 +1530,15 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         const state = pc.connectionState;
         if (state === 'connected') {
           setIsReconnecting(false);
-          if (dataChannelRef.current?.readyState === 'open') {
+          if (connectionRefs.current.dataChannel?.readyState === 'open') {
             setConnected(true);
           }
         } else if (state === 'failed' || state === 'disconnected') {
           setConnected(false);
           if (sessionActiveRef.current) {
-            schedulePeerConnectionRecovery(`connection ${state}`, { delayMs: state === 'failed' ? 0 : 1200 });
+            schedulePeerConnectionRecovery(`connection ${state}`, {
+              delayMs: state === 'failed' ? TIMINGS.PEER_RECOVERY_FAILED_DELAY : TIMINGS.ICE_RETRY_DELAY
+            });
           }
         } else if (state === 'closed') {
           setConnected(false);
@@ -1554,7 +1558,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         }
         if (event.track?.kind === 'video') {
           const stream = event.streams?.[0] ?? new MediaStream([event.track]);
-          remoteVideoStreamRef.current = stream as unknown as MediaStream;
+          connectionRefs.current.remoteVideoStream = stream as unknown as MediaStream;
           setRemoteVideoStream(stream as unknown as MediaStream);
           return;
         }
@@ -1614,7 +1618,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       if (canScheduleOffer) {
         fallbackOfferTimeoutRef.current = setTimeout(() => {
           fallbackOfferTimeoutRef.current = null;
-          if (!peerConnectionRef.current || peerConnectionRef.current !== pc) {
+          if (!connectionRefs.current.peerConnection || connectionRefs.current.peerConnection !== pc) {
             return;
           }
           if (pc.signalingState !== 'stable' || pc.remoteDescription) {
@@ -1625,7 +1629,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             participantRole === 'host' ? 'host-init' : 'guest-fallback',
             participantRole === 'guest'
           );
-        }, participantRole === 'host' ? 0 : 750);
+        }, participantRole === 'host' ? TIMINGS.HOST_OFFER_DELAY : TIMINGS.GUEST_OFFER_FALLBACK);
       }
     };
 
@@ -1666,9 +1670,9 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       } catch (err) {
         console.warn('Failed to close peer connection', err);
       }
-      if (dataChannelRef.current) {
+      if (connectionRefs.current.dataChannel) {
         try {
-          dataChannelRef.current.close();
+          connectionRefs.current.dataChannel.close();
         } catch (err) {
           console.warn('Failed to close data channel', err);
         }
@@ -1692,7 +1696,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   ]);
 
   useEffect(() => {
-    const pc = peerConnectionRef.current;
+    const pc = connectionRefs.current.peerConnection;
     if (!pc || pc.signalingState === 'closed') {
       return;
     }
@@ -1707,14 +1711,14 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       pendingHostOfferRef.current = false;
       fallbackOfferTimeoutRef.current = setTimeout(() => {
         fallbackOfferTimeoutRef.current = null;
-        if (!peerConnectionRef.current || peerConnectionRef.current !== pc) {
+        if (!connectionRefs.current.peerConnection || connectionRefs.current.peerConnection !== pc) {
           return;
         }
         if (pc.signalingState !== 'stable' || pc.remoteDescription) {
           return;
         }
         void createAndSendOffer(pc, 'host-resume');
-      }, 0);
+      }, TIMINGS.HOST_OFFER_DELAY);
       return;
     }
   }, [
@@ -1738,7 +1742,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       setError('Connection is not ready yet.');
       return;
     }
-    const channel = dataChannelRef.current;
+    const channel = connectionRefs.current.dataChannel;
     if (!channel || channel.readyState !== 'open') {
       setError('Connection is not ready yet.');
       return;
