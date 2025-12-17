@@ -432,10 +432,10 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
       {
         title: "1. Acceptance of Terms",
         body: (
-          <p>
-            By accessing or using ChatOrbit (the "Service"), you agree to these Terms of Service. You must be at least 18 years
-            old or have the legal capacity to enter into a binding agreement. If you do not agree, you may not use the Service.
-          </p>
+            <p>
+              By accessing or using ChatOrbit (the &quot;Service&quot;), you agree to these Terms of Service. You must be at least 18 years
+              old or have the legal capacity to enter into a binding agreement. If you do not agree, you may not use the Service.
+            </p>
         ),
       },
       {
@@ -521,11 +521,11 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
       {
         title: "8. Disclaimer of Warranties",
         body: (
-          <p>
-            The Service is provided on an "as is" and "as available" basis without warranties of any kind, whether express or implied,
-            including merchantability, fitness for a particular purpose, or non-infringement. We do not guarantee that the Service will
-            be uninterrupted, secure, or error free.
-          </p>
+            <p>
+              The Service is provided on an &quot;as is&quot; and &quot;as available&quot; basis without warranties of any kind, whether express or implied,
+              including merchantability, fitness for a particular purpose, or non-infringement. We do not guarantee that the Service will
+              be uninterrupted, secure, or error free.
+            </p>
         ),
       },
       {
@@ -593,10 +593,10 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
       {
         title: "1. Prijatie podmienok",
         body: (
-          <p>
-            Používaním služby ChatOrbit (ďalej len „Služba") súhlasíte s týmito Podmienkami používania. Musíte mať aspoň 18 rokov alebo
-            právnu spôsobilosť uzavrieť záväznú zmluvu. Ak nesúhlasíte, službu nemôžete používať.
-          </p>
+            <p>
+              Používaním služby ChatOrbit (ďalej len &quot;Služba&quot;) súhlasíte s týmito Podmienkami používania. Musíte mať aspoň 18 rokov alebo
+              právnu spôsobilosť uzavrieť záväznú zmluvu. Ak nesúhlasíte, službu nemôžete používať.
+            </p>
         ),
       },
       {
@@ -681,11 +681,11 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
       {
         title: "8. Zrieknutie sa záruk",
         body: (
-          <p>
-            Služba sa poskytuje „tak, ako je" a „ako je dostupná" bez akýchkoľvek záruk, či už výslovných alebo implicitných, vrátane
-            záruky predajnosti, vhodnosti na konkrétny účel alebo neporušovania práv. Nezaručujeme nepretržitú, bezpečnú ani bezchybnú
-            prevádzku služby.
-          </p>
+            <p>
+              Služba sa poskytuje &quot;tak, ako je&quot; a &quot;ako je dostupná&quot; bez akýchkoľvek záruk, či už výslovných alebo implicitných, vrátane
+              záruky predajnosti, vhodnosti na konkrétny účel alebo neporušovania práv. Nezaručujeme nepretržitú, bezpečnú ani bezchybnú
+              prevádzku služby.
+            </p>
         ),
       },
       {
@@ -798,7 +798,7 @@ export const PRIVACY_TRANSLATIONS: Record<LanguageCode, { lastUpdated: string; s
         title: "4. End-to-End Encryption",
         body: (
           <p>
-            When supported, ChatOrbit negotiates AES-GCM encryption with keys derived from session tokens directly on users' devices. We do
+              When supported, ChatOrbit negotiates AES-GCM encryption with keys derived from session tokens directly on users&apos; devices. We do
             not receive these keys and cannot decrypt message content. If encryption is not available in one or both browsers, messages are
             transmitted unencrypted and the application alerts participants.
           </p>
@@ -1002,7 +1002,7 @@ export const HELP_TRANSLATIONS: Record<LanguageCode, {
         title: "Desktop (Windows, macOS, or Linux)",
         steps: [
           <>Close any other application that might already be using the camera or microphone.</>,
-          <>Use the browser's site information panel (typically the lock icon) to allow Camera and Microphone access.</>,
+            <>Use the browser&apos;s site information panel (typically the lock icon) to allow Camera and Microphone access.</>,
           (
             <>
               On macOS, open <strong>System Settings → Privacy &amp; Security → Camera/Microphone</strong> and enable access for your browser. On Windows,

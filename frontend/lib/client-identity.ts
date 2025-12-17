@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import { getIceServers } from "./webrtc";
 
 type CandidateType = "relay" | "srflx" | "prflx" | "host" | string;

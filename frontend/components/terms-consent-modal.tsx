@@ -1,5 +1,6 @@
 "use client";
 
+/* eslint-disable no-console */
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 

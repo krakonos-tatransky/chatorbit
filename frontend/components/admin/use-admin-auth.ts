@@ -1,5 +1,6 @@
 "use client";
 
+/* eslint-disable no-console */
 import { useCallback, useEffect, useState } from "react";
 
 const STORAGE_KEY = "chatorbit:adminToken";

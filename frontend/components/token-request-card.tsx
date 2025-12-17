@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable no-console */
+
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -276,7 +278,7 @@ export function TokenRequestCard() {
     } finally {
       setStartSessionLoading(false);
     }
-  }, [result?.token, router]);
+    }, [result?.token, router, tokenCard.tokenJoinError, tokenCard.unknownError]);
 
   return (
     <div className="card card--cyan">

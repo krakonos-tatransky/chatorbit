@@ -1,5 +1,6 @@
 "use client";
 
+/* eslint-disable no-console */
 import type { FormEvent, RefObject } from "react";
 import { useEffect, useState } from "react";
 

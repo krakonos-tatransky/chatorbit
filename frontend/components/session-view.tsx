@@ -1,6 +1,7 @@
 "use client";
 
 import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
+/* eslint-disable no-console */
 import { useCallback, useEffect, useMemo, useRef, useState, useId } from "react";
 import { createPortal } from "react-dom";
 
@@ -197,6 +198,8 @@ const FAST_NETWORK_RECONNECT_DELAY_MS = 400;
 const MODERATE_NETWORK_RECONNECT_DELAY_MS = 700;
 const RECONNECT_MAX_DELAY_MS = 30000;
 const MAX_ICE_FAILURE_RETRIES = 3;
+const CONNECTION_HEALTH_TIMEOUT_MS = 4000;
+const CONNECTION_FAILURE_ESCALATION_MS = 6500;
 const MAX_PARTICIPANTS = 2;
 const SECRET_DEBUG_KEYWORD = "orbitdebug";
 const DEBUG_EVENT_HISTORY_LIMIT = 50;
@@ -636,6 +639,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const iceRestartAttemptsRef = useRef(0);
   const iceRestartInProgressRef = useRef(false);
   const disconnectionRecoveryTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const connectionHealthTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const connectionFailureEscalationRef = useRef<TimeoutHandle | null>(null);
   const sessionActiveRef = useRef(false);
   const sessionEndedRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -1420,6 +1425,14 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         clearTimeout(disconnectionRecoveryTimeoutRef.current);
         disconnectionRecoveryTimeoutRef.current = null;
       }
+      if (connectionHealthTimeoutRef.current) {
+        clearTimeout(connectionHealthTimeoutRef.current);
+        connectionHealthTimeoutRef.current = null;
+      }
+      if (connectionFailureEscalationRef.current) {
+        clearTimeout(connectionFailureEscalationRef.current);
+        connectionFailureEscalationRef.current = null;
+      }
       lastIceRouteLabelRef.current = null;
       lastIceRouteTypesRef.current = null;
       forcedRelayRef.current = false;
@@ -1793,6 +1806,74 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       }
     },
     [forceRelayRouting, participantRole, sendSignal, setIsReconnecting],
+  );
+
+  const clearConnectionHealthTimers = useCallback(() => {
+    if (connectionHealthTimeoutRef.current) {
+      clearTimeout(connectionHealthTimeoutRef.current);
+      connectionHealthTimeoutRef.current = null;
+    }
+    if (connectionFailureEscalationRef.current) {
+      clearTimeout(connectionFailureEscalationRef.current);
+      connectionFailureEscalationRef.current = null;
+    }
+  }, []);
+
+  const handlePeerInterruption = useCallback(
+    (pc: RTCPeerConnection, reason: string) => {
+      if (peerConnectionRef.current !== pc || !sessionActiveRef.current) {
+        return;
+      }
+
+      const preferRelay = shouldPreferRelayRouting();
+
+      if (participantRole === "host") {
+        void (async () => {
+          const restarted = await requestIceRestart(reason, { preferRelay });
+          if (!restarted) {
+            schedulePeerConnectionRecovery(pc, reason, { delayMs: reconnectBaseDelayMs });
+          }
+        })();
+        return;
+      }
+
+      schedulePeerConnectionRecovery(pc, reason, { delayMs: 0 });
+    },
+    [
+      participantRole,
+      reconnectBaseDelayMs,
+      requestIceRestart,
+      schedulePeerConnectionRecovery,
+      shouldPreferRelayRouting,
+    ],
+  );
+
+  const scheduleConnectionHealthCheck = useCallback(
+    (pc: RTCPeerConnection, reason: string) => {
+      if (peerConnectionRef.current !== pc || !sessionActiveRef.current) {
+        return;
+      }
+
+      clearConnectionHealthTimers();
+
+      connectionHealthTimeoutRef.current = setTimeout(() => {
+        connectionHealthTimeoutRef.current = null;
+        handlePeerInterruption(pc, reason);
+      }, CONNECTION_HEALTH_TIMEOUT_MS);
+
+      connectionFailureEscalationRef.current = setTimeout(() => {
+        connectionFailureEscalationRef.current = null;
+        schedulePeerConnectionRecovery(pc, `${reason} (escalated)`, {
+          delayMs: reconnectBaseDelayMs,
+        });
+      }, CONNECTION_FAILURE_ESCALATION_MS);
+    },
+    [
+      clearConnectionHealthTimers,
+      handlePeerInterruption,
+      reconnectBaseDelayMs,
+      schedulePeerConnectionRecovery,
+    ],
   );
 
   useEffect(() => {
@@ -2334,7 +2415,21 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         console.error("Unable to parse data channel payload", cause);
       }
     },
-    [ensureEncryptionKey, sendCapabilities, supportsEncryption, token],
+      [
+        attachLocalMedia,
+        callState,
+        ensureEncryptionKey,
+        participantRole,
+        renegotiate,
+        requestRenegotiation,
+        sendCallMessage,
+        sendCapabilities,
+        showCallNotice,
+        stopLocalMediaTracks,
+        supportsEncryption,
+        teardownCall,
+        token,
+      ],
   );
 
   const attachDataChannel = useCallback(
@@ -2343,6 +2438,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setDataChannelState(channel.readyState);
       logEvent("Attached data channel", { label: channel.label, readyState: channel.readyState });
       channel.onopen = () => {
+        clearConnectionHealthTimers();
         setConnected(true);
         setError(null);
         iceFailureRetriesRef.current = 0;
@@ -2392,6 +2488,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       };
     },
     [
+      clearConnectionHealthTimers,
       handlePeerMessage,
       participantRole,
       schedulePeerConnectionRecovery,
@@ -2512,6 +2609,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setConnectionState(state);
 
       if (state === "connected") {
+        clearConnectionHealthTimers();
         void updateLastIceRouteTypes(peerConnection);
         iceFailureRetriesRef.current = 0;
         reconnectAttemptsRef.current = 0;
@@ -2531,55 +2629,24 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       } else if (state === "disconnected") {
         setConnected(false);
         if (sessionActiveRef.current) {
-          if (!disconnectionRecoveryTimeoutRef.current) {
-            setIsReconnecting(true);
-            disconnectionRecoveryTimeoutRef.current = setTimeout(() => {
-              if (peerConnectionRef.current?.connectionState === "disconnected") {
-                logEvent("Connection disconnected >10s - resetting");
-                disconnectionRecoveryTimeoutRef.current = null;
-                resetPeerConnection();
-              } else {
-                disconnectionRecoveryTimeoutRef.current = null;
-              }
-            }, 10000);
-          }
-          if (participantRole === "host") {
-            hasSentOfferRef.current = false;
-          }
+          setIsReconnecting(true);
+          scheduleConnectionHealthCheck(peerConnection, "peer connection disconnected");
+        }
+        if (participantRole === "host") {
+          hasSentOfferRef.current = false;
         }
       } else if (state === "failed") {
         setConnected(false);
         if (sessionActiveRef.current) {
           setIsReconnecting(true);
-          if (disconnectionRecoveryTimeoutRef.current) {
-            clearTimeout(disconnectionRecoveryTimeoutRef.current);
-            disconnectionRecoveryTimeoutRef.current = null;
-          }
-          logEvent("Connection FAILED - awaiting ICE restart");
+          scheduleConnectionHealthCheck(peerConnection, "peer connection failed");
         }
       } else if (state === "closed") {
+        clearConnectionHealthTimers();
         setConnected(false);
         if (participantRole === "host") {
           hasSentOfferRef.current = false;
         }
-      }
-
-      if (
-        state === "disconnected" &&
-        participantRole !== "host" &&
-        peerConnectionRef.current === peerConnection &&
-        sessionActiveRef.current &&
-        !iceRestartInProgressRef.current
-      ) {
-        schedulePeerConnectionRecovery(peerConnection, "peer connection disconnected");
-      } else if (
-        state === "failed" &&
-        participantRole !== "host" &&
-        peerConnectionRef.current === peerConnection &&
-        sessionActiveRef.current &&
-        !iceRestartInProgressRef.current
-      ) {
-        schedulePeerConnectionRecovery(peerConnection, "peer connection failed", { delayMs: 0 });
       }
     };
 
@@ -2589,6 +2656,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setIceConnectionState(state);
 
       if (state === "connected" || state === "completed") {
+        clearConnectionHealthTimers();
         void updateLastIceRouteTypes(peerConnection);
       }
 
@@ -2608,6 +2676,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
       const preferRelay = shouldPreferRelayRouting();
       const reason = `ice connection ${state}`;
+
+      scheduleConnectionHealthCheck(peerConnection, reason);
 
       if (participantRole === "host") {
         void (async () => {
@@ -2750,6 +2820,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     };
   }, [
     attachDataChannel,
+    clearConnectionHealthTimers,
+    handlePeerInterruption,
     participantId,
     participantRole,
     peerResetNonce,
@@ -2757,6 +2829,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     renegotiate,
     resetPeerConnection,
     reconnectBaseDelayMs,
+    scheduleConnectionHealthCheck,
     schedulePeerConnectionRecovery,
     requestIceRestart,
     updateLastIceRouteTypes,
@@ -2879,7 +2952,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     }
 
     bootstrap();
-  }, [participantId, sessionEnded, token]);
+    }, [participantId, sessionEnded, termsAccepted, token]);
 
   useEffect(() => {
     if (!participantId || !sessionStatus) {

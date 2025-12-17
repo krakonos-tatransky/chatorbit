@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 const UNROUTABLE_HOSTS = new Set(["0.0.0.0", "127.0.0.1", "localhost", "[::]", "::", "::1"]);
 
 function extractHostname(url: string): string | null {
