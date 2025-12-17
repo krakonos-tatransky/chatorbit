@@ -1817,6 +1817,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       if (!pc) {
         console.debug('rn-webrtc:signal:buffered', payload.signalType);
         pendingSignalsRef.current.push(payload);
+        setPeerResetNonce((value: number) => value + 1);
         return;
       }
       console.debug('rn-webrtc:signal:in', payload.signalType);
@@ -2632,6 +2633,17 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       }
     };
 
+    const sessionIsActive = sessionActiveRef.current;
+    const hasBufferedSignals = pendingSignalsRef.current.length > 0;
+    const shouldCreatePeer =
+      sessionIsActive &&
+      (participantRole === 'host' || hasRemoteParticipant() || hasBufferedSignals || pendingHostOfferRef.current);
+
+    if (!shouldCreatePeer) {
+      logPeer(null, 'skipping peer setup (waiting for active session with remote)');
+      return;
+    }
+
     void setupPeerConnection();
 
     return () => {
@@ -2678,7 +2690,9 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     hasRemoteParticipant,
     processSignalPayload,
     sendSignal,
-    schedulePeerConnectionRecovery
+    schedulePeerConnectionRecovery,
+    sessionStatus?.status,
+    connectedParticipantIds
   ]);
 
   useEffect(() => {
