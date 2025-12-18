@@ -238,6 +238,72 @@ export const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700'
   },
+  tokenCard: {
+    width: '100%',
+    maxWidth: 520,
+    borderRadius: SPACING.CARD_RADIUS,
+    padding: SPACING.CARD_PADDING,
+    gap: SPACING.SECTION_GAP,
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge,
+    shadowColor: COLORS.cobaltShadow,
+    shadowOffset: { width: 0, height: 22 },
+    shadowOpacity: 0.35,
+    shadowRadius: 34,
+    elevation: 12
+  },
+  tokenHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between'
+  },
+  tokenTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: COLORS.ice
+  },
+  badge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(136, 230, 255, 0.5)',
+    backgroundColor: 'rgba(136, 230, 255, 0.18)'
+  },
+  badgeLabel: {
+    color: COLORS.ice,
+    fontWeight: '700'
+  },
+  tokenValue: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: COLORS.aurora,
+    letterSpacing: 1.2
+  },
+  tokenMeta: {
+    color: 'rgba(219, 237, 255, 0.8)',
+    lineHeight: 20
+  },
+  tokenActions: {
+    flexDirection: 'row',
+    gap: 12
+  },
+  tokenActionButton: {
+    flex: 1,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge,
+    backgroundColor: 'rgba(5, 32, 80, 0.72)',
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    flexDirection: 'row'
+  },
+  tokenActionLabel: {
+    color: COLORS.ice,
+    fontWeight: '700'
+  },
   resultCard: {
     width: '100%',
     maxWidth: 520,
