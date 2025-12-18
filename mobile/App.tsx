@@ -154,6 +154,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const [statusLoading, setStatusLoading] = useState<boolean>(true);
   const [sessionEnded, setSessionEnded] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
+  const [statusCollapsed, setStatusCollapsed] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState('');
   const [connected, setConnected] = useState(false);
@@ -197,6 +198,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const callStateRef = useRef<'idle' | 'requesting' | 'incoming' | 'connecting' | 'active'>('idle');
   const sessionActiveRef = useRef(false);
   const sessionEndedRef = useRef(false);
+  const lastSessionStatusRef = useRef<string | undefined>(undefined);
   const reconnectAttemptsRef = useRef(0);
   const socketReconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
@@ -360,6 +362,16 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
 
   useEffect(() => {
     sessionActiveRef.current = sessionStatus?.status === 'active';
+  }, [sessionStatus?.status]);
+
+  useEffect(() => {
+    const currentStatus = sessionStatus?.status;
+    if (currentStatus !== 'active') {
+      setStatusCollapsed(false);
+    } else if (lastSessionStatusRef.current !== 'active') {
+      setStatusCollapsed(true);
+    }
+    lastSessionStatusRef.current = currentStatus;
   }, [sessionStatus?.status]);
 
   useEffect(() => {
@@ -1864,69 +1876,103 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
         >
-          <View style={styles.sessionStatusCard}>
+          <View style={[styles.sessionStatusCard, statusCollapsed && styles.sessionStatusCardCollapsed]}>
             <View style={styles.sessionCardHeader}>
               <Text style={styles.sessionCardTitle}>Session status</Text>
-              <View style={[styles.statusPill, statusIndicatorVariant === 'success' ? styles.statusPillSuccess : statusIndicatorVariant === 'waiting' ? styles.statusPillWaiting : styles.statusPillInactive]}>
-                <View style={styles.statusPillIndicator} />
-                <Text style={styles.statusPillLabel}>{sessionStatusLabel}</Text>
+              <View style={styles.statusHeaderActions}>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  style={styles.statusToggleButton}
+                  onPress={() => setStatusCollapsed((prev) => !prev)}
+                >
+                  <Ionicons
+                    name={statusCollapsed ? ('chevron-down' as any) : ('chevron-up' as any)}
+                    size={16}
+                    color={COLORS.ice}
+                  />
+                  <Text style={styles.statusToggleLabel}>{statusCollapsed ? 'Show' : 'Hide'}</Text>
+                </TouchableOpacity>
+                <View
+                  style={[
+                    styles.statusPill,
+                    statusIndicatorVariant === 'success'
+                      ? styles.statusPillSuccess
+                      : statusIndicatorVariant === 'waiting'
+                        ? styles.statusPillWaiting
+                        : styles.statusPillInactive
+                  ]}
+                >
+                  <View style={styles.statusPillIndicator} />
+                  <Text style={styles.statusPillLabel}>{sessionStatusLabel}</Text>
+                </View>
               </View>
             </View>
-            <Text style={styles.sessionCardDescription}>{sessionStatusDescription}</Text>
-            <View style={[styles.connectivityBanner, connectivityBadgeStyle]}>
-              <Ionicons name={connectivityIcon as any} size={18} color={COLORS.ice} />
-              <View style={styles.connectivityBannerText}>
-                <Text style={styles.connectivityBannerLabel}>{connectivityLabel}</Text>
-                <Text style={styles.connectivityBannerMessage}>{connectivityMessage}</Text>
-              </View>
-            </View>
-            {statusLoading ? (
-              <View style={styles.statusLoadingRow}>
-                <ActivityIndicator color={COLORS.aurora} />
-                <Text style={styles.statusLoadingLabel}>Loading session details…</Text>
-              </View>
-            ) : statusError ? (
-              <View style={styles.statusErrorBanner}>
-                <Ionicons name="alert-circle" size={18} color={COLORS.danger} />
-                <Text style={styles.statusErrorLabel}>{statusError}</Text>
-              </View>
-            ) : (
-              <View style={styles.statusMetricsContainer}>
-                <View style={styles.statusMetricRow}>
-                  <Text style={styles.statusMetricLabel}>Timer</Text>
-                  <Text style={styles.statusMetricValue}>{formatRemainingTime(remainingSeconds)}</Text>
+            {!statusCollapsed && (
+              <>
+                <Text style={styles.sessionCardDescription}>{sessionStatusDescription}</Text>
+                <View style={[styles.connectivityBanner, connectivityBadgeStyle]}>
+                  <Ionicons name={connectivityIcon as any} size={18} color={COLORS.ice} />
+                  <View style={styles.connectivityBannerText}>
+                    <Text style={styles.connectivityBannerLabel}>{connectivityLabel}</Text>
+                    <Text style={styles.connectivityBannerMessage}>{connectivityMessage}</Text>
+                  </View>
                 </View>
-                <View style={styles.statusMetricRow}>
-                  <Text style={styles.statusMetricLabel}>Message limit</Text>
-                  <Text style={styles.statusMetricValue}>{sessionMessageLimit.toLocaleString()} characters</Text>
-                </View>
-                <View style={styles.statusMetricRow}>
-                  <Text style={styles.statusMetricLabel}>Connected</Text>
-                  <Text style={styles.statusMetricValue}>
-                    {connectedCount}/{Math.max(participants.length, 2)} participants
-                  </Text>
-                </View>
-                <View style={styles.participantList}>
-                  {participants.length === 0 ? (
-                    <Text style={styles.participantEmpty}>Waiting for participants to join…</Text>
-                  ) : (
-                    participants.map((participant: SessionParticipant) => {
-                      const isConnected = connectedParticipantIds.includes(participant.participant_id);
-                      return (
-                        <View key={participant.participant_id} style={styles.participantRow}>
-                          <View style={styles.participantDetails}>
-                            <Text style={styles.participantRoleLabel}>{participant.role === 'host' ? 'Host' : 'Guest'}</Text>
-                            <Text style={styles.participantMeta}>{formatJoinedAt(participant.joined_at)}</Text>
-                          </View>
-                          <View style={[styles.participantBadge, isConnected ? styles.participantBadgeOnline : styles.participantBadgeOffline]}>
-                            <Text style={styles.participantBadgeLabel}>{isConnected ? 'Connected' : 'Awaiting connection'}</Text>
-                          </View>
-                        </View>
-                      );
-                    })
-                  )}
-                </View>
-              </View>
+                {statusLoading ? (
+                  <View style={styles.statusLoadingRow}>
+                    <ActivityIndicator color={COLORS.aurora} />
+                    <Text style={styles.statusLoadingLabel}>Loading session details…</Text>
+                  </View>
+                ) : statusError ? (
+                  <View style={styles.statusErrorBanner}>
+                    <Ionicons name="alert-circle" size={18} color={COLORS.danger} />
+                    <Text style={styles.statusErrorLabel}>{statusError}</Text>
+                  </View>
+                ) : (
+                  <View style={styles.statusMetricsContainer}>
+                    <View style={styles.statusMetricRow}>
+                      <Text style={styles.statusMetricLabel}>Timer</Text>
+                      <Text style={styles.statusMetricValue}>{formatRemainingTime(remainingSeconds)}</Text>
+                    </View>
+                    <View style={styles.statusMetricRow}>
+                      <Text style={styles.statusMetricLabel}>Message limit</Text>
+                      <Text style={styles.statusMetricValue}>{sessionMessageLimit.toLocaleString()} characters</Text>
+                    </View>
+                    <View style={styles.statusMetricRow}>
+                      <Text style={styles.statusMetricLabel}>Connected</Text>
+                      <Text style={styles.statusMetricValue}>
+                        {connectedCount}/{Math.max(participants.length, 2)} participants
+                      </Text>
+                    </View>
+                    <View style={styles.participantList}>
+                      {participants.length === 0 ? (
+                        <Text style={styles.participantEmpty}>Waiting for participants to join…</Text>
+                      ) : (
+                        participants.map((participant: SessionParticipant) => {
+                          const isConnected = connectedParticipantIds.includes(participant.participant_id);
+                          return (
+                            <View key={participant.participant_id} style={styles.participantRow}>
+                              <View style={styles.participantDetails}>
+                                <Text style={styles.participantRoleLabel}>{participant.role === 'host' ? 'Host' : 'Guest'}</Text>
+                                <Text style={styles.participantMeta}>{formatJoinedAt(participant.joined_at)}</Text>
+                              </View>
+                              <View
+                                style={[
+                                  styles.participantBadge,
+                                  isConnected ? styles.participantBadgeOnline : styles.participantBadgeOffline
+                                ]}
+                              >
+                                <Text style={styles.participantBadgeLabel}>
+                                  {isConnected ? 'Connected' : 'Awaiting connection'}
+                                </Text>
+                              </View>
+                            </View>
+                          );
+                        })
+                      )}
+                    </View>
+                  </View>
+                )}
+              </>
             )}
           </View>
 

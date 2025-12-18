@@ -496,6 +496,10 @@ export const styles = StyleSheet.create({
     padding: 20,
     gap: 14
   },
+  sessionStatusCardCollapsed: {
+    paddingVertical: 12,
+    paddingHorizontal: 16
+  },
   chatCard: {
     borderRadius: 24,
     borderWidth: 1,
@@ -511,10 +515,30 @@ export const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between'
   },
+  statusHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10
+  },
   sessionCardTitle: {
     color: COLORS.ice,
     fontSize: 18,
     fontWeight: '700'
+  },
+  statusToggleButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.35)',
+    backgroundColor: 'rgba(4, 23, 60, 0.65)'
+  },
+  statusToggleLabel: {
+    color: COLORS.ice,
+    fontWeight: '600'
   },
   sessionCardDescription: {
     color: 'rgba(219, 237, 255, 0.78)',
