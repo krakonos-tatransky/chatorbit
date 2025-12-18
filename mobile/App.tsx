@@ -176,6 +176,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const [socketReconnectNonce, setSocketReconnectNonce] = useState(0);
   const [peerResetNonce, setPeerResetNonce] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const chatScrollRef = useRef<ScrollView | null>(null);
 
   const connectionRefs = useRef({
     socket: null as WebSocket | null,
@@ -1758,6 +1759,16 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const participants: SessionParticipant[] = sessionStatus?.participants ?? [];
   const canSend = connected && draft.trim().length > 0 && !isReconnecting;
 
+  const scrollMessagesToEnd = useCallback(() => {
+    setTimeout(() => chatScrollRef.current?.scrollToEnd({ animated: true }), 0);
+  }, []);
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      scrollMessagesToEnd();
+    }
+  }, [messages.length, scrollMessagesToEnd]);
+
   const handleSendMessage = useCallback(async () => {
     if (!connected) {
       setError('Connection is not ready yet.');
@@ -2126,9 +2137,11 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
                 </View>
               ) : (
                 <ScrollView
+                  ref={chatScrollRef}
                   style={styles.chatList}
                   contentContainerStyle={styles.chatListContent}
                   keyboardShouldPersistTaps="handled"
+                  onContentSizeChange={scrollMessagesToEnd}
                 >
                   {messages.map(renderMessage)}
                 </ScrollView>
