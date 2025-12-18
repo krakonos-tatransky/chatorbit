@@ -479,6 +479,10 @@ export const styles = StyleSheet.create({
     color: 'rgba(219, 237, 255, 0.78)',
     lineHeight: 20
   },
+  sessionScroll: {
+    flex: 1,
+    width: '100%'
+  },
   sessionContent: {
     flex: 1,
     paddingBottom: 28,
@@ -739,7 +743,7 @@ export const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 209, 102, 0.4)'
   },
-  participantBadgeLabel: {
+    participantBadgeLabel: {
     color: COLORS.ice,
     fontWeight: '600',
     fontSize: 12
@@ -747,6 +751,130 @@ export const styles = StyleSheet.create({
   participantEmpty: {
     color: 'rgba(219, 237, 255, 0.65)',
     fontStyle: 'italic'
+  },
+  videoCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.38)',
+    backgroundColor: 'rgba(6, 36, 92, 0.66)',
+    padding: 20,
+    gap: 14
+  },
+  videoBadgeActive: {
+    backgroundColor: 'rgba(136, 230, 255, 0.18)',
+    borderColor: 'rgba(136, 230, 255, 0.55)'
+  },
+  videoBadgeIncoming: {
+    backgroundColor: 'rgba(111, 214, 255, 0.18)',
+    borderColor: 'rgba(111, 214, 255, 0.45)'
+  },
+  videoBadgePending: {
+    backgroundColor: 'rgba(255, 209, 102, 0.16)',
+    borderColor: 'rgba(255, 209, 102, 0.5)'
+  },
+  videoBadgeIdle: {
+    backgroundColor: 'rgba(255, 108, 96, 0.16)',
+    borderColor: 'rgba(255, 108, 96, 0.45)'
+  },
+  videoPreviewRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 4
+  },
+  videoPreviewRowFullscreen: {
+    flexDirection: 'column',
+    gap: 14
+  },
+  videoPane: {
+    flex: 1,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.28)',
+    backgroundColor: 'rgba(2, 11, 31, 0.72)',
+    padding: 12,
+    gap: 10,
+    minHeight: 180,
+    overflow: 'hidden'
+  },
+  videoPaneFullscreen: {
+    minHeight: 240
+  },
+  videoPaneLabel: {
+    color: COLORS.ice,
+    fontWeight: '700'
+  },
+  videoSurface: {
+    flex: 1,
+    borderRadius: 16,
+    overflow: 'hidden'
+  },
+  videoSurfaceFullscreen: {
+    minHeight: 220
+  },
+  videoPlaceholder: {
+    flex: 1,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(111, 214, 255, 0.24)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 20,
+    backgroundColor: 'rgba(4, 23, 60, 0.72)'
+  },
+  videoPlaceholderText: {
+    color: 'rgba(219, 237, 255, 0.78)',
+    textAlign: 'center'
+  },
+  videoActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8
+  },
+  videoAcceptButton: {
+    flex: 1,
+    backgroundColor: COLORS.aurora
+  },
+  videoAcceptLabel: {
+    color: COLORS.midnight
+  },
+  videoDeclineButton: {
+    flex: 1
+  },
+  videoControlsRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10
+  },
+  videoControlsRowFullscreen: {
+    justifyContent: 'space-between'
+  },
+  videoIconButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: 'rgba(136, 230, 255, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(136, 230, 255, 0.4)'
+  },
+  videoIconButtonMuted: {
+    backgroundColor: 'rgba(255, 209, 102, 0.2)',
+    borderColor: 'rgba(255, 209, 102, 0.5)'
+  },
+  videoIconLabel: {
+    color: COLORS.midnight,
+    fontWeight: '700'
+  },
+  videoEndButton: {
+    backgroundColor: 'rgba(239, 71, 111, 0.16)',
+    borderColor: 'rgba(239, 71, 111, 0.5)'
+  },
+  videoEndLabel: {
+    color: COLORS.danger
   },
   chatMetaLabel: {
     color: 'rgba(219, 237, 255, 0.7)',
