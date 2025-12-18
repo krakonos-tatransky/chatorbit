@@ -955,6 +955,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     [resetPeerConnection]
   );
 
+  const isTerminalSessionStatus = useCallback((status?: string | null) => {
+    if (!status) {
+      return false;
+    }
+    return status === 'closed' || status === 'expired' || status === 'deleted';
+  }, []);
+
   useEffect(() => {
     if (sessionEnded) {
       return;
@@ -983,7 +990,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             logSocket('http status missing connected_participants, keeping previous value');
           }
           setStatusError(null);
-          if (status.status && status.status !== 'active') {
+          if (isTerminalSessionStatus(status.status)) {
             markSessionEnded('This session is no longer active.');
           }
         }
@@ -1013,7 +1020,14 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       controller.abort();
       clearInterval(interval);
     };
-  }, [logSocket, markSessionEnded, sessionEnded, token.token, updateRemoteParticipantPresence]);
+  }, [
+    isTerminalSessionStatus,
+    logSocket,
+    markSessionEnded,
+    sessionEnded,
+    token.token,
+    updateRemoteParticipantPresence
+  ]);
 
   useEffect(() => {
     if (sessionStatus) {
@@ -1106,7 +1120,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             setSessionStatus(rest);
             setRemainingSeconds(rest.remaining_seconds ?? null);
             setStatusLoading(false);
-            if (rest.status && rest.status !== 'active') {
+            if (isTerminalSessionStatus(rest.status)) {
               markSessionEnded('This session is no longer active.');
             }
           } else if (payload.type === 'signal') {
@@ -1156,6 +1170,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   }, [
     flushQueuedSignals,
     handleSignal,
+    isTerminalSessionStatus,
     logSocket,
     markSessionEnded,
     participantId,
