@@ -26,12 +26,14 @@ import type {
   RTCIceCandidate as NativeRTCIceCandidate,
   RTCSessionDescription as NativeRTCSessionDescription,
   MediaStream as NativeMediaStream,
+  MediaStreamTrack as NativeMediaStreamTrack,
   RTCTrackEvent as NativeRTCTrackEvent
 } from 'react-native-webrtc';
 type RTCPeerConnection = NativeRTCPeerConnection;
 type RTCIceCandidate = NativeRTCIceCandidate;
 type RTCSessionDescription = NativeRTCSessionDescription;
 type MediaStream = NativeMediaStream;
+type MediaStreamTrack = NativeMediaStreamTrack;
 type RTCTrackEvent = NativeRTCTrackEvent;
 type RTCViewComponent = ComponentType<{ streamURL: string; objectFit?: string; mirror?: boolean }>;
 import { getIceServers, hasRelayIceServers } from './src/utils/webrtc';
@@ -1247,6 +1249,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
 
   const stopLocalAudioTracks = useCallback(() => {
     const stream = connectionRefs.current.localAudioStream;
+    const audioTrackIds = stream?.getAudioTracks?.().map((track) => track.id) ?? [];
     if (stream) {
       stream.getTracks().forEach((track) => track.stop());
     }
@@ -1254,7 +1257,10 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     const pc = connectionRefs.current.peerConnection;
     if (pc && typeof pc.getSenders === 'function') {
       pc.getSenders().forEach((sender) => {
-        if (sender.track?.kind === 'audio') {
+        const shouldRemove =
+          sender.track?.kind === 'audio' &&
+          (audioTrackIds.length === 0 || audioTrackIds.includes(sender.track.id));
+        if (shouldRemove) {
           try {
             pc.removeTrack(sender);
           } catch (err) {
@@ -1267,6 +1273,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
 
   const stopLocalVideoTracks = useCallback(() => {
     const stream = connectionRefs.current.localVideoStream;
+    const videoTrackIds = stream?.getVideoTracks?.().map((track) => track.id) ?? [];
     if (stream) {
       stream.getTracks().forEach((track) => track.stop());
     }
@@ -1275,7 +1282,10 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     const pc = connectionRefs.current.peerConnection;
     if (pc && typeof pc.getSenders === 'function') {
       pc.getSenders().forEach((sender) => {
-        if (sender.track?.kind === 'video') {
+        const shouldRemove =
+          sender.track?.kind === 'video' &&
+          (videoTrackIds.length === 0 || videoTrackIds.includes(sender.track.id));
+        if (shouldRemove) {
           try {
             pc.removeTrack(sender);
           } catch (err) {
@@ -1328,31 +1338,42 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const ensureCallMedia = useCallback(
     async (options: { attach?: boolean } = {}) => {
       const { attach = true } = options;
-    const pc = connectionRefs.current.peerConnection;
+      const pc = connectionRefs.current.peerConnection;
       if (!pc || !webRtcBindings?.mediaDevices?.getUserMedia) {
         return null;
       }
 
-      const attachSenders = (kind: 'audio' | 'video', stream: MediaStream) => {
-        const hasSender = pc.getSenders?.().some((sender) => sender.track?.kind === kind);
-        if (!hasSender && typeof pc.addTransceiver === 'function') {
+      const attachSenders = async (kind: 'audio' | 'video', stream: MediaStream) => {
+        const tracks = stream.getTracks().filter((track) => track.kind === kind);
+        const senders = pc.getSenders?.() ?? [];
+
+        for (const track of tracks) {
+          const existingSender = senders.find((sender) => sender.track?.kind === kind);
+          if (existingSender?.track) {
+            try {
+              await existingSender.replaceTrack(track);
+              logPeer(pc, `replaced ${kind} track`, track.id);
+              continue;
+            } catch (err) {
+              console.warn(`Failed to replace ${kind} track`, err);
+            }
+          }
+
+          if (existingSender) {
+            try {
+              pc.removeTrack(existingSender);
+            } catch (err) {
+              console.warn(`Failed to remove existing ${kind} sender`, err);
+            }
+          }
+
           try {
-            pc.addTransceiver(kind, { direction: 'sendrecv' });
+            pc.addTrack(track, stream);
+            logPeer(pc, `added local ${kind} track`, track.id);
           } catch (err) {
-            console.warn(`Failed to add ${kind} transceiver`, err);
+            console.warn(`Failed to attach local ${kind} track`, err);
           }
         }
-        stream
-          .getTracks()
-          .filter((track) => track.kind === kind)
-          .forEach((track) => {
-            try {
-              pc.addTrack(track, stream);
-              logPeer(pc, `added local ${kind} track`, track.id);
-            } catch (err) {
-              console.warn(`Failed to attach local ${kind} track`, err);
-            }
-          });
       };
 
       let videoStream = connectionRefs.current.localVideoStream;
@@ -1377,7 +1398,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         });
 
       if (videoStream && attach) {
-        attachSenders('video', videoStream);
+        await attachSenders('video', videoStream);
       }
 
       if (attach) {
@@ -1389,7 +1410,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             .forEach((track) => {
               track.enabled = !isLocalAudioMuted;
             });
-          attachSenders('audio', audioStream);
+          await attachSenders('audio', audioStream);
         }
       }
 
@@ -1589,14 +1610,48 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
 
       const handleTrack = (event: RTCTrackEvent) => {
         logPeer(pc, 'remote track', event.track?.kind, event.streams?.length ?? 0);
-        if (event.track?.kind === 'audio') {
-          event.track.enabled = true;
+        const track = event.track as unknown as MediaStreamTrack | undefined;
+        if (!track) {
           return;
         }
-        if (event.track?.kind === 'video') {
-          const stream = event.streams?.[0] ?? new MediaStream([event.track]);
-          connectionRefs.current.remoteVideoStream = stream as unknown as MediaStream;
-          setRemoteVideoStream(stream as unknown as MediaStream);
+
+        if (track.kind === 'audio') {
+          track.enabled = true;
+          return;
+        }
+
+        if (track.kind === 'video') {
+          const existingStream =
+            event.streams?.[0] ?? connectionRefs.current.remoteVideoStream ?? new MediaStream();
+          const hasTrack = existingStream.getTrackById(track.id);
+
+          if (!hasTrack) {
+            existingStream.addTrack(track);
+          }
+
+          connectionRefs.current.remoteVideoStream = existingStream as unknown as MediaStream;
+          setRemoteVideoStream(existingStream as unknown as MediaStream);
+
+          const handleTrackEnded = () => {
+            const currentStream = connectionRefs.current.remoteVideoStream;
+            if (!currentStream) {
+              return;
+            }
+
+            currentStream.getTracks().forEach((candidate) => {
+              if (candidate.readyState === 'ended' && typeof currentStream.removeTrack === 'function') {
+                currentStream.removeTrack(candidate);
+              }
+            });
+
+            const hasLiveTracks = currentStream.getTracks().some((candidate) => candidate.readyState !== 'ended');
+            if (!hasLiveTracks) {
+              connectionRefs.current.remoteVideoStream = null;
+              setRemoteVideoStream(null);
+            }
+          };
+
+          track.addEventListener('ended', handleTrackEnded, { once: true });
           return;
         }
       };
