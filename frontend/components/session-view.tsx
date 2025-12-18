@@ -616,6 +616,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [shouldScrollCallPanel]);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const pendingSignalsRef = useRef<any[]>([]);
+  const pendingCallMessagesRef = useRef<Array<{ action: string; detail: Record<string, unknown> }>>([]);
   const hasSentOfferRef = useRef<boolean>(false);
   const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
   const encryptionKeyRef = useRef<CryptoKey | null>(null);
@@ -636,6 +637,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const iceRestartAttemptsRef = useRef(0);
   const iceRestartInProgressRef = useRef(false);
   const disconnectionRecoveryTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const dataChannelTimeoutRef = useRef<TimeoutHandle | null>(null);
   const sessionActiveRef = useRef(false);
   const sessionEndedRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -1980,6 +1982,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       }
       const channel = dataChannelRef.current;
       if (!channel || channel.readyState !== "open") {
+        logEvent("Data channel not ready, queueing call message", { action, readyState: channel?.readyState });
+        pendingCallMessagesRef.current.push({ action, detail });
         return;
       }
       const payload = { type: "call", action, from: participantId, ...detail };
@@ -2342,6 +2346,26 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       dataChannelRef.current = channel;
       setDataChannelState(channel.readyState);
       logEvent("Attached data channel", { label: channel.label, readyState: channel.readyState });
+
+      // Clear any existing timeout
+      if (dataChannelTimeoutRef.current) {
+        clearTimeout(dataChannelTimeoutRef.current);
+        dataChannelTimeoutRef.current = null;
+      }
+
+      // Set timeout for data channel establishment (15 seconds)
+      if (channel.readyState !== "open") {
+        dataChannelTimeoutRef.current = setTimeout(() => {
+          if (channel.readyState !== "open" && sessionActiveRef.current) {
+            logEvent("Data channel failed to open within timeout period");
+            dataChannelTimeoutRef.current = null;
+            if (owner && peerConnectionRef.current === owner) {
+              schedulePeerConnectionRecovery(owner, "data channel timeout");
+            }
+          }
+        }, 15000);
+      }
+
       channel.onopen = () => {
         setConnected(true);
         setError(null);
@@ -2351,14 +2375,38 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           clearTimeout(disconnectionRecoveryTimeoutRef.current);
           disconnectionRecoveryTimeoutRef.current = null;
         }
+        if (dataChannelTimeoutRef.current) {
+          clearTimeout(dataChannelTimeoutRef.current);
+          dataChannelTimeoutRef.current = null;
+        }
         logEvent("Data channel opened", { label: channel.label });
         capabilityAnnouncedRef.current = false;
         sendCapabilities();
         setDataChannelState(channel.readyState);
+
+        // Flush pending call messages
+        const pending = pendingCallMessagesRef.current.splice(0);
+        if (pending.length > 0) {
+          logEvent("Flushing pending call messages", { count: pending.length });
+          for (const { action, detail } of pending) {
+            if (!participantId) continue;
+            const payload = { type: "call", action, from: participantId, ...detail };
+            try {
+              channel.send(JSON.stringify(payload));
+              logEvent("Sent queued call control message", payload);
+            } catch (cause) {
+              console.warn("Failed to send queued call control message", cause);
+            }
+          }
+        }
       };
       channel.onclose = () => {
         setConnected(false);
         dataChannelRef.current = null;
+        if (dataChannelTimeoutRef.current) {
+          clearTimeout(dataChannelTimeoutRef.current);
+          dataChannelTimeoutRef.current = null;
+        }
         if (participantRole === "host") {
           hasSentOfferRef.current = false;
         }
@@ -2375,6 +2423,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       };
       channel.onerror = () => {
         setConnected(false);
+        if (dataChannelTimeoutRef.current) {
+          clearTimeout(dataChannelTimeoutRef.current);
+          dataChannelTimeoutRef.current = null;
+        }
         peerSupportsEncryptionRef.current = null;
         setPeerSupportsEncryption(null);
         logEvent("Data channel encountered an error", { label: channel.label });
@@ -2393,6 +2445,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     },
     [
       handlePeerMessage,
+      participantId,
       participantRole,
       schedulePeerConnectionRecovery,
       sendCapabilities,
@@ -2549,6 +2602,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         }
       } else if (state === "failed") {
         setConnected(false);
+        if (participantRole === "host") {
+          hasSentOfferRef.current = false;
+        }
         if (sessionActiveRef.current) {
           setIsReconnecting(true);
           if (disconnectionRecoveryTimeoutRef.current) {
@@ -2684,6 +2740,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         participantRole === "host"
       ) {
         negotiationPendingRef.current = false;
+        void renegotiate();
+      }
+    };
+
+    peerConnection.onnegotiationneeded = () => {
+      logEvent("Negotiation needed event triggered", {
+        signalingState: peerConnection.signalingState,
+        participantRole,
+      });
+      if (participantRole === "host") {
         void renegotiate();
       }
     };
