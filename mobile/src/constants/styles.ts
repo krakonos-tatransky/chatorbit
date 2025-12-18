@@ -520,6 +520,14 @@ export const styles = StyleSheet.create({
     color: 'rgba(219, 237, 255, 0.78)',
     lineHeight: 20
   },
+  chatActionsRow: {
+    marginTop: 8,
+    flexDirection: 'row',
+    gap: 12
+  },
+  chatActionButton: {
+    flex: 1
+  },
   chatListWrapper: {
     flex: 1,
     borderRadius: 18,

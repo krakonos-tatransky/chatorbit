@@ -283,6 +283,8 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         : callState === 'requesting'
           ? styles.videoBadgePending
           : styles.videoBadgeIdle;
+  const showVideoSection =
+    callState !== 'idle' || incomingCallFrom !== null || localVideoStream !== null || remoteVideoStream !== null;
   const localVideoUrl = useMemo(() => (localVideoStream as any)?.toURL?.() ?? null, [localVideoStream]);
   const remoteVideoUrl = useMemo(() => (remoteVideoStream as any)?.toURL?.() ?? null, [remoteVideoStream]);
   const videoPreviewRowStyle = useMemo(
@@ -1928,7 +1930,8 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             )}
           </View>
 
-          <View style={styles.videoCard}>
+          {showVideoSection && (
+            <View style={styles.videoCard}>
             <View style={styles.sessionCardHeader}>
               <Text style={styles.sessionCardTitle}>Video chat</Text>
               <View style={[styles.connectionBadge, videoStatusStyle]}>
@@ -2039,7 +2042,8 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
                 </TouchableOpacity>
               </View>
             )}
-          </View>
+            </View>
+          )}
 
           <KeyboardAvoidingView
             style={styles.chatCard}
@@ -2055,6 +2059,18 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             <Text style={styles.sessionCardDescription}>
               Chat with your guest using the native realtime channel. Messages sync over the same WebRTC data channel used on the web.
             </Text>
+            {callState === 'idle' && (
+              <View style={styles.chatActionsRow}>
+                <TouchableOpacity
+                  style={[styles.primaryButton, styles.chatActionButton, !videoReady && styles.primaryButtonDisabled]}
+                  disabled={!videoReady}
+                  onPress={requestVideoChat}
+                >
+                  <Ionicons name="videocam-outline" size={18} color={COLORS.midnight} />
+                  <Text style={[styles.primaryButtonLabel, !videoReady && styles.primaryButtonLabelDisabled]}>Request video call</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             <View style={styles.chatListWrapper}>
               {messages.length === 0 ? (
                 <View style={styles.chatEmptyState}>
