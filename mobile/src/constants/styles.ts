@@ -551,7 +551,9 @@ export const styles = StyleSheet.create({
   },
   sessionCardDescription: {
     color: 'rgba(219, 237, 255, 0.78)',
-    lineHeight: 20
+    lineHeight: 18,
+    fontSize: 12,
+    marginBottom: 8
   },
   chatActionsRow: {
     marginTop: 8,
@@ -563,11 +565,13 @@ export const styles = StyleSheet.create({
   },
   chatListWrapper: {
     flex: 1,
+    minHeight: 200,
     borderRadius: 18,
     borderWidth: 1,
     borderColor: 'rgba(111, 214, 255, 0.2)',
     backgroundColor: 'rgba(2, 11, 31, 0.7)',
-    padding: 12
+    padding: 12,
+    marginTop: 12
   },
   chatList: {
     flex: 1

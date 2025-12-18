@@ -1536,12 +1536,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     if (callState !== 'idle') {
       return;
     }
-    const stream = await ensureCallMedia({ attach: false });
+    setCallState('requesting');
+    const stream = await ensureCallMedia();  // Attach immediately like browser
     if (!stream) {
       setError('Unable to access the camera for video chat.');
+      setCallState('idle');
       return;
     }
-    setCallState('requesting');
     setIncomingCallFrom(null);
     sendCallMessage('request');
   }, [callState, ensureCallMedia, sendCallMessage]);
@@ -1654,22 +1655,31 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           return;
         }
 
+        // Get or create stream from event
+        const existingStream = event.streams?.[0] ?? new MediaStream();
+
         if (track.kind === 'audio') {
           track.enabled = true;
+          // Add audio track to stream (don't just enable and discard)
+          if (!existingStream.getTrackById(track.id)) {
+            existingStream.addTrack(track);
+          }
+          logPeer(pc, 'added remote audio track to stream', track.id);
           return;
         }
 
         if (track.kind === 'video') {
-          const existingStream =
-            event.streams?.[0] ?? connectionRefs.current.remoteVideoStream ?? new MediaStream();
-          const hasTrack = existingStream.getTrackById(track.id);
+          // Use existing remote video stream or the stream from event
+          const videoStream =
+            connectionRefs.current.remoteVideoStream ?? existingStream;
+          const hasTrack = videoStream.getTrackById(track.id);
 
           if (!hasTrack) {
-            existingStream.addTrack(track);
+            videoStream.addTrack(track);
           }
 
-          connectionRefs.current.remoteVideoStream = existingStream as unknown as MediaStream;
-          setRemoteVideoStream(existingStream as unknown as MediaStream);
+          connectionRefs.current.remoteVideoStream = videoStream as unknown as MediaStream;
+          setRemoteVideoStream(videoStream as unknown as MediaStream);
 
           const handleTrackEnded = () => {
             const currentStream = connectionRefs.current.remoteVideoStream;
@@ -1696,7 +1706,10 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       };
 
       const handleNegotiationNeeded = () => {
-        void negotiateMediaUpdate(pc, 'onnegotiationneeded');
+        logPeer(pc, 'negotiation needed', participantRole);
+        if (participantRole === 'host') {
+          void negotiateMediaUpdate(pc, 'onnegotiationneeded');
+        }
       };
 
       const peerConnectionAny = pc as RTCPeerConnection & {
@@ -2223,7 +2236,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
               </View>
             </View>
             <Text style={styles.sessionCardDescription}>
-              Chat with your guest using the native realtime channel. Messages sync over the same WebRTC data channel used on the web.
+              Realtime chat via WebRTC data channel
             </Text>
             {callState === 'idle' && (
               <View style={styles.chatActionsRow}>
