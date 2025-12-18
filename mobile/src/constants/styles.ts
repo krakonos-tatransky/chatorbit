@@ -19,6 +19,15 @@ export const styles = StyleSheet.create({
     paddingTop: SPACING.IN_SESSION_TOP,
     paddingHorizontal: SPACING.IN_SESSION_HORIZONTAL
   },
+  landingScroll: {
+    width: '100%'
+  },
+  landingContent: {
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: SPACING.SECTION_GAP,
+    paddingBottom: SPACING.CONTENT_GAP
+  },
   termsCard: {
     borderRadius: SPACING.CARD_RADIUS,
     padding: SPACING.CARD_PADDING,

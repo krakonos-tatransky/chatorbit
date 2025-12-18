@@ -2318,6 +2318,8 @@ const MainScreen: React.FC = () => {
     );
   };
 
+  const renderedContent = renderContent();
+
   return (
     <LinearGradient
       colors={[COLORS.midnight, COLORS.deepBlue, COLORS.ocean, COLORS.lagoon]}
@@ -2326,15 +2328,24 @@ const MainScreen: React.FC = () => {
       style={[styles.container, isInAppSessionActive && styles.containerInSession]}
     >
       <StatusBar style="light" />
-      {!isInAppSessionActive && (
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Launch a ChatOrbit session</Text>
-          <Text style={styles.headerSubtitle}>
-            Generate a one-time secure token or prepare to join an existing session with a single tap.
-          </Text>
-        </View>
+      {isInAppSessionActive ? (
+        renderedContent
+      ) : (
+        <ScrollView
+          style={styles.landingScroll}
+          contentContainerStyle={styles.landingContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.header}>
+            <Text style={styles.headerTitle}>Launch a ChatOrbit session</Text>
+            <Text style={styles.headerSubtitle}>
+              Generate a one-time secure token or prepare to join an existing session with a single tap.
+            </Text>
+          </View>
+          {renderedContent}
+        </ScrollView>
       )}
-      {renderContent()}
         <NeedTokenForm
           visible={showForm && !tokenResponse}
           onClose={() => setShowForm(false)}
