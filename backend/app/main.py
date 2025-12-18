@@ -25,7 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from fastapi.security import OAuth2PasswordRequestForm
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from .config import get_settings
@@ -49,11 +49,15 @@ from .schemas import (
     AdminAbuseReport,
     AdminAbuseReportListResponse,
     AdminAbuseReportParticipant,
+    AdminRateLimitListResponse,
+    AdminRateLimitLock,
     AdminSessionListResponse,
     AdminSessionParticipant,
     AdminSessionSummary,
     AdminTokenResponse,
     AdminUpdateAbuseReportRequest,
+    AdminResetRateLimitRequest,
+    AdminResetRateLimitResponse,
     CreateTokenRequest,
     JoinSessionRequest,
     JoinSessionResponse,
@@ -454,6 +458,66 @@ def _collect_remote_participants(
     return participants
 
 
+def _collect_rate_limit_locks(db: Session) -> List[AdminRateLimitLock]:
+    window_seconds = int(timedelta(hours=1).total_seconds())
+    window_start = utcnow() - timedelta(seconds=window_seconds)
+    threshold = settings.token_rate_limit_per_hour
+    locks: List[AdminRateLimitLock] = []
+
+    identity_rows = db.execute(
+        select(
+            TokenRequestLog.client_identity,
+            func.count().label("request_count"),
+            func.max(TokenRequestLog.created_at).label("last_request_at"),
+        )
+        .where(
+            TokenRequestLog.client_identity.is_not(None),
+            TokenRequestLog.created_at >= window_start,
+        )
+        .group_by(TokenRequestLog.client_identity)
+    ).all()
+
+    for identity, count, last_request_at in identity_rows:
+        if count >= threshold and identity:
+            locks.append(
+                AdminRateLimitLock(
+                    identifier_type="client_identity",
+                    identifier=identity,
+                    request_count=int(count),
+                    window_seconds=window_seconds,
+                    last_request_at=last_request_at,
+                )
+            )
+
+    ip_rows = db.execute(
+        select(
+            TokenRequestLog.ip_address,
+            func.count().label("request_count"),
+            func.max(TokenRequestLog.created_at).label("last_request_at"),
+        )
+        .where(
+            TokenRequestLog.client_identity.is_(None),
+            TokenRequestLog.created_at >= window_start,
+        )
+        .group_by(TokenRequestLog.ip_address)
+    ).all()
+
+    for ip_address, count, last_request_at in ip_rows:
+        if count >= threshold and ip_address:
+            locks.append(
+                AdminRateLimitLock(
+                    identifier_type="ip_address",
+                    identifier=ip_address,
+                    request_count=int(count),
+                    window_seconds=window_seconds,
+                    last_request_at=last_request_at,
+                )
+            )
+
+    locks.sort(key=lambda lock: lock.last_request_at, reverse=True)
+    return locks
+
+
 def _get_session_by_token(db: Session, token: str) -> TokenSession:
     stmt = select(TokenSession).where(TokenSession.token == token)
     session_model = db.execute(stmt).scalar_one_or_none()
@@ -839,6 +903,42 @@ def list_admin_sessions(
     stmt = stmt.limit(200)
     sessions = db.execute(stmt).scalars().unique().all()
     return AdminSessionListResponse(sessions=[_serialize_admin_session(session) for session in sessions])
+
+
+@router.get("/admin/rate-limits", response_model=AdminRateLimitListResponse)
+def list_admin_rate_limits(
+    db: Session = Depends(get_session),
+    _: str = Depends(get_current_admin),
+) -> AdminRateLimitListResponse:
+    locks = _collect_rate_limit_locks(db)
+    return AdminRateLimitListResponse(locks=locks)
+
+
+@router.post("/admin/rate-limits/reset", response_model=AdminResetRateLimitResponse)
+def reset_admin_rate_limit(
+    request: AdminResetRateLimitRequest,
+    db: Session = Depends(get_session),
+    _: str = Depends(get_current_admin),
+) -> AdminResetRateLimitResponse:
+    window_seconds = int(timedelta(hours=1).total_seconds())
+    window_start = utcnow() - timedelta(seconds=window_seconds)
+
+    if request.identifier_type == "client_identity":
+        stmt = delete(TokenRequestLog).where(
+            TokenRequestLog.client_identity == request.identifier,
+            TokenRequestLog.created_at >= window_start,
+        )
+    else:
+        stmt = delete(TokenRequestLog).where(
+            TokenRequestLog.client_identity.is_(None),
+            TokenRequestLog.ip_address == request.identifier,
+            TokenRequestLog.created_at >= window_start,
+        )
+
+    result = db.execute(stmt)
+    db.commit()
+
+    return AdminResetRateLimitResponse(removed_entries=result.rowcount or 0)
 
 
 @router.get("/admin/reports", response_model=AdminAbuseReportListResponse)

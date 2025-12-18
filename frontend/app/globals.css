@@ -335,7 +335,7 @@ body {
   outline: none;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 900px), (pointer: coarse) and (max-height: 600px) {
   .site-nav__toggle {
     display: inline-flex;
   }
@@ -854,6 +854,13 @@ main {
 .helper-text {
   font-size: 0.75rem;
   color: rgba(148, 163, 184, 0.75);
+}
+
+.form__field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: stretch;
 }
 
 .chip-group {

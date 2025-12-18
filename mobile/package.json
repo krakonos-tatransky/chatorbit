@@ -1,0 +1,36 @@
+{
+  "name": "chatorbit-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./index.ts",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo start --ios",
+    "android": "expo start --android",
+    "web": "expo start --web",
+    "native:ios": "expo run:ios",
+    "native:android": "expo run:android",
+    "doctor": "expo-doctor --fix-dependencies"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "~15.0.3",
+    "@react-native-picker/picker": "~2.11.4",
+    "expo": "~54.0.22",
+    "expo-clipboard": "~8.0.7",
+    "expo-font": "~14.0.9",
+    "expo-linear-gradient": "~15.0.7",
+    "expo-status-bar": "~3.0.8",
+    "react-native-webrtc": "^124.0.7",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "react-native-gesture-handler": "~2.29.1",
+    "react-native-reanimated": "~4.1.5",
+    "react-native-safe-area-context": "~5.6.2"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.0",
+    "@types/react": "~19.1.0",
+    "babel-preset-expo": "~54.0.7",
+    "typescript": "~5.9.2"
+  }
+}

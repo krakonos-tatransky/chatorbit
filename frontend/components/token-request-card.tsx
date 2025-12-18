@@ -33,6 +33,7 @@ const ttlPresets = [5, 15, 30, 60, 180, 720];
 export function TokenRequestCard() {
   const [validity, setValidity] = useState<string>("1_day");
   const [sessionMinutes, setSessionMinutes] = useState<number>(60);
+  const [isCustomTtl, setIsCustomTtl] = useState<boolean>(false);
   const [messageLimit, setMessageLimit] = useState<number>(2000);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -115,17 +116,38 @@ export function TokenRequestCard() {
   }, [result?.token]);
 
   useEffect(() => {
-    if (!result?.token || typeof window === "undefined" || !isPhoneViewportType) {
+    if (!result?.token || typeof window === "undefined") {
       return;
     }
 
     const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     const scrollTarget = resultActionsRef.current ?? copyButtonRef.current;
-    scrollTarget?.scrollIntoView({
-      block: "start",
-      inline: "nearest",
+
+    if (!scrollTarget) {
+      return;
+    }
+
+    const header = document.querySelector<HTMLElement>(".site-header");
+    const headerHeight = header?.getBoundingClientRect().height ?? 0;
+    const additionalSpacing = 16;
+    const offset = headerHeight + additionalSpacing;
+    const targetScrollTop = Math.max(
+      window.scrollY + scrollTarget.getBoundingClientRect().top - offset,
+      0,
+    );
+
+    window.scrollTo({
+      top: targetScrollTop,
       behavior: prefersReducedMotion ? "auto" : "smooth",
     });
+  }, [result?.token]);
+
+  useEffect(() => {
+    if (!result?.token || typeof window === "undefined" || !isPhoneViewportType) {
+      return;
+    }
+
+    const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
     if (mobileFocusTimeoutRef.current) {
       window.clearTimeout(mobileFocusTimeoutRef.current);
@@ -297,26 +319,80 @@ export function TokenRequestCard() {
 
         <div className="form__label">
           <span>{tokenCard.ttlLabel}</span>
-          <div className="chip-group">
-            {ttlPresets.map((preset) => (
-              <button
-                key={preset}
-                type="button"
-                onClick={() => setSessionMinutes(preset)}
-                className={`chip${sessionMinutes === preset ? " chip--active" : ""}`}
+          {isPhoneViewportType ? (
+            <div className="form__field-group">
+              <select
+                value={
+                  isCustomTtl || !ttlPresets.includes(sessionMinutes)
+                    ? "custom"
+                    : String(sessionMinutes)
+                }
+                onChange={(event) => {
+                  if (event.target.value === "custom") {
+                    setIsCustomTtl(true);
+                    return;
+                  }
+
+                  const minutes = Number(event.target.value);
+
+                  if (!Number.isNaN(minutes)) {
+                    setSessionMinutes(minutes);
+                    setIsCustomTtl(false);
+                  }
+                }}
+                className="select"
               >
-                {preset}m
-              </button>
-            ))}
-            <input
-              type="number"
-              min={1}
-              max={1440}
-              value={sessionMinutes}
-              onChange={(event) => setSessionMinutes(Number(event.target.value))}
-              className="input input--compact"
-            />
-          </div>
+                {ttlPresets.map((preset) => (
+                  <option key={preset} value={preset}>
+                    {tokenCard.ttlMinutes.replace("{minutes}", preset.toString())}
+                  </option>
+                ))}
+                <option value="custom">{tokenCard.ttlCustomOption}</option>
+              </select>
+              {isCustomTtl ? (
+                <input
+                  type="number"
+                  min={1}
+                  max={1440}
+                  value={sessionMinutes}
+                  onChange={(event) => {
+                    const minutes = Number(event.target.value);
+                    setSessionMinutes(minutes);
+                    setIsCustomTtl(true);
+                  }}
+                  className="input input--compact"
+                />
+              ) : null}
+            </div>
+          ) : (
+            <div className="chip-group">
+              {ttlPresets.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => {
+                    setSessionMinutes(preset);
+                    setIsCustomTtl(false);
+                  }}
+                  className={`chip${sessionMinutes === preset ? " chip--active" : ""}`}
+                >
+                  {preset}m
+                </button>
+              ))}
+              <input
+                type="number"
+                min={1}
+                max={1440}
+                value={sessionMinutes}
+                onChange={(event) => {
+                  const minutes = Number(event.target.value);
+                  setSessionMinutes(minutes);
+                  setIsCustomTtl(!ttlPresets.includes(minutes));
+                }}
+                className="input input--compact"
+              />
+            </div>
+          )}
           <p className="helper-text">{tokenCard.ttlApproxHours.replace("{hours}", ttlHours)}</p>
         </div>
 
