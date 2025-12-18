@@ -1,0 +1,25 @@
+export const TIMINGS = {
+  // Reconnection delays
+  RECONNECT_BASE_DELAY: 600,
+  RECONNECT_MAX_DELAY: 3000,
+  RECONNECT_MULTIPLIER: 1.5,
+
+  // WebRTC timeouts
+  ICE_RETRY_DELAY: 1200,
+  PEER_RECOVERY_DELAY: 1000,
+  PEER_RECOVERY_FAILED_DELAY: 0,
+
+  // Session polling
+  SESSION_POLL_INTERVAL: 12000,
+
+  // Offer timeouts
+  HOST_OFFER_DELAY: 0,
+  GUEST_OFFER_FALLBACK: 750,
+
+  // Socket reconnection
+  SOCKET_RECONNECT_BASE: 1500,
+
+  // UI transitions
+  SCROLL_THROTTLE: 24,
+  SCROLL_ACCEPT_THRESHOLD: 24,
+} as const;
