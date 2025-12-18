@@ -44,7 +44,14 @@ import { AcceptScreen, BigActionButton } from './src/components';
 import { NeedTokenForm, JoinTokenForm, JoinTokenFormResult } from './src/components/forms';
 import { TokenResultCard } from './src/components/session';
 import { fetchSessionStatus, joinSession } from './src/utils/session';
-import { computeMessageHash, decryptText, deriveKey, encryptText, generateMessageId } from './src/utils/crypto';
+import {
+  computeMessageHash,
+  decryptText,
+  deriveKey,
+  encryptText,
+  generateMessageId,
+  resolveCrypto,
+} from './src/utils/crypto';
 import { upsertMessage } from './src/utils/errorHandling';
 import { formatJoinedAt, formatRemainingTime, mapStatusDescription, mapStatusLabel, statusVariant } from './src/utils/formatting';
 import {
