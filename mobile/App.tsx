@@ -206,6 +206,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const socketReconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
   const fallbackOfferTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const dataChannelTimeoutRef = useRef<TimeoutHandle | null>(null);
   const pendingHostOfferRef = useRef(false);
   const hasSentOfferRef = useRef(false);
 
@@ -1184,11 +1185,35 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       logPeer(owner, 'attach data channel', channel.label, channel.readyState);
       connectionRefs.current.dataChannel = channel;
       setDataChannelState(channel.readyState as DataChannelState);
+
+      // Clear any existing timeout
+      if (dataChannelTimeoutRef.current) {
+        clearTimeout(dataChannelTimeoutRef.current as TimeoutHandle);
+        dataChannelTimeoutRef.current = null;
+      }
+
+      // Set timeout for data channel establishment (15 seconds)
+      if (channel.readyState !== 'open') {
+        dataChannelTimeoutRef.current = setTimeout(() => {
+          if (channel.readyState !== 'open' && sessionActiveRef.current) {
+            logPeer(owner, 'data channel timeout - failed to open within 15s');
+            dataChannelTimeoutRef.current = null;
+            if (owner && connectionRefs.current.peerConnection === owner) {
+              schedulePeerConnectionRecovery('data channel timeout');
+            }
+          }
+        }, 15000);
+      }
+
       const markOpen = () => {
         logPeer(owner, 'data channel open', channel.label);
         setConnected(true);
         setError(null);
         setIsReconnecting(false);
+        if (dataChannelTimeoutRef.current) {
+          clearTimeout(dataChannelTimeoutRef.current as TimeoutHandle);
+          dataChannelTimeoutRef.current = null;
+        }
         capabilityAnnouncedRef.current = false;
         sendCapabilities();
         flushPendingCallMessages(channel);
@@ -1203,6 +1228,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       channel.onclose = () => {
         logPeer(owner, 'data channel closed', channel.label);
         setConnected(false);
+        if (dataChannelTimeoutRef.current) {
+          clearTimeout(dataChannelTimeoutRef.current as TimeoutHandle);
+          dataChannelTimeoutRef.current = null;
+        }
+        if (participantRole === 'host') {
+          hasSentOfferRef.current = false;
+        }
         setDataChannelState(channel.readyState as DataChannelState);
         capabilityAnnouncedRef.current = false;
         peerSupportsEncryptionRef.current = null;
@@ -1214,6 +1246,10 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       channel.onerror = () => {
         logPeer(owner, 'data channel error', channel.label);
         setConnected(false);
+        if (dataChannelTimeoutRef.current) {
+          clearTimeout(dataChannelTimeoutRef.current as TimeoutHandle);
+          dataChannelTimeoutRef.current = null;
+        }
         setDataChannelState(channel.readyState as DataChannelState);
         if (owner && connectionRefs.current.peerConnection === owner && sessionActiveRef.current) {
           schedulePeerConnectionRecovery('data channel error');
@@ -1590,6 +1626,9 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           }
         } else if (state === 'failed' || state === 'disconnected') {
           setConnected(false);
+          if (participantRole === 'host') {
+            hasSentOfferRef.current = false;
+          }
           if (sessionActiveRef.current) {
             schedulePeerConnectionRecovery(`connection ${state}`, {
               delayMs: state === 'failed' ? TIMINGS.PEER_RECOVERY_FAILED_DELAY : TIMINGS.ICE_RETRY_DELAY
@@ -1597,6 +1636,9 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           }
         } else if (state === 'closed') {
           setConnected(false);
+          if (participantRole === 'host') {
+            hasSentOfferRef.current = false;
+          }
         }
       };
 
