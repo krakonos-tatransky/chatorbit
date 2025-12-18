@@ -162,13 +162,19 @@ export const NeedTokenForm: React.FC<NeedTokenFormProps> = ({ visible, onClose, 
                 </Picker>
               </View>
             </View>
-            <Text style={styles.termsHint}>Tokens inherit the ChatOrbit community standards. By generating a token you agree to enforce them.</Text>
+            <Text style={styles.termsHint}>
+              Tokens inherit the ChatOrbit community standards. By generating a token you agree to enforce them.
+            </Text>
             <View style={styles.formActions}>
               <TouchableOpacity style={styles.secondaryButton} onPress={onClose} disabled={loading}>
                 <Text style={styles.secondaryButtonLabel}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.primaryButton} onPress={requestToken} disabled={loading}>
-                {loading ? <ActivityIndicator color={COLORS.midnight} /> : <Text style={styles.primaryButtonLabel}>Create token</Text>}
+                {loading ? (
+                  <ActivityIndicator color={COLORS.midnight} />
+                ) : (
+                  <Text style={styles.primaryButtonLabel}>Create token</Text>
+                )}
               </TouchableOpacity>
             </View>
           </ScrollView>

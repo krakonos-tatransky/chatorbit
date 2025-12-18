@@ -186,6 +186,43 @@ export const styles = StyleSheet.create({
     fontSize: 16,
     height: 132
   },
+  termsHint: {
+    color: 'rgba(224, 239, 255, 0.82)',
+    lineHeight: 18,
+    marginBottom: 12
+  },
+  formActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 8
+  },
+  secondaryButton: {
+    flex: 1,
+    borderRadius: SPACING.BUTTON_RADIUS,
+    paddingVertical: SPACING.BUTTON_PADDING,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.glowEdge,
+    backgroundColor: 'transparent'
+  },
+  secondaryButtonLabel: {
+    color: COLORS.ice,
+    fontSize: 16,
+    fontWeight: '700'
+  },
+  primaryButton: {
+    flex: 1,
+    borderRadius: SPACING.BUTTON_RADIUS,
+    paddingVertical: SPACING.BUTTON_PADDING,
+    alignItems: 'center',
+    backgroundColor: COLORS.aurora
+  },
+  primaryButtonLabel: {
+    color: COLORS.midnight,
+    fontSize: 16,
+    fontWeight: '700'
+  },
   generateButton: {
     marginTop: 16,
     backgroundColor: COLORS.lagoon,
