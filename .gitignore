@@ -39,6 +39,8 @@ logs/
 **/build/
 **/coverage/
 **/.nyc_output/
+**/tsconfig.tsbuildinfo
+**/package-lock.json
 
 # --- Python ---
 **/__pycache__/
