@@ -1267,6 +1267,274 @@ if (pc.signalingState === 'stable') {
 }
 ```
 
+### WebRTC Negotiation State Machine
+
+ChatOrbit implements a sophisticated WebRTC negotiation state machine to prevent "glare" conditions (simultaneous offers from both peers) and ensure reliable browser-mobile connectivity.
+
+#### Signaling State Machine
+
+WebRTC peer connections progress through these signaling states:
+
+```
+stable → have-local-offer → stable (offer/answer complete)
+   │
+   └→ have-remote-offer → stable (answer/offer complete)
+```
+
+**Critical Rule**: New offers can ONLY be created when `signalingState === 'stable'`
+
+**Implementation** (both frontend and mobile):
+- `frontend/components/session-view.tsx:2173-2189`
+- `mobile/App.tsx:1421-1428`
+
+```typescript
+async function renegotiate(pc: RTCPeerConnection) {
+  // Critical: Check signaling state before creating offer
+  if (pc.signalingState !== 'stable') {
+    logEvent('Deferring renegotiation until signaling state stabilizes', {
+      signalingState: pc.signalingState,
+    });
+    negotiationPendingRef.current = true;
+    return;
+  }
+
+  negotiationPendingRef.current = false;
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  sendSignal('offer', offer);
+}
+```
+
+#### Glare Prevention Mechanism
+
+**Problem**: When both peers try to add media tracks simultaneously, both trigger `onnegotiationneeded`, both create offers, leading to:
+- Conflicting SDP offers
+- `setRemoteDescription` failures
+- Buffered ICE candidates never applied
+- Repeated connection resets
+
+**Solution**: Deferred Negotiation Pattern
+
+```
+Peer A (Browser)                  Peer B (Mobile)
+      │                                 │
+      │ onnegotiationneeded              │ onnegotiationneeded
+      │ signalingState = 'stable'        │ signalingState = 'stable'
+      │                                 │
+      ├─ createOffer()                  ├─ createOffer()
+      ├─ setLocalDescription()          │  (blocks - state check)
+      │  signalingState = 'have-local-offer'
+      │                                 │
+      ├─ send offer ──────────────────►│
+      │                                 ├─ setRemoteDescription()
+      │                                 │  signalingState = 'have-remote-offer'
+      │                                 │
+      │                                 ├─ negotiationPendingRef = true
+      │                                 │  (defers second offer)
+      │                                 │
+      │                                 ├─ createAnswer()
+      │                                 ├─ setLocalDescription()
+      │                                 │  signalingState = 'stable' ✓
+      │                                 │
+      │◄────────── send answer ─────────┤
+      ├─ setRemoteDescription()         │
+      │  signalingState = 'stable' ✓    │
+      │                                 │
+      │                                 │ onsignalingstatechange('stable')
+      │                                 ├─ retry deferred negotiation
+      │                                 ├─ createOffer() (now allowed)
+      │◄──────── send offer ────────────┤
+      │                                 │
+      └───────────────────────────────────► both peers synchronized
+```
+
+**Key Components**:
+
+1. **State Check Before Offer** (`mobile/App.tsx:1421`):
+   ```typescript
+   if (pc.signalingState !== 'stable') {
+     negotiationPendingRef.current = true;
+     return;
+   }
+   ```
+
+2. **State Change Listener** (`mobile/App.tsx:1812-1818`):
+   ```typescript
+   pc.onsignalingstatechange = () => {
+     if (pc.signalingState === 'stable' && negotiationPendingRef.current) {
+       void negotiateMediaUpdate(pc, 'deferred-negotiation-retry');
+     }
+   };
+   ```
+
+3. **Negotiation Pending Flag**:
+   - Tracks whether a negotiation was deferred
+   - Cleared when negotiation completes
+   - Reset on peer connection reset
+
+#### ICE Candidate Buffering
+
+**Problem**: ICE candidates arrive before `setRemoteDescription` completes, causing `addIceCandidate()` to fail.
+
+**Solution**: Buffer candidates until remote description is set
+
+```typescript
+// frontend/components/session-view.tsx:2774-2779
+// mobile/App.tsx:862-874
+
+if (pc.remoteDescription) {
+  await pc.addIceCandidate(candidateInit);
+  logEvent('Applied ICE candidate from peer');
+} else {
+  pendingCandidatesRef.current.push(candidateInit);
+  logEvent('Queued ICE candidate until remote description is available');
+}
+```
+
+**Flush After Remote Description**:
+```typescript
+async function flushPendingCandidates(pc: RTCPeerConnection) {
+  if (!pc.remoteDescription) return;
+
+  const backlog = pendingCandidatesRef.current.splice(0);
+  for (const candidate of backlog) {
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (err) {
+      logEvent('Failed to apply buffered ICE candidate', { error: err });
+    }
+  }
+}
+```
+
+**Candidate Deduplication** (`mobile/App.tsx:795-816`):
+- Candidates keyed by `candidate + sdpMid + sdpMLineIndex`
+- Duplicates ignored to prevent unnecessary processing
+- Stale candidates cleared on peer reset
+
+#### Renegotiation Flow (Media Track Addition)
+
+**Trigger**: User grants camera/microphone permission
+
+```
+Initial State (Data Channel Only)
+      │
+      ├─ getUserMedia() succeeds
+      ├─ addTrack(audioTrack, pc)
+      ├─ addTrack(videoTrack, pc)
+      │
+      └─ onnegotiationneeded fires
+             │
+             ├─ Check: pc.signalingState === 'stable'?
+             │     YES → createOffer() with audio/video m-lines
+             │     NO  → negotiationPendingRef = true, defer
+             │
+             ├─ setLocalDescription(offer)
+             ├─ Send offer via WebSocket
+             │
+             └─ Peer receives offer
+                   ├─ setRemoteDescription(offer)
+                   ├─ createAnswer() (matches m-lines)
+                   ├─ setLocalDescription(answer)
+                   └─ Send answer back
+                         │
+                         └─ Original peer: setRemoteDescription(answer)
+                               └─ Renegotiation complete ✓
+```
+
+**Host vs Guest Behavior**:
+- **Host** (`participantRole === 'host'`): Initiates renegotiation on `onnegotiationneeded`
+- **Guest**: Does NOT renegotiate automatically, waits for host offers
+
+```typescript
+// mobile/App.tsx:1809
+peerConnection.onnegotiationneeded = () => {
+  if (participantRole === 'host') {
+    void negotiateMediaUpdate(pc, 'onnegotiationneeded');
+  }
+};
+```
+
+#### Error Recovery
+
+**ICE Failure Recovery** (`mobile/App.tsx:1789-1807`):
+
+When ICE candidate error 438 (stale nonce) occurs:
+
+```typescript
+const MAX_ICE_FAILURE_RETRIES = 3;
+
+pc.addEventListener('icecandidateerror', (event) => {
+  if (event.errorCode === 438 && iceFailureRetriesRef.current < MAX_ICE_FAILURE_RETRIES) {
+    const attempt = iceFailureRetriesRef.current + 1;
+    iceFailureRetriesRef.current = attempt;
+
+    const delay = Math.min(1000 * 2 ** attempt, 10000); // Exponential backoff
+    logEvent('Stale nonce detected, retrying', { attempt, delay });
+
+    setTimeout(() => {
+      resetPeerConnection(); // Creates new peer with fresh ICE
+    }, delay);
+  }
+});
+```
+
+**Backoff Strategy**:
+- Attempt 1: 2 second delay
+- Attempt 2: 4 second delay
+- Attempt 3: 8 second delay
+- After 3 failures: Manual reconnection required
+
+**SetRemoteDescription Failure** (`mobile/App.tsx:838-846`):
+
+```typescript
+try {
+  await pc.setRemoteDescription(new RTCSessionDescription(detail));
+  await flushPendingCandidates(pc);
+} catch (err) {
+  logEvent('failed to apply remote offer - clearing pending candidates', {
+    error: err instanceof Error ? err.message : String(err)
+  });
+  pendingCandidatesRef.current = []; // Clear stale candidates
+  throw err; // Propagate for higher-level recovery
+}
+```
+
+#### State Cleanup on Reset
+
+When peer connection is reset:
+
+```typescript
+// mobile/App.tsx:941-945
+pendingCandidatesRef.current = [];
+seenCandidatesRef.current.clear();
+iceFailureRetriesRef.current = 0;
+negotiationPendingRef.current = false;
+hasSentOfferRef.current = false;
+```
+
+This ensures no stale state carries over to the new connection attempt.
+
+#### Cross-Platform Implementation Comparison
+
+| Feature | Frontend (Browser) | Mobile (React Native) |
+|---------|-------------------|----------------------|
+| **Signaling State Checks** | ✅ `session-view.tsx:2173` | ✅ `App.tsx:1421` |
+| **Negotiation Pending Flag** | ✅ `negotiationPendingRef` | ✅ `negotiationPendingRef` |
+| **ICE Candidate Buffering** | ✅ `pendingCandidatesRef` | ✅ `pendingCandidatesRef` |
+| **Deferred Retry on Stable** | ✅ `onsignalingstatechange` | ✅ `onsignalingstatechange` |
+| **Candidate Deduplication** | ✅ `seenCandidatesRef` | ✅ `seenCandidatesRef` |
+| **ICE Failure Retry** | ✅ Exponential backoff | ✅ Exponential backoff |
+| **Error Surfacing** | ✅ Logs state + error | ✅ Logs state + error |
+
+Both platforms implement identical negotiation logic, ensuring reliable cross-platform connectivity.
+
+**Related Issue**: `docs/issues.md` - "WebRTC browser ↔ mobile troubleshooting" (RESOLVED)
+
+**Key Commits**:
+- `21f04f3` - Fix browser-to-mobile video disconnection by adding signaling state checks
+- `18171dd` - Fix critical WebRTC issues in mobile app for browser-mobile compatibility
+
 ### Message Encryption Cross-Platform
 
 **AES-GCM Encryption** (identical algorithm on both):

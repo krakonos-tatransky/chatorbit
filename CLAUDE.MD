@@ -26,7 +26,14 @@ ChatOrbit is a token-based two-person chat application with video chat capabilit
   - Email notifications and abuse reporting
 
 ### Mobile
-- React Native application for iOS and Android
+- **Framework**: React Native (Expo SDK 51)
+- **Language**: TypeScript
+- **Styling**: StyleSheet API with shared design constants
+- **Key Features**:
+  - Native iOS and Android apps
+  - WebRTC video chat with mobile optimizations
+  - i18n system with AsyncStorage persistence
+  - Shared design system with frontend (colors, spacing)
 
 ### Infrastructure
 - Docker Compose for local development
@@ -65,13 +72,29 @@ ChatOrbit is a token-based two-person chat application with video chat capabilit
 │   └── public/brand/   # Brand assets (SVG logos)
 │
 ├── mobile/             # React Native mobile app
+│   ├── App.tsx        # Entry point
+│   ├── src/
+│   │   ├── components/    # React Native components
+│   │   ├── constants/     # Colors, spacing, styles
+│   │   ├── i18n/         # Internationalization system
+│   │   ├── utils/        # Crypto, WebRTC, formatting
+│   │   └── types/        # TypeScript type definitions
 │   └── README.md
 │
 ├── infra/              # Docker infrastructure
 │   ├── docker-compose.yml
 │   └── docker-compose.production.yml
 │
-└── docs/              # Documentation
+├── docs/              # Documentation
+│   ├── architecture.md    # Technical architecture
+│   └── CHANGELOG.md       # Version history
+│
+└── .claude/          # Claude Code configuration
+    └── skills/       # Custom Claude Code skills
+        ├── chatorbit-design-sync/      # Cross-platform design sync
+        ├── chatorbit-docs-keeper/      # Documentation maintenance
+        ├── session-flow-test/          # Session testing
+        └── webrtc-debug/               # WebRTC debugging
 ```
 
 ## Key Concepts
@@ -138,10 +161,29 @@ docker compose up --build
 
 ## Recent Changes
 
-Based on recent commits:
-- Fixed critical WebRTC issues for browser-mobile compatibility
-- Improved WebRTC connection management
-- Added build artifacts to gitignore
+**December 2024**:
+- **Mobile i18n System**: Implemented complete internationalization for mobile app
+  - Created `mobile/src/i18n/` with LanguageProvider using AsyncStorage
+  - Ported all translations from frontend (English + Slovak)
+  - Added LanguageSwitcher component with modal UI
+  - Device language auto-detection with expo-localization
+  - Wrapped App.tsx with LanguageProvider
+  - Updated AcceptScreen to demonstrate i18n usage
+
+- **Documentation Infrastructure**:
+  - Created `docs/architecture.md` with comprehensive technical architecture
+  - Created `docs/CHANGELOG.md` following Keep a Changelog format
+  - Created Documentation Keeper skill for maintaining all docs
+
+- **Claude Code Skills**:
+  - Created `.claude/skills/` directory for custom skills
+  - **chatorbit-design-sync**: Cross-platform design consistency expert
+  - **chatorbit-docs-keeper**: Documentation maintenance automation
+
+- **WebRTC Improvements**:
+  - Fixed critical WebRTC issues for browser-mobile compatibility
+  - Added signaling state checks to prevent mobile disconnections
+  - Improved connection management and error handling
 
 ## Common Patterns
 

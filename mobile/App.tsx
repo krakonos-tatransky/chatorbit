@@ -1876,6 +1876,11 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           if (pc.signalingState !== 'stable' || pc.remoteDescription) {
             return;
           }
+          // Skip if offer already sent via onnegotiationneeded to prevent duplicate offers
+          if (hasSentOfferRef.current) {
+            logPeer(pc, 'skipping host-init offer (already sent via onnegotiationneeded)');
+            return;
+          }
           void createAndSendOffer(
             pc,
             participantRole === 'host' ? 'host-init' : 'guest-fallback',
@@ -1969,6 +1974,11 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           return;
         }
         if (pc.signalingState !== 'stable' || pc.remoteDescription) {
+          return;
+        }
+        // Skip if offer already sent to prevent duplicate offers
+        if (hasSentOfferRef.current) {
+          logPeer(pc, 'skipping host-resume offer (already sent)');
           return;
         }
         void createAndSendOffer(pc, 'host-resume');

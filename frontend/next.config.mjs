@@ -14,7 +14,12 @@ const nextConfig = {
   output: 'standalone',
   ...(normalizedBasePath ? { basePath: normalizedBasePath } : {}),
   ...(normalizedAssetPrefix ? { assetPrefix: normalizedAssetPrefix } : {}),
-  experimental: { serverActions: { allowedOrigins: ['*'] } },
+  experimental: {
+    serverActions: { allowedOrigins: ['*'] },
+    // Enable instrumentation hook for error monitoring
+    // See: frontend/instrumentation.ts
+    instrumentationHook: true,
+  },
   images: {
     remotePatterns: [
       {
