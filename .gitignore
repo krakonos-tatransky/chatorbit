@@ -65,3 +65,6 @@ infra/pgdata/
 infra/miniostorage/
 infra/redisdata/
 tmp/
+
+mobile/.expo/
+mobile/ios/

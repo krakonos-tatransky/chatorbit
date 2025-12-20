@@ -196,7 +196,12 @@ const DEFAULT_RECONNECT_BASE_DELAY_MS = 1000;
 const FAST_NETWORK_RECONNECT_DELAY_MS = 400;
 const MODERATE_NETWORK_RECONNECT_DELAY_MS = 700;
 const RECONNECT_MAX_DELAY_MS = 30000;
-const MAX_ICE_FAILURE_RETRIES = 3;
+const MAX_ICE_FAILURE_RETRIES = 5;
+const ICE_RETRY_BASE_DELAY_MS = 500;
+const ICE_RETRY_MAX_DELAY_MS = 16000;
+const DATA_CHANNEL_TIMEOUT_MS = 10000;
+const DATA_CHANNEL_TIMEOUT_SLOW_NETWORK_MS = 20000;
+const ICE_CANDIDATE_CACHE_MAX_SIZE = 100;
 const MAX_PARTICIPANTS = 2;
 const SECRET_DEBUG_KEYWORD = "orbitdebug";
 const DEBUG_EVENT_HISTORY_LIMIT = 50;
@@ -399,6 +404,78 @@ async function getSelectedIceRoute(peerConnection: RTCPeerConnection): Promise<I
     return summarizeIceRoute(localCandidate, remoteCandidate);
   } catch (error) {
     logEvent("Failed to inspect ICE route", { error: error instanceof Error ? error.message : error });
+    return null;
+  }
+}
+
+type IceConnectionStats = {
+  timestamp: number;
+  connectionState: RTCPeerConnectionState;
+  iceConnectionState: RTCIceConnectionState;
+  iceGatheringState: RTCIceGatheringState;
+  localCandidateType: string | null;
+  remoteCandidateType: string | null;
+  bytesSent: number;
+  bytesReceived: number;
+  currentRoundTripTime: number | null;
+  availableOutgoingBitrate: number | null;
+};
+
+async function collectIceConnectionStats(
+  peerConnection: RTCPeerConnection
+): Promise<IceConnectionStats | null> {
+  if (typeof peerConnection.getStats !== "function") {
+    return null;
+  }
+
+  try {
+    const stats = await peerConnection.getStats();
+    let bytesSent = 0;
+    let bytesReceived = 0;
+    let currentRoundTripTime: number | null = null;
+    let availableOutgoingBitrate: number | null = null;
+    let localCandidateType: string | null = null;
+    let remoteCandidateType: string | null = null;
+
+    stats.forEach((report) => {
+      if (report.type === "candidate-pair" && ((report as any).selected || (report as any).nominated)) {
+        bytesSent = (report as any).bytesSent ?? 0;
+        bytesReceived = (report as any).bytesReceived ?? 0;
+        currentRoundTripTime = (report as any).currentRoundTripTime ?? null;
+        availableOutgoingBitrate = (report as any).availableOutgoingBitrate ?? null;
+
+        const localId = (report as any).localCandidateId;
+        const remoteId = (report as any).remoteCandidateId;
+
+        if (localId) {
+          const local = stats.get(localId);
+          if (local) {
+            localCandidateType = (local as any).candidateType ?? null;
+          }
+        }
+        if (remoteId) {
+          const remote = stats.get(remoteId);
+          if (remote) {
+            remoteCandidateType = (remote as any).candidateType ?? null;
+          }
+        }
+      }
+    });
+
+    return {
+      timestamp: Date.now(),
+      connectionState: peerConnection.connectionState,
+      iceConnectionState: peerConnection.iceConnectionState,
+      iceGatheringState: peerConnection.iceGatheringState,
+      localCandidateType,
+      remoteCandidateType,
+      bytesSent,
+      bytesReceived,
+      currentRoundTripTime,
+      availableOutgoingBitrate,
+    };
+  } catch (error) {
+    logEvent("Failed to collect ICE stats", { error: error instanceof Error ? error.message : error });
     return null;
   }
 }
@@ -651,6 +728,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     performScroll();
   }, [shouldScrollCallPanel]);
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const seenCandidatesRef = useRef<Set<string>>(new Set());
   const pendingSignalsRef = useRef<any[]>([]);
   const pendingCallMessagesRef = useRef<Array<{ action: string; detail: Record<string, unknown> }>>([]);
   const hasSentOfferRef = useRef<boolean>(false);
@@ -667,6 +745,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const reconnectTimeoutRef = useRef<TimeoutHandle | null>(null);
   const iceFailureRetriesRef = useRef(0);
   const iceRetryTimeoutRef = useRef<TimeoutHandle | null>(null);
+  const iceStatsIntervalRef = useRef<TimeoutHandle | null>(null);
   const lastIceRouteLabelRef = useRef<string | null>(null);
   const lastIceRouteTypesRef = useRef<{ localType: string | null; remoteType: string | null } | null>(null);
   const forcedRelayRef = useRef(false);
@@ -1482,6 +1561,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         clearTimeout(iceRetryTimeoutRef.current);
         iceRetryTimeoutRef.current = null;
       }
+      if (iceStatsIntervalRef.current) {
+        clearInterval(iceStatsIntervalRef.current);
+        iceStatsIntervalRef.current = null;
+      }
       if (disconnectionRecoveryTimeoutRef.current) {
         clearTimeout(disconnectionRecoveryTimeoutRef.current);
         disconnectionRecoveryTimeoutRef.current = null;
@@ -1519,6 +1602,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       }
       setCallNotice(null);
       pendingCandidatesRef.current = [];
+      seenCandidatesRef.current.clear();
       pendingSignalsRef.current = [];
       hasSentOfferRef.current = false;
       setConnected(false);
@@ -2476,17 +2560,37 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         dataChannelTimeoutRef.current = null;
       }
 
-      // Set timeout for data channel establishment (15 seconds)
+      // Adaptive timeout for data channel establishment based on network conditions
+      const getDataChannelTimeout = (): number => {
+        if (typeof navigator === "undefined") {
+          return DATA_CHANNEL_TIMEOUT_MS;
+        }
+        const extNav = navigator as Navigator & {
+          connection?: { effectiveType?: string };
+          mozConnection?: { effectiveType?: string };
+          webkitConnection?: { effectiveType?: string };
+        };
+        const conn = extNav.connection ?? extNav.mozConnection ?? extNav.webkitConnection;
+        const effectiveType = conn?.effectiveType;
+        // Use longer timeout for slow networks (2g, slow-2g, 3g)
+        if (effectiveType === "2g" || effectiveType === "slow-2g" || effectiveType === "3g") {
+          return DATA_CHANNEL_TIMEOUT_SLOW_NETWORK_MS;
+        }
+        return DATA_CHANNEL_TIMEOUT_MS;
+      };
+
       if (channel.readyState !== "open") {
+        const timeoutMs = getDataChannelTimeout();
+        logEvent("Setting data channel timeout", { timeoutMs });
         dataChannelTimeoutRef.current = setTimeout(() => {
           if (channel.readyState !== "open" && sessionActiveRef.current) {
-            logEvent("Data channel failed to open within timeout period");
+            logEvent("Data channel failed to open within timeout period", { timeoutMs });
             dataChannelTimeoutRef.current = null;
             if (owner && peerConnectionRef.current === owner) {
               schedulePeerConnectionRecovery(owner, "data channel timeout");
             }
           }
-        }, 15000);
+        }, timeoutMs);
       }
 
       channel.onopen = () => {
@@ -2584,10 +2688,31 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
       logEvent("Processing signaling payload", { signalType, hasRemote: !!pc.remoteDescription });
 
+      // Generate a unique key for ICE candidate deduplication
+      const getCandidateKey = (candidate: RTCIceCandidateInit): string => {
+        return `${candidate.candidate ?? ""}|${candidate.sdpMid ?? ""}|${candidate.sdpMLineIndex ?? ""}`;
+      };
+
+      // Check if candidate is duplicate and add to cache
+      const isDuplicateCandidate = (candidate: RTCIceCandidateInit): boolean => {
+        const key = getCandidateKey(candidate);
+        if (seenCandidatesRef.current.has(key)) {
+          return true;
+        }
+        // Limit cache size to prevent memory leaks
+        if (seenCandidatesRef.current.size >= ICE_CANDIDATE_CACHE_MAX_SIZE) {
+          const firstKey = seenCandidatesRef.current.values().next().value;
+          if (firstKey) {
+            seenCandidatesRef.current.delete(firstKey);
+          }
+        }
+        seenCandidatesRef.current.add(key);
+        return false;
+      };
+
       const flushPendingCandidates = async () => {
-        const queue = pendingCandidatesRef.current;
-        while (queue.length > 0) {
-          const candidate = queue.shift();
+        const queue = pendingCandidatesRef.current.splice(0);
+        for (const candidate of queue) {
           if (!candidate) {
             continue;
           }
@@ -2600,25 +2725,57 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         }
       };
 
+      // Clear stale pending candidates when receiving new offer (race condition fix)
+      const clearStaleCandidates = () => {
+        const staleCount = pendingCandidatesRef.current.length;
+        if (staleCount > 0) {
+          logEvent("Clearing stale pending ICE candidates", { count: staleCount });
+          pendingCandidatesRef.current = [];
+        }
+        seenCandidatesRef.current.clear();
+      };
+
       if (signalType === "offer" && detail) {
         logEvent("Applying remote offer");
-        await pc.setRemoteDescription(detail as RTCSessionDescriptionInit);
-        await flushPendingCandidates();
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        logEvent("Created answer", answer);
-        sendSignal("answer", answer);
+        clearStaleCandidates();
+        try {
+          await pc.setRemoteDescription(detail as RTCSessionDescriptionInit);
+          await flushPendingCandidates();
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          logEvent("Created answer", answer);
+          sendSignal("answer", answer);
+        } catch (cause) {
+          logEvent("Failed to apply remote offer - clearing pending candidates", {
+            error: cause instanceof Error ? cause.message : cause,
+          });
+          pendingCandidatesRef.current = [];
+          throw cause;
+        }
       } else if (signalType === "answer" && detail) {
         logEvent("Applying remote answer");
-        await pc.setRemoteDescription(detail as RTCSessionDescriptionInit);
-        await flushPendingCandidates();
+        try {
+          await pc.setRemoteDescription(detail as RTCSessionDescriptionInit);
+          await flushPendingCandidates();
+        } catch (cause) {
+          logEvent("Failed to apply remote answer - clearing pending candidates", {
+            error: cause instanceof Error ? cause.message : cause,
+          });
+          pendingCandidatesRef.current = [];
+          throw cause;
+        }
       } else if (signalType === "iceCandidate") {
         if (detail) {
+          const candidateInit = detail as RTCIceCandidateInit;
+          if (isDuplicateCandidate(candidateInit)) {
+            logEvent("Ignoring duplicate ICE candidate", detail);
+            return;
+          }
           if (pc.remoteDescription) {
-            await pc.addIceCandidate(detail as RTCIceCandidateInit);
+            await pc.addIceCandidate(candidateInit);
             logEvent("Applied ICE candidate from peer", detail);
           } else {
-            pendingCandidatesRef.current.push(detail as RTCIceCandidateInit);
+            pendingCandidatesRef.current.push(candidateInit);
             logEvent("Queued ICE candidate until remote description is available", detail);
           }
         } else if (pc.remoteDescription) {
@@ -2701,6 +2858,18 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         if (disconnectionRecoveryTimeoutRef.current) {
           clearTimeout(disconnectionRecoveryTimeoutRef.current);
           disconnectionRecoveryTimeoutRef.current = null;
+        }
+        // Start periodic ICE stats logging for debugging (every 30 seconds)
+        if (!iceStatsIntervalRef.current) {
+          iceStatsIntervalRef.current = setInterval(() => {
+            if (peerConnectionRef.current) {
+              void collectIceConnectionStats(peerConnectionRef.current).then((stats) => {
+                if (stats) {
+                  logEvent("Periodic ICE stats", stats);
+                }
+              });
+            }
+          }, 30000);
         }
         if (dataChannelRef.current?.readyState === "open") {
           setConnected(true);
@@ -2802,8 +2971,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
               const attempt = iceFailureRetriesRef.current + 1;
               iceFailureRetriesRef.current = attempt;
               setIsReconnecting(true);
-              resetPeerConnection({ delayMs: 1000 * attempt });
-              logEvent("ICE connection failed; scheduling retry", { attempt });
+              // Exponential backoff: 500ms, 1s, 2s, 4s, 8s... capped at 16s
+              const delayMs = Math.min(
+                ICE_RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1),
+                ICE_RETRY_MAX_DELAY_MS
+              );
+              resetPeerConnection({ delayMs });
+              logEvent("ICE connection failed; scheduling retry with exponential backoff", {
+                attempt,
+                delayMs,
+              });
             } else {
               setError("Connection failed. Please refresh to retry.");
               logEvent("ICE connection failed and maximum retries reached");

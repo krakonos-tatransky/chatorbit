@@ -1,4 +1,41 @@
-const UNROUTABLE_HOSTS = new Set(["0.0.0.0", "127.0.0.1", "localhost", "[::]", "::", "::1"]);
+const UNROUTABLE_HOSTS = new Set([
+  "0.0.0.0",
+  "127.0.0.1",
+  "localhost",
+  "[::]",
+  "::",
+  "::1",
+  "[::1]",
+]);
+
+/**
+ * Check if an IPv6 address is link-local (fe80::/10) or ULA (fc00::/7).
+ * These addresses are not routable on the public internet.
+ */
+function isUnroutableIPv6(hostname: string): boolean {
+  // Remove brackets if present
+  const addr = hostname.startsWith("[") && hostname.endsWith("]")
+    ? hostname.slice(1, -1).toLowerCase()
+    : hostname.toLowerCase();
+
+  // Skip if not IPv6
+  if (!addr.includes(":")) {
+    return false;
+  }
+
+  // Link-local: fe80::/10 (fe80:: to febf::)
+  if (addr.startsWith("fe8") || addr.startsWith("fe9") ||
+      addr.startsWith("fea") || addr.startsWith("feb")) {
+    return true;
+  }
+
+  // Unique Local Address (ULA): fc00::/7 (fc00:: to fdff::)
+  if (addr.startsWith("fc") || addr.startsWith("fd")) {
+    return true;
+  }
+
+  return false;
+}
 
 export type IceServer = {
   urls: string | string[];
@@ -61,7 +98,13 @@ function isRoutableIceServerUrl(url: string): boolean {
     return false;
   }
   const normalized = hostname.toLowerCase();
-  return !UNROUTABLE_HOSTS.has(normalized);
+  if (UNROUTABLE_HOSTS.has(normalized)) {
+    return false;
+  }
+  if (isUnroutableIPv6(hostname)) {
+    return false;
+  }
+  return true;
 }
 
 function sanitizeIceUrls(urls: string[]): string[] {

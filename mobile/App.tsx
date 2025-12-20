@@ -70,6 +70,7 @@ import {
   TokenTierOption,
   ValidityOption
 } from './src/types';
+import { LanguageProvider } from './src/i18n';
 
 applyNativeConsoleFilters();
 const EXPO_DEV_BUILD_DOCS_URL = WEBRTC_CONFIG.EXPO_DEV_BUILD_DOCS_URL;
@@ -2627,11 +2628,15 @@ export default function App() {
     );
   }
 
-  if (!accepted) {
-    return <AcceptScreen onAccept={() => setAccepted(true)} />;
-  }
-
-  return <MainScreen />;
+  return (
+    <LanguageProvider>
+      {!accepted ? (
+        <AcceptScreen onAccept={() => setAccepted(true)} />
+      ) : (
+        <MainScreen />
+      )}
+    </LanguageProvider>
+  );
 }
 
 

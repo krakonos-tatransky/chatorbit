@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
-import { ScrollView, Text, TouchableOpacity } from 'react-native';
+import { ScrollView, Text, TouchableOpacity, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 
 import { DEFAULT_TERMS_TEXT } from '../session/config';
 import { COLORS } from '../constants/colors';
 import { styles } from '../constants/styles';
+import { useLanguage, LanguageSwitcher } from '../i18n';
 
 export type AcceptScreenProps = { onAccept: () => void };
 
 export const AcceptScreen: React.FC<AcceptScreenProps> = ({ onAccept }) => {
+  const { translations } = useLanguage();
   const [acceptEnabled, setAcceptEnabled] = useState(false);
 
   const handleScroll = (event: any) => {
@@ -34,7 +36,10 @@ export const AcceptScreen: React.FC<AcceptScreenProps> = ({ onAccept }) => {
         end={{ x: 1, y: 1 }}
         style={styles.termsCard}
       >
-        <Text style={styles.logoText}>ChatOrbit Token Lab</Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <Text style={styles.logoText}>ChatOrbit</Text>
+          <LanguageSwitcher />
+        </View>
         <ScrollView
           style={styles.termsScroll}
           contentContainerStyle={styles.termsContent}
@@ -49,7 +54,9 @@ export const AcceptScreen: React.FC<AcceptScreenProps> = ({ onAccept }) => {
           onPress={onAccept}
           disabled={!acceptEnabled}
         >
-          <Text style={styles.acceptButtonLabel}>{acceptEnabled ? 'Accept & Continue' : 'Scroll to accept'}</Text>
+          <Text style={styles.acceptButtonLabel}>
+            {acceptEnabled ? translations.termsModal.agree : translations.termsModal.helper}
+          </Text>
         </TouchableOpacity>
       </LinearGradient>
     </LinearGradient>
