@@ -196,6 +196,9 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const pendingCallMessagesRef = useRef<Array<{ action: string; detail: Record<string, unknown> }>>([]);
   const pendingOutgoingSignalsRef = useRef<{ type: string; signalType: string; payload: unknown }[]>([]);
   const pendingCandidatesRef = useRef<any[]>([]);
+  const seenCandidatesRef = useRef<Set<string>>(new Set());
+  const iceFailureRetriesRef = useRef(0);
+  const iceStatsIntervalRef = useRef<TimeoutHandle | null>(null);
   const capabilityAnnouncedRef = useRef(false);
   const peerSupportsEncryptionRef = useRef<boolean | null>(null);
   const callStateRef = useRef<'idle' | 'requesting' | 'incoming' | 'connecting' | 'active'>('idle');
@@ -209,6 +212,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const dataChannelTimeoutRef = useRef<TimeoutHandle | null>(null);
   const pendingHostOfferRef = useRef(false);
   const hasSentOfferRef = useRef(false);
+  const negotiationPendingRef = useRef(false);
 
   const webRtcBindings = useMemo(() => getWebRtcBindings(), []);
 
@@ -785,25 +789,71 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     async (pc: RTCPeerConnection, payload: any) => {
       const signalType = payload.signalType as string;
       const detail = payload.payload;
+
+      // Generate a unique key for ICE candidate deduplication
+      const getCandidateKey = (candidate: any): string => {
+        return `${candidate.candidate ?? ''}|${candidate.sdpMid ?? ''}|${candidate.sdpMLineIndex ?? ''}`;
+      };
+
+      // Check if candidate is duplicate and add to cache
+      const isDuplicateCandidate = (candidate: any): boolean => {
+        const key = getCandidateKey(candidate);
+        if (seenCandidatesRef.current.has(key)) {
+          return true;
+        }
+        // Limit cache size to prevent memory leaks
+        if (seenCandidatesRef.current.size >= TIMINGS.ICE_CANDIDATE_CACHE_MAX_SIZE) {
+          const firstKey = seenCandidatesRef.current.values().next().value;
+          if (firstKey) {
+            seenCandidatesRef.current.delete(firstKey);
+          }
+        }
+        seenCandidatesRef.current.add(key);
+        return false;
+      };
+
+      // Clear stale pending candidates when receiving new offer (race condition fix)
+      const clearStaleCandidates = () => {
+        const staleCount = pendingCandidatesRef.current.length;
+        if (staleCount > 0) {
+          logPeer(pc, 'clearing stale pending ICE candidates', staleCount);
+          pendingCandidatesRef.current = [];
+        }
+        seenCandidatesRef.current.clear();
+      };
+
       if (signalType === 'offer' && detail) {
         if (fallbackOfferTimeoutRef.current) {
           clearTimeout(fallbackOfferTimeoutRef.current as TimeoutHandle);
           fallbackOfferTimeoutRef.current = null;
         }
         logPeer(pc, 'received offer');
-        await pc.setRemoteDescription(new RTCSessionDescriptionCtor(detail));
-        logPeer(pc, 'applied remote offer');
-        await flushPendingCandidates(pc);
-        const answer = await pc.createAnswer();
-        logPeer(pc, 'created answer');
-        await pc.setLocalDescription(answer);
-        logPeer(pc, 'set local answer');
-        sendSignal('answer', answer);
+        clearStaleCandidates();
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescriptionCtor(detail));
+          logPeer(pc, 'applied remote offer');
+          await flushPendingCandidates(pc);
+          const answer = await pc.createAnswer();
+          logPeer(pc, 'created answer');
+          await pc.setLocalDescription(answer);
+          logPeer(pc, 'set local answer');
+          sendSignal('answer', answer);
+        } catch (err) {
+          logPeer(pc, 'failed to apply remote offer - clearing pending candidates');
+          pendingCandidatesRef.current = [];
+          throw err;
+        }
       } else if (signalType === 'answer' && detail) {
         logPeer(pc, 'received answer');
-        await pc.setRemoteDescription(new RTCSessionDescriptionCtor(detail));
-        logPeer(pc, 'applied remote answer');
-        await flushPendingCandidates(pc);
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescriptionCtor(detail));
+          logPeer(pc, 'applied remote answer');
+          await flushPendingCandidates(pc);
+        } catch (err) {
+          logPeer(pc, 'failed to apply remote answer - clearing pending candidates');
+          pendingCandidatesRef.current = [];
+          throw err;
+        }
       } else if (signalType === 'iceCandidate') {
         if (!detail) {
           try {
@@ -812,6 +862,11 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           } catch (err) {
             console.warn('Failed to process end-of-candidates signal', err);
           }
+          return;
+        }
+        // Check for duplicate candidates
+        if (isDuplicateCandidate(detail)) {
+          logPeer(pc, 'ignoring duplicate ice candidate');
           return;
         }
         if (!pc.remoteDescription) {
@@ -852,6 +907,10 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         clearTimeout(iceRetryTimeoutRef.current as TimeoutHandle);
         iceRetryTimeoutRef.current = null;
       }
+      if (iceStatsIntervalRef.current) {
+        clearInterval(iceStatsIntervalRef.current as unknown as number);
+        iceStatsIntervalRef.current = null;
+      }
       if (fallbackOfferTimeoutRef.current) {
         clearTimeout(fallbackOfferTimeoutRef.current as TimeoutHandle);
         fallbackOfferTimeoutRef.current = null;
@@ -878,7 +937,10 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       setPeerSupportsEncryption(null);
       pendingSignalsRef.current = [];
       pendingCandidatesRef.current = [];
+      seenCandidatesRef.current.clear();
+      iceFailureRetriesRef.current = 0;
       hasSentOfferRef.current = false;
+      negotiationPendingRef.current = false;
       setConnected(false);
       setDataChannelState(null);
       stopLocalVideoTracks();
@@ -1192,17 +1254,22 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         dataChannelTimeoutRef.current = null;
       }
 
-      // Set timeout for data channel establishment (15 seconds)
+      // Adaptive timeout for data channel establishment based on network conditions
+      // React Native doesn't have navigator.connection, so we use default timeout
+      // but allow for slow network timeout via TIMINGS constant
+      const timeoutMs = TIMINGS.DATA_CHANNEL_TIMEOUT;
+
       if (channel.readyState !== 'open') {
+        logPeer(owner, 'setting data channel timeout', timeoutMs);
         dataChannelTimeoutRef.current = setTimeout(() => {
           if (channel.readyState !== 'open' && sessionActiveRef.current) {
-            logPeer(owner, 'data channel timeout - failed to open within 15s');
+            logPeer(owner, 'data channel timeout - failed to open', timeoutMs);
             dataChannelTimeoutRef.current = null;
             if (owner && connectionRefs.current.peerConnection === owner) {
               schedulePeerConnectionRecovery('data channel timeout');
             }
           }
-        }, 15000);
+        }, timeoutMs);
       }
 
       const markOpen = () => {
@@ -1348,6 +1415,17 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       if (pc.signalingState === 'closed') {
         return;
       }
+      // Critical: Check if signaling state is stable before creating offer
+      // This prevents "glare" conditions when both peers try to renegotiate simultaneously
+      if (pc.signalingState !== 'stable') {
+        logPeer(pc, 'deferring renegotiation until signaling state stabilizes', {
+          reason,
+          signalingState: pc.signalingState
+        });
+        negotiationPendingRef.current = true;
+        return;
+      }
+      negotiationPendingRef.current = false;
       try {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
@@ -1621,6 +1699,25 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         const state = pc.connectionState;
         if (state === 'connected') {
           setIsReconnecting(false);
+          iceFailureRetriesRef.current = 0;
+          // Start periodic ICE stats logging for debugging
+          if (!iceStatsIntervalRef.current && typeof pc.getStats === 'function') {
+            iceStatsIntervalRef.current = setInterval(() => {
+              if (connectionRefs.current.peerConnection) {
+                void connectionRefs.current.peerConnection.getStats().then((stats: any) => {
+                  stats.forEach((report: any) => {
+                    if (report.type === 'candidate-pair' && (report.selected || report.nominated)) {
+                      console.debug('Periodic ICE stats', {
+                        bytesSent: report.bytesSent,
+                        bytesReceived: report.bytesReceived,
+                        currentRoundTripTime: report.currentRoundTripTime
+                      });
+                    }
+                  });
+                }).catch(() => {});
+              }
+            }, TIMINGS.ICE_STATS_INTERVAL);
+          }
           if (connectionRefs.current.dataChannel?.readyState === 'open') {
             setConnected(true);
           }
@@ -1630,9 +1727,21 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             hasSentOfferRef.current = false;
           }
           if (sessionActiveRef.current) {
-            schedulePeerConnectionRecovery(`connection ${state}`, {
-              delayMs: state === 'failed' ? TIMINGS.PEER_RECOVERY_FAILED_DELAY : TIMINGS.ICE_RETRY_DELAY
-            });
+            if (state === 'failed' && iceFailureRetriesRef.current < TIMINGS.MAX_ICE_FAILURE_RETRIES) {
+              const attempt = iceFailureRetriesRef.current + 1;
+              iceFailureRetriesRef.current = attempt;
+              // Exponential backoff: 500ms, 1s, 2s, 4s, 8s... capped at 16s
+              const delayMs = Math.min(
+                TIMINGS.ICE_RETRY_BASE_DELAY * Math.pow(2, attempt - 1),
+                TIMINGS.ICE_RETRY_MAX_DELAY
+              );
+              logPeer(pc, 'ICE connection failed; scheduling retry with exponential backoff', attempt, delayMs);
+              schedulePeerConnectionRecovery(`connection ${state}`, { delayMs });
+            } else if (state === 'disconnected') {
+              schedulePeerConnectionRecovery(`connection ${state}`, {
+                delayMs: TIMINGS.ICE_RETRY_DELAY
+              });
+            }
           }
         } else if (state === 'closed') {
           setConnected(false);
@@ -1699,12 +1808,22 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         void negotiateMediaUpdate(pc, 'onnegotiationneeded');
       };
 
+      const handleSignalingStateChange = () => {
+        logPeer(pc, 'signaling state changed', pc.signalingState);
+        // Retry pending negotiation when signaling state becomes stable
+        if (pc.signalingState === 'stable' && negotiationPendingRef.current) {
+          logPeer(pc, 'retrying deferred negotiation');
+          void negotiateMediaUpdate(pc, 'deferred-negotiation-retry');
+        }
+      };
+
       const peerConnectionAny = pc as RTCPeerConnection & {
         onicecandidate?: ((event: RTCPeerConnectionIceEvent) => void) | null;
         onconnectionstatechange?: (() => void) | null;
         ondatachannel?: ((event: RTCDataChannelEvent) => void) | null;
         ontrack?: ((event: RTCTrackEvent) => void) | null;
         onnegotiationneeded?: (() => void) | null;
+        onsignalingstatechange?: (() => void) | null;
       };
 
       peerConnectionAny.onicecandidate = handleIceCandidate;
@@ -1712,6 +1831,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       peerConnectionAny.ondatachannel = handleDataChannel;
       peerConnectionAny.ontrack = handleTrack;
       peerConnectionAny.onnegotiationneeded = handleNegotiationNeeded;
+      peerConnectionAny.onsignalingstatechange = handleSignalingStateChange;
 
       if (participantRole === 'host') {
         const channel = pc.createDataChannel('chat') as unknown as PeerDataChannel;
@@ -1791,11 +1911,13 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         onconnectionstatechange?: (() => void) | null;
         ondatachannel?: ((event: RTCDataChannelEvent) => void) | null;
         ontrack?: ((event: RTCTrackEvent) => void) | null;
+        onsignalingstatechange?: (() => void) | null;
       };
       peerConnectionAny.onicecandidate = null;
       peerConnectionAny.onconnectionstatechange = null;
       peerConnectionAny.ondatachannel = null;
       peerConnectionAny.ontrack = null;
+      peerConnectionAny.onsignalingstatechange = null;
       try {
         peerConnection.close();
       } catch (err) {
