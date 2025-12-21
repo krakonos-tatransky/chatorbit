@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:20-bookworm
 
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@9.7.1 --activate

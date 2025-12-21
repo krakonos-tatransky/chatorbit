@@ -8,7 +8,11 @@
       "Bash(pnpm lint:*)",
       "Bash(find:*)",
       "Bash(mkdir:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(npm test:*)",
+      "Bash(tee:*)",
+      "Bash(timeout 200 npm test -- --testNamePattern=\"browser-to-mobile\")",
+      "Bash(grep:*)"
     ]
   }
 }

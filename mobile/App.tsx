@@ -198,6 +198,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const pendingOutgoingSignalsRef = useRef<{ type: string; signalType: string; payload: unknown }[]>([]);
   const pendingCandidatesRef = useRef<any[]>([]);
   const seenCandidatesRef = useRef<Set<string>>(new Set());
+  const deferredOffersRef = useRef<any[]>([]); // Queue for offers received when signaling state is unstable
   const iceFailureRetriesRef = useRef(0);
   const iceStatsIntervalRef = useRef<TimeoutHandle | null>(null);
   const capabilityAnnouncedRef = useRef(false);
@@ -824,20 +825,51 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       };
 
       if (signalType === 'offer' && detail) {
+        // Clear fallback offer timeout
         if (fallbackOfferTimeoutRef.current) {
           clearTimeout(fallbackOfferTimeoutRef.current as TimeoutHandle);
           fallbackOfferTimeoutRef.current = null;
         }
+
         logPeer(pc, 'received offer');
         clearStaleCandidates();
+
+        // GLARE HANDLING: Check if we already have a local offer pending
+        if (pc.signalingState === 'have-local-offer') {
+          logPeer(pc, 'rolling back local offer to accept remote offer', {
+            signalingState: pc.signalingState
+          });
+          try {
+            await pc.setLocalDescription({ type: 'rollback' } as any);
+            logPeer(pc, 'rollback successful');
+          } catch (err) {
+            console.warn('Failed to rollback local offer', err);
+            // Continue anyway - setRemoteDescription might still work
+          }
+        }
+
+        // SIGNALING STATE VALIDATION: Defer offer if not stable
+        if (pc.signalingState !== 'stable') {
+          logPeer(pc, 'signaling not stable; deferring remote offer', {
+            signalingState: pc.signalingState
+          });
+          deferredOffersRef.current = [payload];
+          return;
+        }
+
+        // Now safe to apply remote offer
         try {
           await pc.setRemoteDescription(new RTCSessionDescriptionCtor(detail));
           logPeer(pc, 'applied remote offer');
+
           await flushPendingCandidates(pc);
+
           const answer = await pc.createAnswer();
           logPeer(pc, 'created answer');
+
           await pc.setLocalDescription(answer);
           logPeer(pc, 'set local answer');
+
           sendSignal('answer', answer);
         } catch (err) {
           logPeer(pc, 'failed to apply remote offer - clearing pending candidates');
@@ -938,6 +970,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
       setPeerSupportsEncryption(null);
       pendingSignalsRef.current = [];
       pendingCandidatesRef.current = [];
+      deferredOffersRef.current = [];
       seenCandidatesRef.current.clear();
       iceFailureRetriesRef.current = 0;
       hasSentOfferRef.current = false;
@@ -1532,7 +1565,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   );
 
   const createAndSendOffer = useCallback(
-    async (pc: RTCPeerConnection, reason: string, ensureDataChannel?: boolean) => {
+    async (pc: RTCPeerConnection, reason: string, ensureDataChannel?: boolean, forceIceRestart?: boolean) => {
       try {
         if (!sessionActiveRef.current) {
           logPeer(pc, 'skipping offer (session inactive)', reason);
@@ -1550,7 +1583,9 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
           logPeer(pc, 'created data channel (fallback)', channel.label);
           attachDataChannel(channel, pc);
         }
-        const offer = await pc.createOffer();
+        const offer = await pc.createOffer(
+          forceIceRestart ? { iceRestart: true } : undefined
+        );
         if (connectionRefs.current.peerConnection !== pc || pc.signalingState === 'closed') {
           logPeer(pc, 'offer abandoned (stale peer)');
           return;
@@ -1811,10 +1846,23 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
 
       const handleSignalingStateChange = () => {
         logPeer(pc, 'signaling state changed', pc.signalingState);
-        // Retry pending negotiation when signaling state becomes stable
-        if (pc.signalingState === 'stable' && negotiationPendingRef.current) {
-          logPeer(pc, 'retrying deferred negotiation');
-          void negotiateMediaUpdate(pc, 'deferred-negotiation-retry');
+
+        // Process deferred offers when signaling state becomes stable
+        if (pc.signalingState === 'stable') {
+          // Process deferred offers first
+          if (deferredOffersRef.current.length > 0) {
+            const deferred = deferredOffersRef.current.shift();
+            if (deferred) {
+              logPeer(pc, 'processing deferred offer');
+              void processSignalPayload(pc, deferred);
+            }
+          }
+
+          // Then retry pending negotiation
+          if (negotiationPendingRef.current) {
+            logPeer(pc, 'retrying deferred negotiation');
+            void negotiateMediaUpdate(pc, 'deferred-negotiation-retry');
+          }
         }
       };
 
@@ -1838,6 +1886,9 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
         const channel = pc.createDataChannel('chat') as unknown as PeerDataChannel;
         logPeer(pc, 'created data channel', channel.label);
         attachDataChannel(channel, pc);
+      } else {
+        // Guest will receive data channel via ondatachannel event (already set above)
+        logPeer(pc, 'ondatachannel handler ready for guest role');
       }
 
       if (callStateRef.current !== 'idle') {

@@ -2556,6 +2556,11 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       setDataChannelState(channel.readyState);
       logEvent("Attached data channel", { label: channel.label, readyState: channel.readyState });
 
+      // Expose data channel to window for E2E testing
+      if (typeof window !== "undefined") {
+        (window as any).__dataChannel = channel;
+      }
+
       // Clear any existing timeout
       if (dataChannelTimeoutRef.current) {
         clearTimeout(dataChannelTimeoutRef.current);
@@ -2844,6 +2849,11 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     setConnectionState(peerConnection.connectionState);
     setIceConnectionState(peerConnection.iceConnectionState);
     setIceGatheringState(peerConnection.iceGatheringState);
+
+    // Expose peer connection to window for E2E testing
+    if (typeof window !== "undefined") {
+      (window as any).__peerConnection = peerConnection;
+    }
 
     peerConnection.onicecandidate = (event) => {
       if (event.candidate && event.candidate.candidate) {
