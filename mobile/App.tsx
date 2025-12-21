@@ -18,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { useFonts } from 'expo-font';
@@ -159,6 +160,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null);
   const [statusCollapsed, setStatusCollapsed] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [reverseMessageOrder, setReverseMessageOrder] = useState(false);
   const [draft, setDraft] = useState('');
   const [connected, setConnected] = useState(false);
   const [dataChannelState, setDataChannelState] = useState<DataChannelState | null>(null);
@@ -312,8 +314,28 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     [isCallFullscreen]
   );
 
+  const orderedMessages = useMemo(
+    () => (reverseMessageOrder ? [...messages].reverse() : messages),
+    [messages, reverseMessageOrder]
+  );
+
   useEffect(() => {
     setSupportsEncryption(resolveCrypto() !== null);
+  }, []);
+
+  // Load message order preference from AsyncStorage
+  useEffect(() => {
+    const loadMessageOrderPreference = async () => {
+      try {
+        const stored = await AsyncStorage.getItem('chatOrbit.reverseMessageOrder');
+        if (stored !== null) {
+          setReverseMessageOrder(stored === 'true');
+        }
+      } catch (error) {
+        console.warn('Failed to load message order preference', error);
+      }
+    };
+    void loadMessageOrderPreference();
   }, []);
 
   useEffect(() => {
@@ -1642,6 +1664,16 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
     }
   }, []);
 
+  const toggleMessageOrder = useCallback(() => {
+    setReverseMessageOrder((prev) => {
+      const next = !prev;
+      AsyncStorage.setItem('chatOrbit.reverseMessageOrder', String(next)).catch((error) => {
+        console.warn('Failed to save message order preference', error);
+      });
+      return next;
+    });
+  }, []);
+
   const toggleCallFullscreen = useCallback(() => {
     setIsCallFullscreen((prev) => !prev);
   }, []);
@@ -2292,29 +2324,73 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
               Request a video call once both peers are connected. When accepted, your camera preview appears alongside the
               remote feed.
             </Text>
-            <View style={videoPreviewRowStyle}>
-              <View style={videoPaneStyle}>
-                <Text style={styles.videoPaneLabel}>Remote</Text>
-                {RTCViewComponent && remoteVideoUrl ? (
-                  <RTCViewComponent streamURL={remoteVideoUrl} style={videoSurfaceStyle} objectFit="cover" />
-                ) : (
-                  <View style={styles.videoPlaceholder}>
-                    <Ionicons name="videocam-outline" size={28} color={COLORS.ice} />
-                    <Text style={styles.videoPlaceholderText}>Waiting for remote video…</Text>
-                  </View>
-                )}
+            <View style={styles.videoPreviewContainer}>
+              <View style={videoPreviewRowStyle}>
+                <View style={videoPaneStyle}>
+                  <Text style={styles.videoPaneLabel}>Remote</Text>
+                  {RTCViewComponent && remoteVideoUrl ? (
+                    <RTCViewComponent streamURL={remoteVideoUrl} style={videoSurfaceStyle} objectFit="cover" />
+                  ) : (
+                    <View style={styles.videoPlaceholder}>
+                      <Ionicons name="videocam-outline" size={28} color={COLORS.ice} />
+                      <Text style={styles.videoPlaceholderText}>Waiting for remote video…</Text>
+                    </View>
+                  )}
+                </View>
+                <View style={videoPaneStyle}>
+                  <Text style={styles.videoPaneLabel}>You</Text>
+                  {RTCViewComponent && localVideoUrl ? (
+                    <RTCViewComponent streamURL={localVideoUrl} style={videoSurfaceStyle} objectFit="cover" mirror />
+                  ) : (
+                    <View style={styles.videoPlaceholder}>
+                      <Ionicons name="person-circle-outline" size={28} color={COLORS.ice} />
+                      <Text style={styles.videoPlaceholderText}>Camera preview</Text>
+                    </View>
+                  )}
+                </View>
               </View>
-              <View style={videoPaneStyle}>
-                <Text style={styles.videoPaneLabel}>You</Text>
-                {RTCViewComponent && localVideoUrl ? (
-                  <RTCViewComponent streamURL={localVideoUrl} style={videoSurfaceStyle} objectFit="cover" mirror />
-                ) : (
-                  <View style={styles.videoPlaceholder}>
-                    <Ionicons name="person-circle-outline" size={28} color={COLORS.ice} />
-                    <Text style={styles.videoPlaceholderText}>Camera preview</Text>
-                  </View>
-                )}
-              </View>
+              {(callState === 'connecting' || callState === 'active') && (
+                <View style={styles.videoControlsOverlay}>
+                  <TouchableOpacity style={styles.videoIconButton} onPress={toggleCallFullscreen}>
+                    <Ionicons
+                      name={isCallFullscreen ? 'contract-outline' : 'expand-outline'}
+                      size={18}
+                      color={COLORS.midnight}
+                    />
+                    <Text style={styles.videoIconLabel}>{isCallFullscreen ? 'Exit full screen' : 'Full screen'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.videoIconButton, isLocalVideoMuted && styles.videoIconButtonMuted]}
+                    onPress={toggleLocalVideo}
+                  >
+                    <Ionicons
+                      name={isLocalVideoMuted ? 'videocam-off' : 'videocam'}
+                      size={18}
+                      color={COLORS.midnight}
+                    />
+                    <Text style={styles.videoIconLabel}>{isLocalVideoMuted ? 'Camera off' : 'Camera on'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.videoIconButton, isLocalAudioMuted && styles.videoIconButtonMuted]}
+                    onPress={toggleLocalAudio}
+                  >
+                    <Ionicons
+                      name={isLocalAudioMuted ? 'mic-off' : 'mic'}
+                      size={18}
+                      color={COLORS.midnight}
+                    />
+                    <Text style={styles.videoIconLabel}>{isLocalAudioMuted ? 'Mic muted' : 'Mic live'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.videoIconButton} onPress={flipCamera}>
+                    <Ionicons name="camera-reverse-outline" size={18} color={COLORS.midnight} />
+                    <Text style={styles.videoIconLabel}>Switch camera</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.videoIconButton, styles.videoEndButton]} onPress={endVideoChat}>
+                    <Ionicons name="call" size={18} color={COLORS.ice} />
+                    <Text style={[styles.videoIconLabel, styles.videoEndLabel]}>End call</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
             {incomingCallFrom ? (
               <View style={styles.videoActionsRow}>
@@ -2350,48 +2426,6 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
                 </TouchableOpacity>
               </View>
             )}
-            {(callState === 'connecting' || callState === 'active') && (
-              <View style={[styles.videoControlsRow, isCallFullscreen && styles.videoControlsRowFullscreen]}>
-                <TouchableOpacity style={styles.videoIconButton} onPress={toggleCallFullscreen}>
-                  <Ionicons
-                    name={isCallFullscreen ? 'contract-outline' : 'expand-outline'}
-                    size={18}
-                    color={COLORS.midnight}
-                  />
-                  <Text style={styles.videoIconLabel}>{isCallFullscreen ? 'Exit full screen' : 'Full screen'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.videoIconButton, isLocalVideoMuted && styles.videoIconButtonMuted]}
-                  onPress={toggleLocalVideo}
-                >
-                  <Ionicons
-                    name={isLocalVideoMuted ? 'videocam-off' : 'videocam'}
-                    size={18}
-                    color={COLORS.midnight}
-                  />
-                  <Text style={styles.videoIconLabel}>{isLocalVideoMuted ? 'Camera off' : 'Camera on'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.videoIconButton, isLocalAudioMuted && styles.videoIconButtonMuted]}
-                  onPress={toggleLocalAudio}
-                >
-                  <Ionicons
-                    name={isLocalAudioMuted ? 'mic-off' : 'mic'}
-                    size={18}
-                    color={COLORS.midnight}
-                  />
-                  <Text style={styles.videoIconLabel}>{isLocalAudioMuted ? 'Mic muted' : 'Mic live'}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.videoIconButton} onPress={flipCamera}>
-                  <Ionicons name="camera-reverse-outline" size={18} color={COLORS.midnight} />
-                  <Text style={styles.videoIconLabel}>Switch camera</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.videoIconButton, styles.videoEndButton]} onPress={endVideoChat}>
-                  <Ionicons name="call" size={18} color={COLORS.ice} />
-                  <Text style={[styles.videoIconLabel, styles.videoEndLabel]}>End call</Text>
-                </TouchableOpacity>
-              </View>
-            )}
             </View>
           )}
 
@@ -2401,7 +2435,21 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
             keyboardVerticalOffset={Platform.OS === 'ios' ? 32 : 0}
           >
             <View style={styles.sessionCardHeader}>
-              <Text style={styles.sessionCardTitle}>Messages</Text>
+              <View style={styles.chatHeaderLeft}>
+                <Text style={styles.sessionCardTitle}>Messages</Text>
+                <TouchableOpacity
+                  style={styles.messageOrderButton}
+                  onPress={toggleMessageOrder}
+                  accessibilityRole="button"
+                  accessibilityLabel={reverseMessageOrder ? 'Show newest messages at bottom' : 'Show newest messages at top'}
+                >
+                  <Ionicons
+                    name={reverseMessageOrder ? 'arrow-down' : 'arrow-up'}
+                    size={16}
+                    color={COLORS.ice}
+                  />
+                </TouchableOpacity>
+              </View>
               <View style={[styles.connectionBadge, connectionBadgeStyle]}>
                 <Text style={styles.connectionBadgeLabel}>{connectionBadgeLabel}</Text>
               </View>
@@ -2436,7 +2484,7 @@ const InAppSessionScreen: React.FC<InAppSessionScreenProps> = ({
                   keyboardShouldPersistTaps="handled"
                   onContentSizeChange={scrollMessagesToEnd}
                 >
-                  {messages.map(renderMessage)}
+                  {orderedMessages.map(renderMessage)}
                 </ScrollView>
               )}
             </View>

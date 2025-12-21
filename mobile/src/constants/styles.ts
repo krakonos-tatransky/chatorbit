@@ -493,7 +493,6 @@ export const styles = StyleSheet.create({
     width: '100%'
   },
   sessionContent: {
-    flex: 1,
     paddingBottom: 28,
     gap: 18
   },
@@ -506,8 +505,9 @@ export const styles = StyleSheet.create({
     gap: 14
   },
   sessionStatusCardCollapsed: {
-    paddingVertical: 12,
-    paddingHorizontal: 16
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    gap: 0
   },
   chatCard: {
     borderRadius: 24,
@@ -533,6 +533,21 @@ export const styles = StyleSheet.create({
     color: COLORS.ice,
     fontSize: 18,
     fontWeight: '700'
+  },
+  chatHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
+  messageOrderButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(136, 230, 255, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(136, 230, 255, 0.4)',
+    alignItems: 'center',
+    justifyContent: 'center'
   },
   statusToggleButton: {
     flexDirection: 'row',
@@ -817,10 +832,13 @@ export const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 108, 96, 0.16)',
     borderColor: 'rgba(255, 108, 96, 0.45)'
   },
+  videoPreviewContainer: {
+    position: 'relative',
+    marginTop: 4
+  },
   videoPreviewRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 4
+    gap: 12
   },
   videoPreviewRowFullscreen: {
     flexDirection: 'column',
@@ -881,6 +899,21 @@ export const styles = StyleSheet.create({
   },
   videoDeclineButton: {
     flex: 1
+  },
+  videoControlsOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    padding: 12,
+    backgroundColor: 'rgba(2, 11, 31, 0.85)',
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(111, 214, 255, 0.2)'
   },
   videoControlsRow: {
     marginTop: 10,

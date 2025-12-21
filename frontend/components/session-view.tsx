@@ -1075,7 +1075,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return;
     }
     setCallState((current) => {
-      if (current === "connecting" || current === "incoming" || current === "requesting") {
+      // Don't auto-activate when incoming - user must explicitly accept
+      if (current === "connecting" || current === "requesting") {
         return "active";
       }
       return current;
@@ -2877,7 +2878,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
 
       if (state === "connected") {
         setCallState((current) => {
-          if (current === "connecting" || current === "incoming" || current === "requesting") {
+          // Don't auto-activate when incoming - user must explicitly accept
+          if (current === "connecting" || current === "requesting") {
             return "active";
           }
           return current;
@@ -3071,7 +3073,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       remoteTrackStreamsRef.current.set(track.id, stream);
 
       setCallState((current) => {
-        if (current === "connecting" || current === "incoming" || current === "requesting") {
+        // Don't auto-activate when incoming - user must explicitly accept
+        if (current === "connecting" || current === "requesting") {
           return "active";
         }
         return current;

@@ -12,7 +12,8 @@
       "Bash(npm test:*)",
       "Bash(tee:*)",
       "Bash(timeout 200 npm test -- --testNamePattern=\"browser-to-mobile\")",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(wc:*)"
     ]
   }
 }
