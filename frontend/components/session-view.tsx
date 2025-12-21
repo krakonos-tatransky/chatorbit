@@ -730,6 +730,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const seenCandidatesRef = useRef<Set<string>>(new Set());
   const pendingSignalsRef = useRef<any[]>([]);
+  const deferredOffersRef = useRef<any[]>([]);
   const pendingCallMessagesRef = useRef<Array<{ action: string; detail: Record<string, unknown> }>>([]);
   const hasSentOfferRef = useRef<boolean>(false);
   const hashedMessagesRef = useRef<Map<string, EncryptedMessage>>(new Map());
@@ -1604,6 +1605,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       pendingCandidatesRef.current = [];
       seenCandidatesRef.current.clear();
       pendingSignalsRef.current = [];
+      deferredOffersRef.current = [];
       hasSentOfferRef.current = false;
       setConnected(false);
       capabilityAnnouncedRef.current = false;
@@ -2738,6 +2740,25 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       if (signalType === "offer" && detail) {
         logEvent("Applying remote offer");
         clearStaleCandidates();
+
+        if (pc.signalingState === "have-local-offer") {
+          logEvent("Rolling back local offer to accept remote offer");
+          try {
+            await pc.setLocalDescription({ type: "rollback" } as RTCSessionDescriptionInit);
+          } catch (cause) {
+            logEvent("Failed to rollback local description before applying remote offer", {
+              error: cause instanceof Error ? cause.message : cause,
+            });
+            throw cause;
+          }
+        }
+
+        if (pc.signalingState !== "stable") {
+          logEvent("Signaling not stable; deferring remote offer", { signalingState: pc.signalingState });
+          deferredOffersRef.current = [payload];
+          return;
+        }
+
         try {
           await pc.setRemoteDescription(detail as RTCSessionDescriptionInit);
           await flushPendingCandidates();
@@ -3107,13 +3128,24 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     };
 
     peerConnection.onsignalingstatechange = () => {
-      if (
-        peerConnection.signalingState === "stable" &&
-        negotiationPendingRef.current &&
-        participantRole === "host"
-      ) {
-        negotiationPendingRef.current = false;
-        void renegotiate();
+      if (peerConnection.signalingState === "stable") {
+        if (deferredOffersRef.current.length > 0) {
+          const deferred = deferredOffersRef.current.splice(0);
+          logEvent("Processing deferred offers after signaling stabilized", { count: deferred.length });
+          void (async () => {
+            for (const offer of deferred) {
+              try {
+                await processSignalPayload(peerConnection, offer);
+              } catch (cause) {
+                console.error("Failed to process deferred offer", cause);
+              }
+            }
+          })();
+        }
+        if (negotiationPendingRef.current && participantRole === "host") {
+          negotiationPendingRef.current = false;
+          void renegotiate();
+        }
       }
     };
 
