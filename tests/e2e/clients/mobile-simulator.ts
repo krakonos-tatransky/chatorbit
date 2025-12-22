@@ -344,6 +344,11 @@ export class MobileSimulator {
           this.logger.info('Session ended', message);
           break;
 
+        case 'status':
+          // Handle status updates - re-send offer if we're host and guest just joined
+          await this.handleStatusUpdate(message);
+          break;
+
         default:
           this.logger.debug('Unknown message type', message);
       }
@@ -372,6 +377,52 @@ export class MobileSimulator {
       // Send offer if not already sent
       if (!this.hasSentOffer && this.pc!.signalingState === 'stable') {
         await this.createAndSendOffer();
+      }
+    }
+  }
+
+  /**
+   * Handle status update - re-send offer when guest joins
+   */
+  private async handleStatusUpdate(message: any): Promise<void> {
+    const connectedParticipants = message.connected_participants || [];
+    const sessionStatus = message.status;
+
+    this.logger.info('Status update received', {
+      connectedParticipants: connectedParticipants.length,
+      sessionStatus,
+      role: this.role,
+    });
+
+    // If we're host, session is active, 2 participants connected, and we haven't established connection
+    if (
+      this.role === 'host' &&
+      sessionStatus === 'active' &&
+      connectedParticipants.length === 2 &&
+      this.pc &&
+      this.pc.connectionState !== 'connected' &&
+      (this.pc.connectionState as string) !== 'completed'
+    ) {
+      // Check if we need to re-send offer (e.g., the guest joined after we sent our first offer)
+      if (this.pc.signalingState === 'stable' || this.pc.signalingState === 'have-local-offer') {
+        this.logger.info('Guest joined - resending offer');
+        // Reset state and send new offer
+        this.hasSentOffer = false;
+        this.hasSetRemoteDescription = false;
+
+        // Small delay to let things settle
+        await this.wait(200);
+
+        if (this.pc.signalingState === 'stable') {
+          await this.createAndSendOffer();
+        } else if (this.pc.signalingState === 'have-local-offer') {
+          // Already have an offer, just re-send it
+          if (this.pc.localDescription) {
+            this.logger.info('Re-sending existing offer');
+            this.sendSignal('offer', this.pc.localDescription);
+            this.hasSentOffer = true;
+          }
+        }
       }
     }
   }

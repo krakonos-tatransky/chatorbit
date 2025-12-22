@@ -3,6 +3,7 @@
     "allow": [
       "Bash(npx tsc:*)",
       "Bash(cat:*)",
+      "Bash(echo:*)",
       "Bash(pnpm build:*)",
       "Bash(pnpm install:*)",
       "Bash(pnpm lint:*)",
@@ -11,9 +12,24 @@
       "Bash(npm install:*)",
       "Bash(npm test:*)",
       "Bash(tee:*)",
-      "Bash(timeout 200 npm test -- --testNamePattern=\"browser-to-mobile\")",
+      "Bash(sleep:*)",
       "Bash(grep:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(test:*)",
+      "Bash(python -m fastapi:*)",
+      "Bash(npx create-expo-app@latest:*)",
+      "Bash(npx expo start:*)",
+      "Bash(npx expo prebuild:*)",
+      "Bash(npx expo run:ios)",
+      "Bash(npx eslint:*)",
+      "WebFetch(domain:chatorbit.com)",
+      "Bash(curl:*)",
+      "Bash(kill:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)",
+      "mcp__plugin_compound-engineering_pw__browser_take_screenshot",
+      "Bash(xcrun simctl:*)",
+      "Bash(npx expo:*)"
     ]
   }
 }

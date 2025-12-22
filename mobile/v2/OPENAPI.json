@@ -1,0 +1,1533 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ChatOrbit Minimal API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/health/database": {
+      "get": {
+        "summary": "Database Healthcheck",
+        "operationId": "database_healthcheck_api_health_database_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Database Healthcheck Api Health Database Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tokens": {
+      "post": {
+        "summary": "Issue Token",
+        "operationId": "issue_token_api_tokens_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/join": {
+      "post": {
+        "summary": "Join Session",
+        "operationId": "join_session_api_sessions_join_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinSessionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/{token}/status": {
+      "get": {
+        "summary": "Session Status",
+        "operationId": "session_status_api_sessions__token__status_get",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/{token}/report-abuse": {
+      "post": {
+        "summary": "Report Abuse",
+        "operationId": "report_abuse_api_sessions__token__report_abuse_post",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportAbuseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportAbuseResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/sessions/{token}": {
+      "delete": {
+        "summary": "Delete Session",
+        "operationId": "delete_session_api_sessions__token__delete",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/token": {
+      "post": {
+        "summary": "Issue Admin Token",
+        "operationId": "issue_admin_token_api_admin_token_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_issue_admin_token_api_admin_token_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminTokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/sessions": {
+      "get": {
+        "summary": "List Admin Sessions",
+        "operationId": "list_admin_sessions_api_admin_sessions_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status_filter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status Filter"
+            }
+          },
+          {
+            "name": "token_query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Token Query"
+            }
+          },
+          {
+            "name": "ip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ip"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSessionListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/rate-limits": {
+      "get": {
+        "summary": "List Admin Rate Limits",
+        "operationId": "list_admin_rate_limits_api_admin_rate_limits_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminRateLimitListResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/rate-limits/reset": {
+      "post": {
+        "summary": "Reset Admin Rate Limit",
+        "operationId": "reset_admin_rate_limit_api_admin_rate_limits_reset_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminResetRateLimitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminResetRateLimitResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/reports": {
+      "get": {
+        "summary": "List Admin Reports",
+        "operationId": "list_admin_reports_api_admin_reports_get",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status_filter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status Filter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAbuseReportListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/reports/{report_id}": {
+      "patch": {
+        "summary": "Update Admin Report",
+        "operationId": "update_admin_report_api_admin_reports__report_id__patch",
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminUpdateAbuseReportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAbuseReport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AbuseReportStatus": {
+        "type": "string",
+        "enum": [
+          "open",
+          "acknowledged",
+          "investigating",
+          "closed"
+        ],
+        "title": "AbuseReportStatus"
+      },
+      "AdminAbuseReport": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AbuseReportStatus"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "session_token": {
+            "type": "string",
+            "title": "Session Token"
+          },
+          "reporter_email": {
+            "type": "string",
+            "format": "email",
+            "title": "Reporter Email"
+          },
+          "reporter_ip": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reporter Ip"
+          },
+          "participant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Participant Id"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "questionnaire": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Questionnaire"
+          },
+          "escalation_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalation Step"
+          },
+          "admin_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admin Notes"
+          },
+          "remote_participants": {
+            "items": {
+              "$ref": "#/components/schemas/AdminAbuseReportParticipant"
+            },
+            "type": "array",
+            "title": "Remote Participants"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "created_at",
+          "updated_at",
+          "session_token",
+          "reporter_email",
+          "reporter_ip",
+          "participant_id",
+          "summary",
+          "questionnaire",
+          "escalation_step",
+          "admin_notes",
+          "remote_participants"
+        ],
+        "title": "AdminAbuseReport"
+      },
+      "AdminAbuseReportListResponse": {
+        "properties": {
+          "reports": {
+            "items": {
+              "$ref": "#/components/schemas/AdminAbuseReport"
+            },
+            "type": "array",
+            "title": "Reports"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reports"
+        ],
+        "title": "AdminAbuseReportListResponse"
+      },
+      "AdminAbuseReportParticipant": {
+        "properties": {
+          "participant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Participant Id"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "ip_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Address"
+          },
+          "internal_ip_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Internal Ip Address"
+          },
+          "client_identity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Identity"
+          },
+          "joined_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Joined At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "participant_id",
+          "role",
+          "ip_address",
+          "internal_ip_address",
+          "client_identity",
+          "joined_at"
+        ],
+        "title": "AdminAbuseReportParticipant"
+      },
+      "AdminRateLimitListResponse": {
+        "properties": {
+          "locks": {
+            "items": {
+              "$ref": "#/components/schemas/AdminRateLimitLock"
+            },
+            "type": "array",
+            "title": "Locks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "locks"
+        ],
+        "title": "AdminRateLimitListResponse"
+      },
+      "AdminRateLimitLock": {
+        "properties": {
+          "identifier_type": {
+            "type": "string",
+            "enum": [
+              "client_identity",
+              "ip_address"
+            ],
+            "title": "Identifier Type"
+          },
+          "identifier": {
+            "type": "string",
+            "title": "Identifier"
+          },
+          "request_count": {
+            "type": "integer",
+            "title": "Request Count"
+          },
+          "window_seconds": {
+            "type": "integer",
+            "title": "Window Seconds"
+          },
+          "last_request_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Request At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "identifier_type",
+          "identifier",
+          "request_count",
+          "window_seconds",
+          "last_request_at"
+        ],
+        "title": "AdminRateLimitLock"
+      },
+      "AdminResetRateLimitRequest": {
+        "properties": {
+          "identifier_type": {
+            "type": "string",
+            "enum": [
+              "client_identity",
+              "ip_address"
+            ],
+            "title": "Identifier Type"
+          },
+          "identifier": {
+            "type": "string",
+            "title": "Identifier"
+          }
+        },
+        "type": "object",
+        "required": [
+          "identifier_type",
+          "identifier"
+        ],
+        "title": "AdminResetRateLimitRequest"
+      },
+      "AdminResetRateLimitResponse": {
+        "properties": {
+          "removed_entries": {
+            "type": "integer",
+            "title": "Removed Entries"
+          }
+        },
+        "type": "object",
+        "required": [
+          "removed_entries"
+        ],
+        "title": "AdminResetRateLimitResponse"
+      },
+      "AdminSessionListResponse": {
+        "properties": {
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSessionSummary"
+            },
+            "type": "array",
+            "title": "Sessions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sessions"
+        ],
+        "title": "AdminSessionListResponse"
+      },
+      "AdminSessionParticipant": {
+        "properties": {
+          "participant_id": {
+            "type": "string",
+            "title": "Participant Id"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "ip_address": {
+            "type": "string",
+            "title": "Ip Address"
+          },
+          "internal_ip_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Internal Ip Address"
+          },
+          "client_identity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Identity"
+          },
+          "request_headers": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Headers"
+          },
+          "joined_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Joined At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "participant_id",
+          "role",
+          "ip_address",
+          "internal_ip_address",
+          "client_identity",
+          "request_headers",
+          "joined_at"
+        ],
+        "title": "AdminSessionParticipant"
+      },
+      "AdminSessionSummary": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "validity_expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Validity Expires At"
+          },
+          "session_started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Started At"
+          },
+          "session_expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Expires At"
+          },
+          "message_char_limit": {
+            "type": "integer",
+            "title": "Message Char Limit"
+          },
+          "participants": {
+            "items": {
+              "$ref": "#/components/schemas/AdminSessionParticipant"
+            },
+            "type": "array",
+            "title": "Participants"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "status",
+          "validity_expires_at",
+          "session_started_at",
+          "session_expires_at",
+          "message_char_limit",
+          "participants"
+        ],
+        "title": "AdminSessionSummary"
+      },
+      "AdminTokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token"
+        ],
+        "title": "AdminTokenResponse"
+      },
+      "AdminUpdateAbuseReportRequest": {
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AbuseReportStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Update the workflow status for the abuse report."
+          },
+          "escalation_step": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Escalation Step",
+            "description": "Next escalation action administrators should perform."
+          },
+          "admin_notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admin Notes",
+            "description": "Internal notes recorded by the administrator handling the case."
+          }
+        },
+        "type": "object",
+        "title": "AdminUpdateAbuseReportRequest"
+      },
+      "Body_issue_admin_token_api_admin_token_post": {
+        "properties": {
+          "grant_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "password"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grant Type"
+          },
+          "username": {
+            "type": "string",
+            "title": "Username"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope",
+            "default": ""
+          },
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "client_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Secret"
+          }
+        },
+        "type": "object",
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "Body_issue_admin_token_api_admin_token_post"
+      },
+      "CreateTokenRequest": {
+        "properties": {
+          "validity_period": {
+            "$ref": "#/components/schemas/ValidityPeriod",
+            "description": "How long the token can remain claimable."
+          },
+          "session_ttl_minutes": {
+            "type": "integer",
+            "maximum": 1440.0,
+            "minimum": 1.0,
+            "title": "Session Ttl Minutes",
+            "description": "How long the live chat session stays active once both users connect."
+          },
+          "message_char_limit": {
+            "type": "integer",
+            "maximum": 16000.0,
+            "minimum": 200.0,
+            "title": "Message Char Limit",
+            "description": "Maximum characters allowed per message.",
+            "default": 2000
+          },
+          "client_identity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Identity",
+            "description": "Optional unique identifier provided by the client instead of an IP address."
+          }
+        },
+        "type": "object",
+        "required": [
+          "validity_period",
+          "session_ttl_minutes"
+        ],
+        "title": "CreateTokenRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "JoinSessionRequest": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "participant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Participant Id",
+            "description": "Existing participant identifier when reclaiming a session slot."
+          },
+          "client_identity": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Identity",
+            "description": "Optional unique identifier provided by the client instead of an IP address."
+          }
+        },
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "title": "JoinSessionRequest"
+      },
+      "JoinSessionResponse": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "participant_id": {
+            "type": "string",
+            "title": "Participant Id"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "session_active": {
+            "type": "boolean",
+            "title": "Session Active"
+          },
+          "session_started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Started At"
+          },
+          "session_expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Expires At"
+          },
+          "message_char_limit": {
+            "type": "integer",
+            "title": "Message Char Limit"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "participant_id",
+          "role",
+          "session_active",
+          "message_char_limit"
+        ],
+        "title": "JoinSessionResponse"
+      },
+      "ParticipantPublic": {
+        "properties": {
+          "participant_id": {
+            "type": "string",
+            "title": "Participant Id"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "joined_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Joined At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "participant_id",
+          "role",
+          "joined_at"
+        ],
+        "title": "ParticipantPublic"
+      },
+      "ReportAbuseQuestionnaire": {
+        "properties": {
+          "immediate_threat": {
+            "type": "boolean",
+            "title": "Immediate Threat",
+            "description": "Set to true if you or anyone else is in immediate danger.",
+            "default": false
+          },
+          "involves_criminal_activity": {
+            "type": "boolean",
+            "title": "Involves Criminal Activity",
+            "description": "Indicates whether the behavior may involve criminal activity.",
+            "default": false
+          },
+          "requires_follow_up": {
+            "type": "boolean",
+            "title": "Requires Follow Up",
+            "description": "Let us know if you are willing to participate in a follow-up investigation.",
+            "default": false
+          },
+          "additional_details": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Additional Details",
+            "description": "Optional additional context you wish to share."
+          }
+        },
+        "type": "object",
+        "title": "ReportAbuseQuestionnaire"
+      },
+      "ReportAbuseRequest": {
+        "properties": {
+          "participant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Participant Id",
+            "description": "Identifier of the participant submitting the report."
+          },
+          "reporter_email": {
+            "type": "string",
+            "format": "email",
+            "title": "Reporter Email",
+            "description": "Contact email for follow-up communication."
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 10,
+            "title": "Summary",
+            "description": "A concise description of the abusive behavior."
+          },
+          "questionnaire": {
+            "$ref": "#/components/schemas/ReportAbuseQuestionnaire"
+          }
+        },
+        "type": "object",
+        "required": [
+          "reporter_email",
+          "summary",
+          "questionnaire"
+        ],
+        "title": "ReportAbuseRequest"
+      },
+      "ReportAbuseResponse": {
+        "properties": {
+          "report_id": {
+            "type": "integer",
+            "title": "Report Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "session_status": {
+            "type": "string",
+            "title": "Session Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "report_id",
+          "status",
+          "session_status"
+        ],
+        "title": "ReportAbuseResponse"
+      },
+      "SessionStatusResponse": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "validity_expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Validity Expires At"
+          },
+          "session_started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Started At"
+          },
+          "session_expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Expires At"
+          },
+          "message_char_limit": {
+            "type": "integer",
+            "title": "Message Char Limit"
+          },
+          "participants": {
+            "items": {
+              "$ref": "#/components/schemas/ParticipantPublic"
+            },
+            "type": "array",
+            "title": "Participants"
+          },
+          "remaining_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Seconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "status",
+          "validity_expires_at",
+          "session_started_at",
+          "session_expires_at",
+          "message_char_limit",
+          "participants",
+          "remaining_seconds"
+        ],
+        "title": "SessionStatusResponse"
+      },
+      "TokenResponse": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "validity_expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Validity Expires At"
+          },
+          "session_ttl_seconds": {
+            "type": "integer",
+            "title": "Session Ttl Seconds"
+          },
+          "message_char_limit": {
+            "type": "integer",
+            "title": "Message Char Limit"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "validity_expires_at",
+          "session_ttl_seconds",
+          "message_char_limit",
+          "created_at"
+        ],
+        "title": "TokenResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "ValidityPeriod": {
+        "type": "string",
+        "enum": [
+          "1_day",
+          "1_week",
+          "1_month",
+          "1_year"
+        ],
+        "title": "ValidityPeriod"
+      }
+    },
+    "securitySchemes": {
+      "OAuth2PasswordBearer": {
+        "type": "oauth2",
+        "flows": {
+          "password": {
+            "scopes": {},
+            "tokenUrl": "/api/admin/token"
+          }
+        }
+      }
+    }
+  }
+}

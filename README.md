@@ -175,3 +175,70 @@ it means the browser rejected the configured ICE servers. Common causes are:
 - **Port blocks** – corporate or guest networks often block UDP 3478/5349 or TCP 80/443 on TURN servers. Choose TURN endpoints that are reachable from both clients.
 
 The frontend automatically ignores unroutable ICE URLs, but explicitly set environment variables take precedence. Verify any custom `NEXT_PUBLIC_WEBRTC_STUN_URLS`, `NEXT_PUBLIC_WEBRTC_TURN_URLS`, or `NEXT_PUBLIC_WEBRTC_ICE_SERVERS` overrides before redeploying.
+
+
+# Expo Dev Client – Ultra-Compact Cheat Sheet (iOS)
+
+## Golden Rule
+JS change → reload  
+Native / config change → rebuild
+
+---
+
+## Most common (JS only)
+Used when changing:
+- Components, screens, hooks, styles, logic
+- Adding new JS/TS files
+- JS-only packages
+
+Command:
+npx expo start --dev-client
+(or add `-c` if new files aren’t picked up)
+
+Result:
+- Fast Refresh
+- Works on simulator + device
+- No Xcode / no rebuild
+
+---
+
+## Native change (rebuild required)
+Used when changing:
+- expo-camera, expo-av, react-native-webrtc, react-native-svg
+- app.json / app.config.ts
+- Permissions (Camera / Mic)
+- Expo plugins
+- iOS entitlements
+
+Commands:
+npx expo prebuild -p ios
+npx expo run:ios
+
+Result:
+- New Dev Client binary
+- Simulator + device synced again
+
+---
+
+## When things look stuck
+Safe reset (JS only):
+npx expo start --dev-client -c
+
+Last resort:
+rm -rf node_modules
+npm install
+npx expo start --dev-client -c
+
+---
+
+## Simulator vs Device
+- Simulator rebuilds fast
+- Device requires matching Dev Client binary
+- Simulator works but device doesn’t → rebuild Dev Client
+
+---
+
+## One-line decision
+Did I touch native stuff?
+NO  → expo start --dev-client
+YES → prebuild + run:ios
