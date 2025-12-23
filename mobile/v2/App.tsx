@@ -5,15 +5,15 @@
  */
 
 import React from 'react';
-import { Text, TextInput } from 'react-native';
+import { Text, TextInput, View, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { useFonts, JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains-mono';
 import { SplashScreen } from './src/screens/SplashScreen';
-import { LandingScreen } from './src/screens/LandingScreen';
-import { MintScreen } from './src/screens/MintScreen';
-import { AcceptScreen } from './src/screens/AcceptScreen';
+import { MainScreen } from './src/screens/MainScreen';
 import { SessionScreen } from './src/screens/SessionScreen';
+import { PatternPreviewScreen } from './src/screens/PatternPreviewScreen';
 import { COLORS } from './src/constants';
 
 /**
@@ -42,15 +42,26 @@ TextInputComponent.defaultProps.maxFontSizeMultiplier = MAX_FONT_SCALE;
 
 export type RootStackParamList = {
   Splash: undefined;
-  Landing: undefined;
-  Mint: undefined;
-  Accept: undefined;
+  Main: undefined;
   Session: undefined;
+  PatternPreview: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
+  const [fontsLoaded] = useFonts({
+    JetBrainsMono: JetBrainsMono_400Regular,
+  });
+
+  if (!fontsLoaded) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background.primary }}>
+        <ActivityIndicator size="large" color={COLORS.accent.yellow} />
+      </View>
+    );
+  }
+
   return (
     <NavigationContainer>
       <StatusBar style="light" />
@@ -78,26 +89,10 @@ export default function App() {
           }}
         />
         <Stack.Screen
-          name="Landing"
-          component={LandingScreen}
+          name="Main"
+          component={MainScreen}
           options={{
             title: 'ChatOrbit',
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen
-          name="Mint"
-          component={MintScreen}
-          options={{
-            title: 'Create Session',
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen
-          name="Accept"
-          component={AcceptScreen}
-          options={{
-            title: 'Join Session',
             headerShown: false,
           }}
         />
@@ -108,6 +103,14 @@ export default function App() {
             title: 'Video Session',
             headerShown: false,
             gestureEnabled: false,
+          }}
+        />
+        <Stack.Screen
+          name="PatternPreview"
+          component={PatternPreviewScreen}
+          options={{
+            title: 'Pattern Preview',
+            headerShown: false,
           }}
         />
       </Stack.Navigator>

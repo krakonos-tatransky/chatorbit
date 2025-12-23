@@ -8,12 +8,13 @@
 import { MediaStream } from 'react-native-webrtc';
 import { SignalingClient, signalingClient } from './signaling';
 import { PeerConnection } from './connection';
-import { useMessagesStore, useSessionStore, decryptAndAddMessage } from '@/state';
+import { useMessagesStore, useSessionStore, useConnectionStore, decryptAndAddMessage } from '@/state';
 import type {
   SignalingMessage,
   MediaConstraints,
   WebRTCConfig,
   DataChannelMessage,
+  StatusMessage,
 } from './types';
 import { WebRTCError, WebRTCErrorCode } from './types';
 
@@ -21,6 +22,11 @@ import { WebRTCError, WebRTCErrorCode } from './types';
  * Video invite callback type
  */
 export type VideoInviteCallback = () => void;
+
+/**
+ * Video ended callback type (called when remote peer ends video)
+ */
+export type VideoEndedCallback = () => void;
 
 /**
  * WebRTC manager
@@ -32,11 +38,19 @@ export class WebRTCManager {
   private token: string | null = null;
   private participantId: string | null = null;
   private videoStarted = false;
+  private signalingInitialized = false;
+  private pendingIceCandidates: RTCIceCandidateInit[] = [];
+  private isProcessingOffer = false;
 
   /**
    * Callback when remote peer sends video invite
    */
   public onVideoInvite?: VideoInviteCallback;
+
+  /**
+   * Callback when remote peer ends video (but keeps text chat)
+   */
+  public onVideoEnded?: VideoEndedCallback;
 
   constructor(signaling?: SignalingClient) {
     this.signaling = signaling || signalingClient;
@@ -51,12 +65,20 @@ export class WebRTCManager {
     participantId: string,
     isHost: boolean
   ): Promise<void> {
+    // Guard against multiple initializations
+    if (this.signalingInitialized && this.signaling.isConnected()) {
+      console.log('[WebRTC] Signaling already initialized, skipping');
+      return;
+    }
+
     try {
       console.log('[WebRTC] Initializing signaling as', isHost ? 'host' : 'guest');
 
       this.token = token;
       this.participantId = participantId;
       this.isInitiator = isHost;
+      this.pendingIceCandidates = [];
+      this.isProcessingOffer = false;
 
       // Connect to signaling server
       await this.signaling.connect(token, participantId);
@@ -64,6 +86,7 @@ export class WebRTCManager {
       // Setup signaling handlers for text messages and video invites
       this.setupSignalingHandlers();
 
+      this.signalingInitialized = true;
       console.log('[WebRTC] Signaling initialized');
     } catch (error) {
       console.error('[WebRTC] Failed to initialize signaling:', error);
@@ -91,12 +114,9 @@ export class WebRTCManager {
       this.peerConnection = new PeerConnection();
       await this.peerConnection.initialize(config);
 
-      // Setup ICE candidate handler
+      // Setup ICE candidate handler with queuing
       this.peerConnection.onIceCandidate((candidate) => {
-        this.signaling.send({
-          type: 'ice-candidate',
-          candidate: candidate.toJSON(),
-        });
+        this.sendIceCandidate(candidate.toJSON());
       });
 
       // Setup remote stream handler
@@ -126,7 +146,48 @@ export class WebRTCManager {
   sendVideoInvite(): void {
     console.log('[WebRTC] Sending video invite');
     this.signaling.send({
-      type: 'video-invite',
+      type: 'signal',
+      signalType: 'video-invite',
+      payload: {},
+    });
+  }
+
+  /**
+   * Send ICE candidate with queuing support
+   */
+  private sendIceCandidate(candidateData: RTCIceCandidateInit): void {
+    // Queue if signaling not ready
+    if (!this.signaling.isConnected()) {
+      console.log('[WebRTC] Queuing ICE candidate (signaling not ready)');
+      this.pendingIceCandidates.push(candidateData);
+      return;
+    }
+
+    try {
+      this.signaling.send({
+        type: 'signal',
+        signalType: 'ice-candidate',
+        payload: candidateData,
+      });
+    } catch (error) {
+      console.log('[WebRTC] Failed to send ICE candidate, queuing:', error);
+      this.pendingIceCandidates.push(candidateData);
+    }
+  }
+
+  /**
+   * Flush pending ICE candidates
+   */
+  private flushPendingIceCandidates(): void {
+    if (this.pendingIceCandidates.length === 0) return;
+
+    console.log(`[WebRTC] Flushing ${this.pendingIceCandidates.length} pending ICE candidates`);
+
+    const candidates = [...this.pendingIceCandidates];
+    this.pendingIceCandidates = [];
+
+    candidates.forEach((candidate) => {
+      this.sendIceCandidate(candidate);
     });
   }
 
@@ -138,7 +199,9 @@ export class WebRTCManager {
 
     // Send accept message
     this.signaling.send({
-      type: 'video-accept',
+      type: 'signal',
+      signalType: 'video-accept',
+      payload: {},
     });
 
     // Create data channel and offer
@@ -146,8 +209,9 @@ export class WebRTCManager {
       this.peerConnection.createDataChannel('chat');
       const offer = await this.peerConnection.createOffer();
       this.signaling.send({
-        type: 'offer',
-        offer,
+        type: 'signal',
+        signalType: 'offer',
+        payload: { sdp: offer.sdp },
       });
     }
   }
@@ -262,6 +326,15 @@ export class WebRTCManager {
             await this.handleVideoAccept();
             break;
 
+          case 'status':
+            this.handleStatusUpdate(message as StatusMessage);
+            break;
+
+          case 'signal':
+            // Handle signal-wrapped messages from backend
+            await this.handleSignalMessage(message);
+            break;
+
           case 'error':
             console.error('[WebRTC] Signaling error:', message.error);
             break;
@@ -283,19 +356,141 @@ export class WebRTCManager {
   }
 
   /**
+   * Handle video end from remote peer
+   */
+  private handleVideoEnd(): void {
+    console.log('[WebRTC] Remote peer ended video');
+
+    // Close peer connection (stops video/audio)
+    if (this.peerConnection) {
+      this.peerConnection.close();
+      this.peerConnection = null;
+    }
+
+    // Reset video state but keep signaling connected
+    this.videoStarted = false;
+    this.pendingIceCandidates = [];
+    this.isProcessingOffer = false;
+
+    // Reset connection store media state
+    useConnectionStore.getState().setLocalMedia(false, false);
+    useConnectionStore.getState().setRemoteMedia(false, false);
+
+    // Notify UI
+    if (this.onVideoEnded) {
+      this.onVideoEnded();
+    }
+  }
+
+  /**
    * Handle video accept from remote peer
+   *
+   * NOTE: We do NOT create an offer here. The peer who ACCEPTS the invite
+   * (via acceptVideoInvite) is responsible for creating the offer.
+   * This handler just acknowledges that the remote peer accepted.
    */
   private async handleVideoAccept(): Promise<void> {
-    console.log('[WebRTC] Remote peer accepted video');
+    console.log('[WebRTC] Remote peer accepted video - waiting for their offer');
+    // The accepting peer will send us an offer, we just wait for it.
+    // Our handleOffer will process it when it arrives.
+  }
 
-    // Now we create the data channel and offer since they accepted
-    if (this.peerConnection) {
-      this.peerConnection.createDataChannel('chat');
-      const offer = await this.peerConnection.createOffer();
-      this.signaling.send({
-        type: 'offer',
-        offer,
-      });
+  /**
+   * Handle session status update from server
+   */
+  private handleStatusUpdate(message: StatusMessage): void {
+    const participantCount = Array.isArray(message.connected_participants)
+      ? message.connected_participants.length
+      : 0;
+
+    console.log('[WebRTC] Status update received:', {
+      status: message.status,
+      participantCount,
+      remaining_seconds: message.remaining_seconds,
+    });
+
+    const isSessionActive = message.status === 'active';
+    const connectionStore = useConnectionStore.getState();
+
+    // Update connection state based on session status and participant count
+    if (isSessionActive && participantCount >= 2) {
+      console.log('[WebRTC] Session is active with 2 participants - connected');
+      connectionStore.setConnectionState('connected');
+    } else if (isSessionActive && participantCount === 1) {
+      console.log('[WebRTC] Session active but waiting for peer');
+      connectionStore.setConnectionState('connecting');
+    } else if (!isSessionActive) {
+      console.log('[WebRTC] Session is not active');
+      connectionStore.setConnectionState('disconnected');
+    }
+
+    // Update session store if session became active
+    if (isSessionActive && this.token) {
+      const sessionStore = useSessionStore.getState();
+      if (sessionStore.status !== 'active') {
+        console.log('[WebRTC] Updating session status to active');
+        // Fetch latest session status from server to get timing info
+        sessionStore.updateSessionStatus(this.token).catch((error) => {
+          console.error('[WebRTC] Failed to update session status:', error);
+        });
+      }
+    }
+  }
+
+  /**
+   * Handle signal-wrapped messages from backend
+   */
+  private async handleSignalMessage(message: any): Promise<void> {
+    const signalType = message.signalType;
+    const payload = message.payload;
+
+    console.log('[WebRTC] Received signal:', signalType);
+
+    switch (signalType) {
+      case 'message':
+        // Handle chat message wrapped in signal
+        if (this.token && payload) {
+          await decryptAndAddMessage(
+            this.token,
+            payload.payload,
+            payload.messageId,
+            payload.timestamp
+          );
+        }
+        break;
+
+      case 'offer':
+        if (payload?.sdp) {
+          await this.handleOffer({ type: 'offer', sdp: payload.sdp });
+        }
+        break;
+
+      case 'answer':
+        if (payload?.sdp) {
+          await this.handleAnswer({ type: 'answer', sdp: payload.sdp });
+        }
+        break;
+
+      case 'ice-candidate':
+        if (payload) {
+          await this.handleIceCandidate(payload);
+        }
+        break;
+
+      case 'video-invite':
+        this.handleVideoInvite();
+        break;
+
+      case 'video-accept':
+        await this.handleVideoAccept();
+        break;
+
+      case 'video-end':
+        this.handleVideoEnd();
+        break;
+
+      default:
+        console.log('[WebRTC] Unknown signal type:', signalType);
     }
   }
 
@@ -339,18 +534,21 @@ export class WebRTCManager {
    * Handle incoming offer
    */
   private async handleOffer(offer: RTCSessionDescriptionInit): Promise<void> {
+    // Prevent processing duplicate offers concurrently
+    if (this.isProcessingOffer) {
+      console.log('[WebRTC] Already processing an offer, ignoring duplicate');
+      return;
+    }
+
     if (!this.peerConnection) {
       console.log('[WebRTC] Received offer but no peer connection - initializing');
       // Initialize peer connection on-demand for guest
       this.peerConnection = new PeerConnection();
       await this.peerConnection.initialize();
 
-      // Setup ICE candidate handler
+      // Setup ICE candidate handler with queuing
       this.peerConnection.onIceCandidate((candidate) => {
-        this.signaling.send({
-          type: 'ice-candidate',
-          candidate: candidate.toJSON(),
-        });
+        this.sendIceCandidate(candidate.toJSON());
       });
 
       // Setup remote stream handler
@@ -362,15 +560,45 @@ export class WebRTCManager {
       this.setupDataChannelHandlers();
     }
 
-    console.log('[WebRTC] Received offer');
-    await this.peerConnection.setRemoteDescription(offer);
+    // Check signaling state - only process offer if in appropriate state
+    const signalingState = this.peerConnection.getSignalingState();
+    if (signalingState && signalingState !== 'stable' && signalingState !== 'have-local-offer') {
+      console.log(`[WebRTC] Ignoring offer in signaling state: ${signalingState}`);
+      return;
+    }
 
-    // Create and send answer
-    const answer = await this.peerConnection.createAnswer();
-    this.signaling.send({
-      type: 'answer',
-      answer,
-    });
+    // Handle "glare" (offer collision) - if we already sent an offer, decide who wins
+    if (signalingState === 'have-local-offer') {
+      // "Polite peer" pattern: guest backs off, host wins
+      if (!this.isInitiator) {
+        console.log('[WebRTC] Offer collision - backing off as guest (polite peer)');
+        // We'll just process the incoming offer since we're the polite peer
+        // The remote offer takes precedence
+      } else {
+        console.log('[WebRTC] Offer collision - ignoring as host (impolite peer)');
+        return;
+      }
+    }
+
+    this.isProcessingOffer = true;
+
+    try {
+      console.log('[WebRTC] Processing offer');
+      await this.peerConnection.setRemoteDescription(offer);
+
+      // Create and send answer
+      const answer = await this.peerConnection.createAnswer();
+      this.signaling.send({
+        type: 'signal',
+        signalType: 'answer',
+        payload: { sdp: answer.sdp },
+      });
+
+      // Flush any pending ICE candidates now that signaling is stable
+      this.flushPendingIceCandidates();
+    } finally {
+      this.isProcessingOffer = false;
+    }
   }
 
   /**
@@ -384,8 +612,18 @@ export class WebRTCManager {
       );
     }
 
-    console.log('[WebRTC] Received answer');
+    // Check signaling state - only process answer if we're expecting one
+    const signalingState = this.peerConnection.getSignalingState();
+    if (signalingState && signalingState !== 'have-local-offer') {
+      console.log(`[WebRTC] Ignoring answer in signaling state: ${signalingState}`);
+      return;
+    }
+
+    console.log('[WebRTC] Processing answer');
     await this.peerConnection.setRemoteDescription(answer);
+
+    // Flush any pending ICE candidates now that signaling is stable
+    this.flushPendingIceCandidates();
   }
 
   /**
@@ -462,14 +700,20 @@ export class WebRTCManager {
         }
       }
 
-      // Fallback to signaling
+      // Fallback to signaling - backend expects type: "signal" with signalType
       this.signaling.send({
-        type: 'message',
-        payload: encrypted.payload,
-        messageId: encrypted.messageId,
-        timestamp: encrypted.timestamp,
+        type: 'signal',
+        signalType: 'message',
+        payload: {
+          payload: encrypted.payload,
+          messageId: encrypted.messageId,
+          timestamp: encrypted.timestamp,
+        },
       });
       console.log('[WebRTC] Message sent via signaling');
+
+      // Mark message as sent (no ack from signaling, so mark immediately)
+      useMessagesStore.getState().markMessageSent(encrypted.messageId);
     } catch (error) {
       console.error('[WebRTC] Failed to send message:', error);
       throw error;
@@ -488,6 +732,39 @@ export class WebRTCManager {
    */
   toggleVideo(enabled: boolean): void {
     this.peerConnection?.toggleVideo(enabled);
+  }
+
+  /**
+   * Stop video chat while keeping text chat connected.
+   * Closes peer connection but keeps signaling open.
+   * Notifies remote peer so they also stop video.
+   */
+  stopVideo(): void {
+    console.log('[WebRTC] Stopping video (keeping text chat)');
+
+    // Notify remote peer that video is ending
+    if (this.signaling.isConnected()) {
+      this.signaling.send({
+        type: 'signal',
+        signalType: 'video-end',
+        payload: {},
+      });
+    }
+
+    // Close peer connection (stops video/audio)
+    if (this.peerConnection) {
+      this.peerConnection.close();
+      this.peerConnection = null;
+    }
+
+    // Reset video state but keep signaling connected
+    this.videoStarted = false;
+    this.pendingIceCandidates = [];
+    this.isProcessingOffer = false;
+
+    // Reset connection store media state
+    useConnectionStore.getState().setLocalMedia(false, false);
+    useConnectionStore.getState().setRemoteMedia(false, false);
   }
 
   /**
@@ -530,7 +807,11 @@ export class WebRTCManager {
     this.participantId = null;
     this.isInitiator = false;
     this.videoStarted = false;
+    this.signalingInitialized = false;
+    this.pendingIceCandidates = [];
+    this.isProcessingOffer = false;
     this.onVideoInvite = undefined;
+    this.onVideoEnded = undefined;
   }
 }
 

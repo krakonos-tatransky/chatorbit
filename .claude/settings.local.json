@@ -29,7 +29,24 @@
       "Bash(xargs kill:*)",
       "mcp__plugin_compound-engineering_pw__browser_take_screenshot",
       "Bash(xcrun simctl:*)",
-      "Bash(npx expo:*)"
+      "Bash(npx expo:*)",
+      "mcp__plugin_compound-engineering_pw__browser_snapshot",
+      "Bash(python3:*)",
+      "Bash(pip3 install:*)",
+      "Bash(brew list:*)",
+      "Bash(identify:*)",
+      "Bash(convert:*)",
+      "Bash(osascript:*)",
+      "Bash(pod install)",
+      "Bash(npm ls:*)",
+      "Bash(xcrun xctrace:*)",
+      "Bash(xcodebuild:*)",
+      "Bash(ios-deploy:*)",
+      "Bash(xcrun devicectl:*)",
+      "Bash(while ps aux)",
+      "Bash(do sleep 5)",
+      "Bash(done)",
+      "Bash(ls:*)"
     ]
   }
 }

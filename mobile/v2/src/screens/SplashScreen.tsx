@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { View, Text, Image, StyleSheet } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { COLORS } from '../constants/colors';
 import { TEXT_STYLES } from '../constants/typography';
@@ -7,8 +8,7 @@ import { SPACING } from '../constants/spacing';
 
 type RootStackParamList = {
   Splash: undefined;
-  Landing: undefined;
-  Accept: undefined;
+  Main: undefined;
   Session: undefined;
 };
 
@@ -20,14 +20,18 @@ const LogoImage = require('../../assets/splash-icon.png');
 export const SplashScreen: React.FC<SplashScreenProps> = ({ navigation }) => {
   useEffect(() => {
     const timer = setTimeout(() => {
-      navigation.replace('Landing');
+      navigation.replace('Main');
     }, 2500); // 2.5 seconds
 
     return () => clearTimeout(timer);
   }, [navigation]);
 
   return (
-    <View style={styles.container}>
+    <LinearGradient
+      colors={['#0a1628', '#122a4d', '#1a3a5c', '#0d2137']}
+      locations={[0, 0.3, 0.7, 1]}
+      style={styles.gradient}
+    >
       <View style={styles.logoContainer}>
         <Image
           source={LogoImage}
@@ -37,14 +41,13 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ navigation }) => {
         <Text style={styles.tagline}>Mobile-to-Mobile</Text>
         <Text style={styles.versionText}>v2</Text>
       </View>
-    </View>
+    </LinearGradient>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  gradient: {
     flex: 1,
-    backgroundColor: COLORS.background.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },

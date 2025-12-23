@@ -475,6 +475,13 @@ export class PeerConnection {
   }
 
   /**
+   * Get signaling state
+   */
+  getSignalingState(): RTCSignalingState | null {
+    return this.pc?.signalingState || null;
+  }
+
+  /**
    * Toggle local audio
    */
   toggleAudio(enabled: boolean): void {

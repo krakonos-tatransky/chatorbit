@@ -17,7 +17,9 @@ export type SignalingMessageType =
   | 'error'
   | 'session-ended'
   | 'video-invite'
-  | 'video-accept';
+  | 'video-accept'
+  | 'status'
+  | 'signal';
 
 /**
  * Base signaling message
@@ -92,6 +94,29 @@ export interface VideoAcceptMessage extends BaseSignalingMessage {
 }
 
 /**
+ * Session status message (sent when session state changes)
+ * Backend uses snake_case for these fields
+ */
+export interface StatusMessage extends BaseSignalingMessage {
+  type: 'status';
+  status?: string; // 'active', 'issued', 'closed', etc.
+  connected_participants?: string[]; // Array of participant IDs
+  session_started_at?: string;
+  session_expires_at?: string;
+  remaining_seconds?: number;
+}
+
+/**
+ * Signal-wrapped message (used for backend communication)
+ */
+export interface SignalMessage extends BaseSignalingMessage {
+  type: 'signal';
+  signalType: string;
+  payload?: any;
+  fromParticipant?: string;
+}
+
+/**
  * Union of all signaling messages
  */
 export type SignalingMessage =
@@ -102,7 +127,9 @@ export type SignalingMessage =
   | ErrorMessage
   | SessionEndedMessage
   | VideoInviteMessage
-  | VideoAcceptMessage;
+  | VideoAcceptMessage
+  | StatusMessage
+  | SignalMessage;
 
 /**
  * WebRTC configuration
@@ -123,7 +150,11 @@ export interface MediaConstraints {
  * Default media constraints
  */
 export const DEFAULT_MEDIA_CONSTRAINTS: MediaConstraints = {
-  audio: true,
+  audio: {
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  },
   video: {
     width: { ideal: 1280 },
     height: { ideal: 720 },

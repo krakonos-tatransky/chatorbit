@@ -7,7 +7,14 @@ import {
   Alert,
   TouchableOpacity,
   ActivityIndicator,
+  Image,
+  Modal,
+  Linking,
+  Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { COLORS } from '../constants/colors';
 import { TEXT_STYLES } from '../constants/typography';
@@ -17,7 +24,16 @@ import { Card } from '../components/ui/Card';
 import { Input } from '../components/ui/Input';
 import { mintToken, getDefaultTokenParams, validateTokenParams } from '../services/api/tokens';
 import { useSessionStore } from '../state/stores/sessionStore';
+import { getDeviceId } from '../utils/deviceId';
 import type { ValidityPeriod } from '../services/api/types';
+
+const LogoImage = require('../../assets/splash-icon.png');
+
+const MENU_LINKS = [
+  { label: 'About', url: 'https://chatorbit.com/about' },
+  { label: 'FAQ', url: 'https://chatorbit.com/faq' },
+  { label: 'Support', url: 'https://chatorbit.com/support' },
+];
 
 type RootStackParamList = {
   Splash: undefined;
@@ -44,8 +60,14 @@ export const MintScreen: React.FC<MintScreenProps> = ({ navigation }) => {
   const [isMinting, setIsMinting] = useState(false);
   const [mintedToken, setMintedToken] = useState<string | null>(null);
   const [isJoining, setIsJoining] = useState(false);
+  const [menuVisible, setMenuVisible] = useState(false);
 
   const { joinSession } = useSessionStore();
+
+  const handleMenuLink = (url: string) => {
+    setMenuVisible(false);
+    Linking.openURL(url);
+  };
 
   const handleMintToken = async () => {
     const sessionTtlNum = parseInt(sessionTtl, 10);
@@ -98,7 +120,8 @@ export const MintScreen: React.FC<MintScreenProps> = ({ navigation }) => {
 
     setIsJoining(true);
     try {
-      await joinSession(mintedToken, null, null);
+      const deviceId = await getDeviceId();
+      await joinSession(mintedToken, null, deviceId);
       navigation.navigate('Session');
     } catch (error: any) {
       console.error('Join error:', error);
@@ -109,11 +132,61 @@ export const MintScreen: React.FC<MintScreenProps> = ({ navigation }) => {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Create New Session</Text>
-        <Text style={styles.subtitle}>Configure your session parameters</Text>
-      </View>
+    <LinearGradient
+      colors={['#0a1628', '#122a4d', '#1a3a5c', '#0d2137']}
+      locations={[0, 0.3, 0.7, 1]}
+      style={styles.gradient}
+    >
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        {/* Header Bar */}
+        <View style={styles.headerBar}>
+          <View style={styles.headerLeft}>
+            <Image source={LogoImage} style={styles.headerLogo} resizeMode="contain" />
+            <Text style={styles.headerTitle} maxFontSizeMultiplier={1}>CHATORBIT</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.menuButton}
+            onPress={() => setMenuVisible(true)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="menu" size={28} color={COLORS.text.primary} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Menu Modal */}
+        <Modal
+          visible={menuVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setMenuVisible(false)}
+        >
+          <TouchableOpacity
+            style={styles.menuOverlay}
+            activeOpacity={1}
+            onPress={() => setMenuVisible(false)}
+          >
+            <View style={styles.menuContainer}>
+              <View style={styles.menuHeader}>
+                <Text style={styles.menuTitle}>Menu</Text>
+                <TouchableOpacity onPress={() => setMenuVisible(false)}>
+                  <Ionicons name="close" size={24} color={COLORS.text.primary} />
+                </TouchableOpacity>
+              </View>
+              {MENU_LINKS.map((link) => (
+                <TouchableOpacity
+                  key={link.label}
+                  style={styles.menuItem}
+                  onPress={() => handleMenuLink(link.url)}
+                >
+                  <Text style={styles.menuItemText}>{link.label}</Text>
+                  <Ionicons name="chevron-forward" size={20} color={COLORS.text.secondary} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.contentContainer}>
 
       <Card style={styles.card}>
         <View style={styles.cardContent}>
@@ -207,32 +280,110 @@ export const MintScreen: React.FC<MintScreenProps> = ({ navigation }) => {
       <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
         <Text style={styles.backButtonText}>← Back to Landing</Text>
       </TouchableOpacity>
-    </ScrollView>
+        </ScrollView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
+  gradient: {
     flex: 1,
-    backgroundColor: COLORS.background.primary,
+  },
+  safeArea: {
+    flex: 1,
+  },
+  headerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerLogo: {
+    width: 48,
+    height: 48,
+    marginRight: SPACING.sm,
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: 'rgb(186, 230, 253)',
+    fontFamily: Platform.select({
+      ios: 'Segoe UI',
+      android: 'sans-serif',
+      default: 'Segoe UI',
+    }),
+    letterSpacing: 1,
+  },
+  menuButton: {
+    padding: SPACING.xs,
+  },
+  // Menu Modal Styles
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+  },
+  menuContainer: {
+    backgroundColor: COLORS.background.secondary,
+    marginTop: 60,
+    marginRight: SPACING.md,
+    borderRadius: 12,
+    minWidth: 200,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
+  menuHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border.default,
+  },
+  menuTitle: {
+    ...TEXT_STYLES.bodyMedium,
+    color: COLORS.text.primary,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border.default,
+  },
+  menuItemText: {
+    ...TEXT_STYLES.body,
+    color: COLORS.text.primary,
+  },
+  scrollView: {
+    flex: 1,
   },
   contentContainer: {
     flexGrow: 1,
     padding: SPACING.lg,
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: SPACING.lg,
-    marginTop: SPACING.xl,
-  },
-  title: {
-    ...TEXT_STYLES.h2,
-    color: COLORS.accent.yellow,
-    marginBottom: SPACING.xs,
-  },
-  subtitle: {
-    ...TEXT_STYLES.body,
-    color: COLORS.text.secondary,
   },
   card: {
     marginBottom: SPACING.lg,

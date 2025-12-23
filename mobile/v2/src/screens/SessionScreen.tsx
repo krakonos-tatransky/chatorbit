@@ -20,11 +20,13 @@ import {
   PanResponder,
   Dimensions,
   Modal,
+  Keyboard,
   type GestureResponderEvent,
   type PanResponderGestureState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RTCView } from 'react-native-webrtc';
+import InCallManager from 'react-native-incall-manager';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Button, Input, StatusDot } from '@/components/ui';
@@ -48,8 +50,8 @@ const LOCAL_VIDEO_HEIGHT = 140;
 type VideoMode = 'idle' | 'inviting' | 'invited' | 'active' | 'fullscreen';
 
 type RootStackParamList = {
-  Landing: undefined;
-  Accept: undefined;
+  Splash: undefined;
+  Main: undefined;
   Session: undefined;
 };
 
@@ -72,6 +74,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
   const [remoteStream, setRemoteStream] = useState<any>(null);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(true);
+  const [speakerEnabled, setSpeakerEnabled] = useState(false);
 
   // Footer visibility for fullscreen mode
   const [footerVisible, setFooterVisible] = useState(true);
@@ -80,8 +83,11 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
   // Session ended modal
   const [showSessionEndedModal, setShowSessionEndedModal] = useState(false);
 
+  // End session confirmation modal
+  const [showEndConfirmModal, setShowEndConfirmModal] = useState(false);
+
   // Draggable local video position
-  const pan = useRef(new Animated.ValueXY({ x: SCREEN_WIDTH - LOCAL_VIDEO_WIDTH - SPACING.md, y: SPACING.md })).current;
+  const pan = useRef(new Animated.ValueXY({ x: SPACING.md, y: SPACING.md })).current;
 
   const scrollViewRef = useRef<ScrollView>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -129,44 +135,53 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
     })
   ).current;
 
-  // End session and show modal
-  const endSessionWithModal = useCallback(async () => {
+  // End session and navigate directly to Main
+  const endSessionAndNavigate = useCallback(async () => {
     try {
+      // Stop InCallManager audio routing
+      InCallManager.stop();
       await webrtcManager.endSession();
       await useSessionStore.getState().endSession();
-      setShowSessionEndedModal(true);
     } catch (error) {
       console.error('Failed to end session:', error);
-      setShowSessionEndedModal(true);
     }
-  }, []);
+    // Navigate immediately to Main
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Main' }],
+    });
+  }, [navigation]);
 
-  // Handle modal dismiss - navigate to Landing
+  // Handle modal dismiss - navigate to Main (for remote-triggered end)
   const handleSessionEndedDismiss = useCallback(() => {
     setShowSessionEndedModal(false);
     navigation.reset({
       index: 0,
-      routes: [{ name: 'Landing' }],
+      routes: [{ name: 'Main' }],
     });
   }, [navigation]);
 
-  // End session with confirmation
+  // End session with confirmation - show custom modal
   const handleEndSession = useCallback(() => {
-    Alert.alert(
-      'End Session',
-      'Are you sure you want to end this session? The token will be decommissioned.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'End Session', style: 'destructive', onPress: endSessionWithModal },
-      ]
-    );
-  }, [endSessionWithModal]);
+    setShowEndConfirmModal(true);
+  }, []);
+
+  // Confirm end session from modal
+  const handleConfirmEndSession = useCallback(() => {
+    setShowEndConfirmModal(false);
+    endSessionAndNavigate();
+  }, [endSessionAndNavigate]);
+
+  // Cancel end session
+  const handleCancelEndSession = useCallback(() => {
+    setShowEndConfirmModal(false);
+  }, []);
 
   // Initialize signaling connection (no video yet)
   useEffect(() => {
     if (!token || !participantId) {
-      Alert.alert('Error', 'No session token or participant ID');
-      navigation.navigate('Accept');
+      // No token - navigate back to Main (silently, as this happens after ending session)
+      navigation.navigate('Main');
       return;
     }
 
@@ -199,9 +214,22 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
 
     webrtcManager.onVideoInvite = handleVideoInvite;
 
+    // Listen for remote peer ending video
+    webrtcManager.onVideoEnded = () => {
+      console.log('[Session] Remote peer ended video');
+      InCallManager.stop();
+      setVideoMode('idle');
+      setLocalStream(null);
+      setRemoteStream(null);
+      setVideoEnabled(true);
+      setAudioEnabled(true);
+      setSpeakerEnabled(false);
+    };
+
     return () => {
       clearInterval(checkRemoteStream);
       webrtcManager.onVideoInvite = undefined;
+      webrtcManager.onVideoEnded = undefined;
     };
   }, [token, participantId, isHost, navigation, videoMode]);
 
@@ -234,7 +262,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
           clearInterval(timerRef.current);
           timerRef.current = null;
         }
-        endSessionWithModal();
+        endSessionAndNavigate();
       }
     }, 1000);
 
@@ -244,7 +272,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
         timerRef.current = null;
       }
     };
-  }, [sessionExpiresAt, endSessionWithModal]);
+  }, [sessionExpiresAt, endSessionAndNavigate]);
 
   // Auto-scroll messages
   useEffect(() => {
@@ -286,11 +314,16 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
   const startVideoCall = async () => {
     try {
       setVideoMode('inviting');
+      // Start InCallManager for audio routing (auto: false for manual speaker control)
+      InCallManager.start({ media: 'video', auto: false });
+      InCallManager.setForceSpeakerphoneOn(false); // Force earpiece mode
+      setSpeakerEnabled(false);
       const stream = await webrtcManager.startVideo();
       setLocalStream(stream);
       webrtcManager.sendVideoInvite();
     } catch (error) {
       console.error('Failed to start video:', error);
+      InCallManager.stop();
       setVideoMode('idle');
       Alert.alert('Error', 'Failed to start camera');
     }
@@ -299,12 +332,17 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
   // Accept video call
   const acceptVideoCall = async () => {
     try {
+      // Start InCallManager for audio routing (auto: false for manual speaker control)
+      InCallManager.start({ media: 'video', auto: false });
+      InCallManager.setForceSpeakerphoneOn(false); // Force earpiece mode
+      setSpeakerEnabled(false);
       const stream = await webrtcManager.startVideo();
       setLocalStream(stream);
       setVideoMode('active');
       webrtcManager.acceptVideoInvite();
     } catch (error) {
       console.error('Failed to accept video:', error);
+      InCallManager.stop();
       setVideoMode('idle');
       Alert.alert('Error', 'Failed to start camera');
     }
@@ -346,6 +384,9 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
     const trimmed = messageText.trim();
     if (!trimmed || isSending) return;
 
+    // Dismiss keyboard immediately for better UX
+    Keyboard.dismiss();
+
     try {
       await webrtcManager.sendMessage(trimmed);
       setMessageText('');
@@ -367,8 +408,40 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
     webrtcManager.toggleVideo(newState);
   };
 
+  const handleToggleSpeaker = () => {
+    const newState = !speakerEnabled;
+    setSpeakerEnabled(newState);
+    // Use setForceSpeakerphoneOn for reliable control:
+    // true = loudspeaker (bottom), false = earpiece (top)
+    InCallManager.setForceSpeakerphoneOn(newState);
+  };
+
+  // Stop video but keep text chat connected
+  const handleStopVideo = () => {
+    InCallManager.stop();
+    webrtcManager.stopVideo();
+    setVideoMode('idle');
+    setLocalStream(null);
+    setRemoteStream(null);
+    setVideoEnabled(true);
+    setAudioEnabled(true);
+    setSpeakerEnabled(false);
+  };
+
   const formatTime = (seconds: number | null): string => {
     if (seconds === null || seconds < 0) return '--:--';
+
+    const THREE_HOURS = 3 * 60 * 60; // 10800 seconds
+
+    if (seconds > THREE_HOURS) {
+      // HH:MM:SS for times over 3 hours
+      const hours = Math.floor(seconds / 3600);
+      const mins = Math.floor((seconds % 3600) / 60);
+      const secs = seconds % 60;
+      return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    // MM:SS for times up to 3 hours
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
@@ -376,6 +449,12 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
 
   const renderMessage = (message: Message) => {
     const isOwnMessage = message.type === 'sent';
+    const timeText = new Date(message.timestamp).toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+    }) + (message.status === 'sending' ? ' • Sending...' : '')
+       + (message.status === 'failed' ? ' • Failed' : '');
+
     return (
       <View
         key={message.id}
@@ -384,27 +463,24 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
           isOwnMessage ? styles.ownMessage : styles.otherMessage,
         ]}
       >
-        <Text
-          style={[
-            styles.messageText,
-            isOwnMessage ? styles.ownMessageText : styles.otherMessageText,
-          ]}
-        >
-          {message.content}
-        </Text>
-        <Text
-          style={[
-            styles.messageTime,
-            isOwnMessage ? styles.ownMessageTime : styles.otherMessageTime,
-          ]}
-        >
-          {new Date(message.timestamp).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-          {message.status === 'sending' && ' • Sending...'}
-          {message.status === 'failed' && ' • Failed'}
-        </Text>
+        <View style={styles.messageContent}>
+          <Text
+            style={[
+              styles.messageText,
+              isOwnMessage ? styles.ownMessageText : styles.otherMessageText,
+            ]}
+          >
+            {message.content}
+          </Text>
+          <Text
+            style={[
+              styles.messageTime,
+              isOwnMessage ? styles.ownMessageTime : styles.otherMessageTime,
+            ]}
+          >
+            {timeText}
+          </Text>
+        </View>
       </View>
     );
   };
@@ -551,8 +627,34 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
         {/* Controls (auto-hide in fullscreen) */}
         {(footerVisible || videoMode !== 'fullscreen') && (
           <Animated.View style={[styles.controls, { opacity: footerOpacity }]}>
-            {isVideoActive ? (
-              <>
+            {/* End session button - always on left */}
+            <Button
+              variant="danger"
+              onPress={handleEndSession}
+              style={styles.controlButton}
+            >
+              <Ionicons
+                name="exit-outline"
+                size={24}
+                color={COLORS.text.primary}
+              />
+            </Button>
+
+            {/* Video controls - only when video active */}
+            {isVideoActive && (
+              <View style={styles.videoControls}>
+                <Button
+                  variant={speakerEnabled ? 'primary' : 'secondary'}
+                  onPress={handleToggleSpeaker}
+                  style={styles.controlButton}
+                >
+                  <Ionicons
+                    name={speakerEnabled ? 'volume-high' : 'volume-low'}
+                    size={24}
+                    color={speakerEnabled ? COLORS.text.onAccent : COLORS.text.primary}
+                  />
+                </Button>
+
                 <Button
                   variant={audioEnabled ? 'secondary' : 'danger'}
                   onPress={handleToggleAudio}
@@ -577,30 +679,58 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                   />
                 </Button>
 
+                {/* Stop video call (keep text chat) */}
                 <Button
                   variant="danger"
-                  onPress={handleEndSession}
+                  onPress={handleStopVideo}
                   style={styles.controlButton}
                 >
                   <Ionicons
                     name="call"
                     size={24}
                     color={COLORS.text.primary}
-                    style={{ transform: [{ rotate: '135deg' }] }}
                   />
                 </Button>
-              </>
-            ) : (
-              <Button
-                variant="danger"
-                onPress={handleEndSession}
-                style={styles.controlButtonWide}
-              >
-                Leave Session
-              </Button>
+              </View>
             )}
           </Animated.View>
         )}
+
+        {/* End Session Confirmation Modal */}
+        <Modal
+          visible={showEndConfirmModal}
+          transparent
+          animationType="fade"
+          onRequestClose={handleCancelEndSession}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalIconContainer}>
+                <Ionicons name="warning" size={64} color={COLORS.status.error} />
+              </View>
+              <Text style={styles.modalTitle}>End Session?</Text>
+              <Text style={styles.modalMessage}>
+                Are you sure you want to end this session? The token will be decommissioned and cannot be reused.
+              </Text>
+              <View style={styles.modalButtonRow}>
+                <Button
+                  onPress={handleCancelEndSession}
+                  variant="secondary"
+                  style={styles.modalButtonHalf}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onPress={handleConfirmEndSession}
+                  variant="danger"
+                  style={styles.modalButtonHalf}
+                >
+                  Confirm
+                </Button>
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         {/* Session Ended Modal */}
         <Modal
@@ -663,7 +793,7 @@ const styles = StyleSheet.create({
     color: COLORS.text.primary,
   },
   timer: {
-    ...TEXT_STYLES.h3,
+    ...TEXT_STYLES.caption,
     color: COLORS.accent.yellow,
     fontVariant: ['tabular-nums'],
   },
@@ -750,11 +880,17 @@ const styles = StyleSheet.create({
     marginTop: SPACING.xl,
   },
   messageBubble: {
-    maxWidth: '80%',
+    width: '80%',
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.sm,
     borderRadius: RADIUS.lg,
     marginBottom: SPACING.sm,
+  },
+  messageContent: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
   },
   ownMessage: {
     alignSelf: 'flex-end',
@@ -766,6 +902,7 @@ const styles = StyleSheet.create({
   },
   messageText: {
     ...TEXT_STYLES.body,
+    flexShrink: 1,
   },
   ownMessageText: {
     color: COLORS.background.primary,
@@ -775,7 +912,8 @@ const styles = StyleSheet.create({
   },
   messageTime: {
     ...TEXT_STYLES.caption,
-    marginTop: SPACING.xs,
+    fontSize: Math.max(9, (TEXT_STYLES.caption.fontSize || 12) * 0.7),
+    marginLeft: SPACING.sm,
   },
   ownMessageTime: {
     color: COLORS.background.primary,
@@ -826,24 +964,25 @@ const styles = StyleSheet.create({
   controls: {
     flexDirection: 'row',
     paddingVertical: SPACING.md,
-    paddingHorizontal: SPACING.xl,
+    paddingHorizontal: SPACING.md,
     backgroundColor: COLORS.background.secondary,
     borderTopWidth: 1,
     borderTopColor: COLORS.border.default,
-    justifyContent: 'space-around',
+    justifyContent: 'flex-start',
     alignItems: 'center',
   },
   controlButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 0,
   },
-  controlButtonWide: {
-    flex: 1,
-    marginHorizontal: SPACING.xl,
+  videoControls: {
+    flexDirection: 'row',
+    marginLeft: 'auto',
+    gap: SPACING.sm,
   },
   // Modal styles
   modalOverlay: {
@@ -878,5 +1017,13 @@ const styles = StyleSheet.create({
   },
   modalButton: {
     marginTop: SPACING.md,
+  },
+  modalButtonRow: {
+    flexDirection: 'row',
+    gap: SPACING.md,
+    marginTop: SPACING.md,
+  },
+  modalButtonHalf: {
+    flex: 1,
   },
 });

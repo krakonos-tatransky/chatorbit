@@ -5,8 +5,11 @@
  * Uses Web Crypto API (available in React Native via polyfills).
  */
 
-import * as Crypto from 'expo-crypto';
+import QuickCrypto from 'react-native-quick-crypto';
 import { EncryptionError, EncryptionErrorCode } from './types';
+
+// Use quick-crypto's implementation directly
+const cryptoImpl = QuickCrypto;
 
 /**
  * Text encoder for UTF-8 conversion
@@ -18,8 +21,8 @@ const textDecoder = new TextDecoder();
  * Get the Web Crypto API subtle crypto interface
  */
 function getSubtleCrypto(): SubtleCrypto {
-  if (typeof crypto !== 'undefined' && crypto.subtle) {
-    return crypto.subtle;
+  if (cryptoImpl && cryptoImpl.subtle) {
+    return cryptoImpl.subtle as SubtleCrypto;
   }
   throw new EncryptionError(
     EncryptionErrorCode.CRYPTO_UNAVAILABLE,
@@ -31,8 +34,10 @@ function getSubtleCrypto(): SubtleCrypto {
  * Get random bytes
  */
 function getRandomBytes(length: number): Uint8Array {
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-    return crypto.getRandomValues(new Uint8Array(length));
+  if (cryptoImpl && cryptoImpl.getRandomValues) {
+    const arr = new Uint8Array(length);
+    cryptoImpl.getRandomValues(arr);
+    return arr;
   }
   throw new EncryptionError(
     EncryptionErrorCode.CRYPTO_UNAVAILABLE,
@@ -94,11 +99,19 @@ export function fromBase64(base64: string): Uint8Array {
  */
 export async function deriveKey(token: string): Promise<CryptoKey> {
   try {
+    console.log('[Crypto] deriveKey called with token:', token);
+    console.log('[Crypto] cryptoImpl available:', !!cryptoImpl);
+    console.log('[Crypto] cryptoImpl.subtle available:', !!cryptoImpl?.subtle);
+
     const subtle = getSubtleCrypto();
+    console.log('[Crypto] Got subtle crypto');
 
     // Hash the token using SHA-256
     const tokenBytes = encodeUtf8(token);
+    console.log('[Crypto] Token bytes length:', tokenBytes.length);
+
     const hashBuffer = await subtle.digest('SHA-256', tokenBytes as BufferSource);
+    console.log('[Crypto] Hash buffer created, byteLength:', hashBuffer.byteLength);
 
     // Import the hash as an AES-GCM key
     const key = await subtle.importKey(
@@ -108,9 +121,13 @@ export async function deriveKey(token: string): Promise<CryptoKey> {
       false, // not extractable
       ['encrypt', 'decrypt']
     );
+    console.log('[Crypto] Key imported successfully');
 
     return key;
   } catch (error) {
+    console.error('[Crypto] deriveKey error:', error);
+    console.error('[Crypto] Error name:', (error as Error)?.name);
+    console.error('[Crypto] Error message:', (error as Error)?.message);
     throw new EncryptionError(
       EncryptionErrorCode.KEY_DERIVATION_FAILED,
       'Failed to derive encryption key from token',
@@ -241,8 +258,8 @@ export async function decrypt(key: CryptoKey, payload: string): Promise<string> 
  * ```
  */
 export function generateMessageId(): string {
-  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-    return crypto.randomUUID().replace(/-/g, '');
+  if (cryptoImpl && cryptoImpl.randomUUID) {
+    return cryptoImpl.randomUUID().replace(/-/g, '');
   }
   // Fallback: timestamp + random
   return `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 14)}`;

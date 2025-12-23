@@ -222,6 +222,44 @@ Located in `frontend/public/brand/`:
 - **Current Worktree**: `flamboyant-nash`
 - Repository uses git worktrees for parallel development
 
+## Future Enhancements (TODO)
+
+### Device Identity & Session Reclaim System
+**Goal**: Allow users to leave a session and rejoin later, while preventing other devices from hijacking their slot.
+
+**Proposed Approach**:
+1. On first app launch, call `POST /api/devices/register`
+2. Server returns JWT device token (TTL: 3 months) + device_id
+3. Store in Keychain (iOS) / Keystore (Android)
+4. Include device token in all API requests
+5. When joining session, server binds `participant_id ↔ device_id`
+6. When reclaiming, server verifies device_id matches
+
+**Additional Considerations**:
+- Silent token refresh (check weekly, refresh if < 30 days remaining)
+- Reinstall behavior (new device or recovery code?)
+- Optional: Signed requests with HMAC for extra security
+- Web frontend parity
+
+**Backend Changes Needed**:
+- `POST /api/devices/register` - Issue device token
+- `POST /api/devices/refresh` - Refresh expiring token
+- Modify session join to store/verify device binding
+- Add `device_id` column to SessionParticipant model
+
+---
+
+## Pre-Production Cleanup
+
+Before building for production, remove the following dev-only features:
+
+### Mobile App (v2)
+- **PatternPreviewScreen**: Remove `src/screens/PatternPreviewScreen.tsx` and its navigation entry
+- **Dev Button**: Remove the "BG" button in `MainScreen.tsx` (wrapped in `__DEV__` check)
+- **BackgroundPattern component**: Either finalize the logo design or remove `src/components/ui/BackgroundPattern.tsx`
+- Update `App.tsx` to remove PatternPreview from the navigation stack
+- Update `src/components/ui/index.ts` to remove BackgroundPattern export if not used
+
 ## Additional Notes
 
 - Project emphasizes lightweight, focused functionality

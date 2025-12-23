@@ -15,3 +15,6 @@ export type { CardProps } from './Card';
 
 export { StatusDot } from './StatusDot';
 export type { StatusDotProps, StatusType } from './StatusDot';
+
+export { BackgroundPattern } from './BackgroundPattern';
+export type { PatternVariant } from './BackgroundPattern';

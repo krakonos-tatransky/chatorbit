@@ -102,6 +102,16 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
   ...initialState,
 
   addReceivedMessage: (decrypted) => {
+    const state = get();
+
+    // Check for duplicate message (prevent adding same message twice)
+    // This also ignores messages we sent ourselves (they already exist with type 'sent')
+    const existingMessage = state.messages.find((msg) => msg.id === decrypted.messageId);
+    if (existingMessage) {
+      console.log('[MessagesStore] Ignoring duplicate/own message:', decrypted.messageId, 'type:', existingMessage.type);
+      return;
+    }
+
     const newMessage: Message = {
       id: decrypted.messageId,
       content: decrypted.content,

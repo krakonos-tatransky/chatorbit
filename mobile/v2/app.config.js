@@ -13,7 +13,7 @@ module.exports = {
     splash: {
       image: './assets/splash-icon.png',
       resizeMode: 'contain',
-      backgroundColor: '#0A1929',
+      backgroundColor: '#020617',
     },
     ios: {
       supportsTablet: true,
@@ -28,7 +28,7 @@ module.exports = {
     android: {
       adaptiveIcon: {
         foregroundImage: './assets/adaptive-icon.png',
-        backgroundColor: '#0A1929',
+        backgroundColor: '#020617',
       },
       package: 'com.chatorbit.mobile.v2',
       edgeToEdgeEnabled: true,
@@ -37,6 +37,9 @@ module.exports = {
     web: {
       favicon: './assets/favicon.png',
     },
+    plugins: [
+      'expo-font',
+    ],
     extra: {
       // Expose environment variables to the app
       EXPO_PUBLIC_API_BASE_URL: process.env.EXPO_PUBLIC_API_BASE_URL,

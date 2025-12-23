@@ -1,0 +1,150 @@
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  Alert,
+  ScrollView,
+} from 'react-native';
+import { COLORS } from '../../constants/colors';
+import { TEXT_STYLES } from '../../constants/typography';
+import { SPACING } from '../../constants/spacing';
+import { Button } from '../ui/Button';
+import { Input } from '../ui/Input';
+import { useSessionStore } from '../../state/stores/sessionStore';
+import { getDeviceId } from '../../utils/deviceId';
+
+interface AcceptContentProps {
+  onSessionStart: () => void;
+}
+
+export const AcceptContent: React.FC<AcceptContentProps> = ({
+  onSessionStart,
+}) => {
+  const [token, setToken] = useState('');
+  const { joinSession, isJoining, error } = useSessionStore();
+
+  const handleJoin = async () => {
+    const trimmedToken = token.trim().toLowerCase();
+    if (trimmedToken.length !== 32) {
+      Alert.alert('Invalid Token', 'Please paste a valid 32-character token');
+      return;
+    }
+
+    try {
+      const deviceId = await getDeviceId();
+      await joinSession(trimmedToken, null, deviceId);
+      onSessionStart();
+    } catch (error) {
+      console.error('Failed to join session:', error);
+      Alert.alert(
+        'Join Failed',
+        error instanceof Error ? error.message : 'Failed to join session'
+      );
+    }
+  };
+
+  const handleTokenChange = (text: string) => {
+    // Accept lowercase hex characters, strip any whitespace
+    const formatted = text.toLowerCase().replace(/\s/g, '').slice(0, 32);
+    setToken(formatted);
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.keyboardView}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.contentWrapper}>
+          <Text style={styles.title}>Join with an existing token</Text>
+          <Text style={styles.description}>
+            Paste the token you received. Once two devices join the same token the session starts immediately and no other logins are permitted.
+          </Text>
+
+          <Input
+            placeholder="Paste token here"
+            value={token}
+            onChangeText={handleTokenChange}
+            autoCapitalize="none"
+            autoCorrect={false}
+            maxLength={32}
+            error={error || undefined}
+            style={styles.input}
+          />
+
+          <Button
+            onPress={handleJoin}
+            loading={isJoining}
+            disabled={token.length !== 32}
+            fullWidth
+            style={styles.button}
+          >
+            Join Session
+          </Button>
+        </View>
+
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>
+            Mobile-to-Mobile • End-to-End Encrypted
+          </Text>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+};
+
+const styles = StyleSheet.create({
+  keyboardView: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  content: {
+    flexGrow: 1,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.xl,
+    justifyContent: 'center',
+  },
+  contentWrapper: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  title: {
+    ...TEXT_STYLES.h2,
+    color: COLORS.text.primary,
+    textAlign: 'center',
+    marginBottom: SPACING.md,
+  },
+  description: {
+    ...TEXT_STYLES.body,
+    color: COLORS.text.secondary,
+    textAlign: 'center',
+    marginBottom: SPACING.xl,
+    lineHeight: 22,
+  },
+  input: {
+    fontSize: 14,
+    fontFamily: 'JetBrainsMono',
+    textAlign: 'center',
+    letterSpacing: 1,
+  },
+  button: {
+    marginTop: SPACING.lg,
+  },
+  footer: {
+    alignItems: 'center',
+    paddingVertical: SPACING.lg,
+  },
+  footerText: {
+    ...TEXT_STYLES.caption,
+    color: COLORS.text.disabled,
+  },
+});

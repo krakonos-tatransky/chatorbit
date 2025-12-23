@@ -112,6 +112,13 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         client_identity: clientIdentity,
       });
 
+      console.log('[SessionStore] Join response:', {
+        token: response.token,
+        participantId: response.participant_id,
+        role: response.role,
+        sessionActive: response.session_active,
+      });
+
       set({
         token: response.token,
         participantId: response.participant_id,
