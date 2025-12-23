@@ -506,6 +506,44 @@ export class PeerConnection {
   }
 
   /**
+   * Close video/audio only (keep signaling connected)
+   * Used when stopping video call but keeping text chat active
+   */
+  closeVideoOnly(): void {
+    console.log('[PeerConnection] Closing video only (keeping connection state)');
+
+    // Close data channel
+    if (this.dataChannel) {
+      this.dataChannel.close();
+      this.dataChannel = null;
+    }
+
+    // Stop local stream
+    if (this.localStream) {
+      this.localStream.getTracks().forEach((track) => track.stop());
+      this.localStream = null;
+    }
+
+    // Close peer connection
+    if (this.pc) {
+      this.pc.close();
+      this.pc = null;
+    }
+
+    // Clear handlers
+    this.dataChannelHandlers.clear();
+    this.remoteStreamHandlers.clear();
+    this.iceCandidateHandlers.clear();
+    this.pendingIceCandidates = [];
+
+    // Reset media state only (NOT connection state)
+    useConnectionStore.getState().setLocalMedia(false, false);
+    useConnectionStore.getState().setRemoteMedia(false, false);
+    useConnectionStore.getState().setPeerConnectionState('closed');
+    useConnectionStore.getState().setIceConnectionState('closed');
+  }
+
+  /**
    * Close connection and cleanup
    */
   close(): void {

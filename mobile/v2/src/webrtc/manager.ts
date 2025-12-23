@@ -361,9 +361,9 @@ export class WebRTCManager {
   private handleVideoEnd(): void {
     console.log('[WebRTC] Remote peer ended video');
 
-    // Close peer connection (stops video/audio)
+    // Close peer connection video only (keeps connection state)
     if (this.peerConnection) {
-      this.peerConnection.close();
+      this.peerConnection.closeVideoOnly();
       this.peerConnection = null;
     }
 
@@ -371,10 +371,6 @@ export class WebRTCManager {
     this.videoStarted = false;
     this.pendingIceCandidates = [];
     this.isProcessingOffer = false;
-
-    // Reset connection store media state
-    useConnectionStore.getState().setLocalMedia(false, false);
-    useConnectionStore.getState().setRemoteMedia(false, false);
 
     // Notify UI
     if (this.onVideoEnded) {
@@ -751,9 +747,9 @@ export class WebRTCManager {
       });
     }
 
-    // Close peer connection (stops video/audio)
+    // Close peer connection video only (keeps connection state)
     if (this.peerConnection) {
-      this.peerConnection.close();
+      this.peerConnection.closeVideoOnly();
       this.peerConnection = null;
     }
 
@@ -761,10 +757,6 @@ export class WebRTCManager {
     this.videoStarted = false;
     this.pendingIceCandidates = [];
     this.isProcessingOffer = false;
-
-    // Reset connection store media state
-    useConnectionStore.getState().setLocalMedia(false, false);
-    useConnectionStore.getState().setRemoteMedia(false, false);
   }
 
   /**
