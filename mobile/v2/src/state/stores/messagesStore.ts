@@ -76,6 +76,12 @@ interface MessagesActions {
   clearMessages: () => void;
 
   /**
+   * Resolve stuck "sending" messages (mark as sent)
+   * Called when WebSocket reconnects after device wake
+   */
+  resolveStuckMessages: () => void;
+
+  /**
    * Get messages count
    */
   getMessagesCount: () => number;
@@ -185,6 +191,20 @@ export const useMessagesStore = create<MessagesStore>((set, get) => ({
 
   clearMessages: () => {
     set(initialState);
+  },
+
+  resolveStuckMessages: () => {
+    const state = get();
+    const stuckMessages = state.messages.filter((msg) => msg.status === 'sending');
+
+    if (stuckMessages.length > 0) {
+      console.log(`[MessagesStore] Resolving ${stuckMessages.length} stuck messages`);
+      set((state) => ({
+        messages: state.messages.map((msg) =>
+          msg.status === 'sending' ? { ...msg, status: 'sent' as MessageStatus } : msg
+        ),
+      }));
+    }
   },
 
   getMessagesCount: () => {

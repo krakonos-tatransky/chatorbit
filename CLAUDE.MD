@@ -185,6 +185,18 @@ docker compose up --build
   - Added signaling state checks to prevent mobile disconnections
   - Improved connection management and error handling
 
+- **Mobile v2 (December 2024)**:
+  - Complete rewrite with chat-first UI paradigm
+  - Video is optional, initiated via floating camera button
+  - Stop video while keeping text chat connected
+  - Speaker toggle (earpiece/loudspeaker)
+  - Echo cancellation and noise suppression
+  - Draggable local video PiP
+  - Fullscreen video mode
+  - UTC timezone fix for session timers
+  - Auto-cleanup of messages on session end
+  - Stuck message resolution on WebSocket reconnect
+
 ## Common Patterns
 
 ### Frontend
@@ -223,6 +235,44 @@ Located in `frontend/public/brand/`:
 - Repository uses git worktrees for parallel development
 
 ## Future Enhancements (TODO)
+
+### Priority Options (Choose Next Steps)
+
+#### Option A: Production Deployment
+Prepare for App Store / TestFlight release:
+- Set up Apple Developer Program account ($99/year)
+- Configure production signing certificates
+- Create App Store Connect listing
+- Set up TestFlight for beta distribution
+- 90-day testing builds instead of 7-day dev builds
+
+#### Option B: Token Minting on Mobile
+Allow users to create new session tokens from mobile:
+- Add "Create Token" screen with duration/settings options
+- Integrate with backend `/api/tokens` endpoint
+- Share token via system share sheet
+- QR code generation for easy sharing
+
+#### Option C: Push Notifications
+Add push notifications for incoming messages/video invites:
+- Set up Firebase Cloud Messaging (FCM) / APNs
+- Backend integration for sending notifications
+- Handle notification tap to open specific session
+- Background message handling
+
+#### Option D: Android Support
+Extend to Android devices:
+- Test existing codebase on Android emulator
+- Fix any platform-specific issues
+- Configure Android build and signing
+- Test on physical Android devices
+
+#### Option E: Settings Screen
+Add user preferences:
+- Language selection (i18n already implemented)
+- Notification preferences
+- Default camera (front/back)
+- Auto-answer video calls option
 
 ### Device Identity & Session Reclaim System
 **Goal**: Allow users to leave a session and rejoin later, while preventing other devices from hijacking their slot.

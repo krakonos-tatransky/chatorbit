@@ -74,6 +74,9 @@ export class WebRTCManager {
     try {
       console.log('[WebRTC] Initializing signaling as', isHost ? 'host' : 'guest');
 
+      // Clear any previous session's messages
+      useMessagesStore.getState().clearMessages();
+
       this.token = token;
       this.participantId = participantId;
       this.isInitiator = isHost;
@@ -793,6 +796,9 @@ export class WebRTCManager {
 
     // Disconnect signaling
     this.signaling.disconnect();
+
+    // Clear messages when session ends
+    useMessagesStore.getState().clearMessages();
 
     // Clear session data
     this.token = null;

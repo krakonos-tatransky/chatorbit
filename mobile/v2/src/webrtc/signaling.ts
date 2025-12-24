@@ -6,7 +6,7 @@
  */
 
 import { API_CONFIG } from '@/utils/env';
-import { useConnectionStore } from '@/state';
+import { useConnectionStore, useMessagesStore } from '@/state';
 import type { SignalingMessage } from './types';
 import { WebRTCError, WebRTCErrorCode } from './types';
 
@@ -47,6 +47,13 @@ export class SignalingClient {
         this.ws.onopen = () => {
           console.log('[Signaling] Connected');
           useConnectionStore.getState().setSignalingState('connected');
+
+          // If this is a reconnection, resolve any stuck "sending" messages
+          if (this.reconnectAttempts > 0) {
+            console.log('[Signaling] Reconnected - resolving stuck messages');
+            useMessagesStore.getState().resolveStuckMessages();
+          }
+
           this.reconnectAttempts = 0;
           this.reconnectDelay = 1000;
           resolve();

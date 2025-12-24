@@ -13,6 +13,7 @@ import type {
   SessionStatusResponse,
 } from '@/services/api/types';
 import { joinSession, getSessionStatus, deleteSession } from '@/services/api';
+import { parseUTCDate } from '@/utils';
 
 /**
  * Session state
@@ -125,12 +126,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         role: response.role,
         status: response.session_active ? 'active' : 'issued',
         messageCharLimit: response.message_char_limit,
-        sessionStartedAt: response.session_started_at
-          ? new Date(response.session_started_at)
-          : null,
-        sessionExpiresAt: response.session_expires_at
-          ? new Date(response.session_expires_at)
-          : null,
+        sessionStartedAt: parseUTCDate(response.session_started_at),
+        sessionExpiresAt: parseUTCDate(response.session_expires_at),
         isJoining: false,
         error: null,
       });
@@ -152,12 +149,8 @@ export const useSessionStore = create<SessionStore>((set, get) => ({
         token: response.token,
         status: response.status,
         messageCharLimit: response.message_char_limit,
-        sessionStartedAt: response.session_started_at
-          ? new Date(response.session_started_at)
-          : null,
-        sessionExpiresAt: response.session_expires_at
-          ? new Date(response.session_expires_at)
-          : null,
+        sessionStartedAt: parseUTCDate(response.session_started_at),
+        sessionExpiresAt: parseUTCDate(response.session_expires_at),
         remainingSeconds: response.remaining_seconds ?? null,
         isLoading: false,
         error: null,
