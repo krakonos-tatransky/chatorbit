@@ -562,6 +562,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const [selectedIceRoute, setSelectedIceRoute] = useState<string | null>(null);
   const [callState, setCallState] = useState<CallState>("idle");
   const callStateRef = useRef<CallState>("idle");
+  const sessionStatusRef = useRef<SessionStatus | null>(null);
   const [callDialogOpen, setCallDialogOpen] = useState(false);
   const [incomingCallFrom, setIncomingCallFrom] = useState<string | null>(null);
   const [callNotice, setCallNotice] = useState<string | null>(null);
@@ -927,6 +928,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   useEffect(() => {
     callStateRef.current = callState;
   }, [callState]);
+
+  useEffect(() => {
+    sessionStatusRef.current = sessionStatus;
+  }, [sessionStatus]);
 
   useEffect(() => {
     isCallFullscreenRef.current = isCallFullscreen;
@@ -2907,8 +2912,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             ? new Date(timestamp).toISOString()
             : new Date().toISOString();
 
-          // Find the other participant's info
-          const otherParticipant = sessionStatus?.participants.find(
+          // Find the other participant's info (use ref to avoid dependency loop)
+          const otherParticipant = sessionStatusRef.current?.participants.find(
             (p) => p.participantId !== participantId
           );
           const senderRole = otherParticipant?.role ?? "guest";
@@ -2936,7 +2941,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         }
       }
     },
-    [sendSignal, attachLocalMedia, requestRenegotiation, stopLocalMediaTracks, teardownCall, participantId, ensureEncryptionKey, sessionStatus?.participants],
+    [sendSignal, attachLocalMedia, requestRenegotiation, stopLocalMediaTracks, teardownCall, participantId, ensureEncryptionKey],
   );
 
   const handleSignal = useCallback(
