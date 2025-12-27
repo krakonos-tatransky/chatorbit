@@ -563,6 +563,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const [callState, setCallState] = useState<CallState>("idle");
   const callStateRef = useRef<CallState>("idle");
   const sessionStatusRef = useRef<SessionStatus | null>(null);
+  const wsConnectedRef = useRef(false); // Tracks if connected via WebSocket with 2 participants
   const [callDialogOpen, setCallDialogOpen] = useState(false);
   const [incomingCallFrom, setIncomingCallFrom] = useState<string | null>(null);
   const [callNotice, setCallNotice] = useState<string | null>(null);
@@ -1613,10 +1614,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       pendingSignalsRef.current = [];
       deferredOffersRef.current = [];
       hasSentOfferRef.current = false;
-      setConnected(false);
+      // Only set disconnected if not connected via WebSocket with 2 participants
+      if (!wsConnectedRef.current) {
+        setConnected(false);
+      }
       capabilityAnnouncedRef.current = false;
-      peerSupportsEncryptionRef.current = null;
-      setPeerSupportsEncryption(null);
+      // Keep encryption support if we're connected via WebSocket
+      if (!wsConnectedRef.current) {
+        peerSupportsEncryptionRef.current = null;
+        setPeerSupportsEncryption(null);
+      }
       if (!recreate) {
         setIsReconnecting(false);
         return;
@@ -2651,7 +2658,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         }
       };
       channel.onclose = () => {
-        setConnected(false);
+        // Only set disconnected if not connected via WebSocket with 2 participants
+        if (!wsConnectedRef.current) {
+          setConnected(false);
+        }
         dataChannelRef.current = null;
         if (dataChannelTimeoutRef.current) {
           clearTimeout(dataChannelTimeoutRef.current);
@@ -2660,8 +2670,11 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         if (participantRole === "host") {
           hasSentOfferRef.current = false;
         }
-        peerSupportsEncryptionRef.current = null;
-        setPeerSupportsEncryption(null);
+        // Keep encryption support if we're connected via WebSocket
+        if (!wsConnectedRef.current) {
+          peerSupportsEncryptionRef.current = null;
+          setPeerSupportsEncryption(null);
+        }
         logEvent("Data channel closed", { label: channel.label });
         setDataChannelState(channel.readyState);
         if (sessionActiveRef.current) {
@@ -2672,13 +2685,19 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         }
       };
       channel.onerror = () => {
-        setConnected(false);
+        // Only set disconnected if not connected via WebSocket with 2 participants
+        if (!wsConnectedRef.current) {
+          setConnected(false);
+        }
         if (dataChannelTimeoutRef.current) {
           clearTimeout(dataChannelTimeoutRef.current);
           dataChannelTimeoutRef.current = null;
         }
-        peerSupportsEncryptionRef.current = null;
-        setPeerSupportsEncryption(null);
+        // Keep encryption support if we're connected via WebSocket
+        if (!wsConnectedRef.current) {
+          peerSupportsEncryptionRef.current = null;
+          setPeerSupportsEncryption(null);
+        }
         logEvent("Data channel encountered an error", { label: channel.label });
         setDataChannelState(channel.readyState);
         if (sessionActiveRef.current) {
@@ -3043,7 +3062,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           });
         }
       } else if (state === "disconnected") {
-        setConnected(false);
+        // Only set disconnected if not connected via WebSocket with 2 participants
+        if (!wsConnectedRef.current) {
+          setConnected(false);
+        }
         if (sessionActiveRef.current) {
           if (!disconnectionRecoveryTimeoutRef.current) {
             setIsReconnecting(true);
@@ -3062,7 +3084,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           }
         }
       } else if (state === "failed") {
-        setConnected(false);
+        // Only set disconnected if not connected via WebSocket with 2 participants
+        if (!wsConnectedRef.current) {
+          setConnected(false);
+        }
         if (participantRole === "host") {
           hasSentOfferRef.current = false;
         }
@@ -3075,7 +3100,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           logEvent("Connection FAILED - awaiting ICE restart");
         }
       } else if (state === "closed") {
-        setConnected(false);
+        // Only set disconnected if not connected via WebSocket with 2 participants
+        if (!wsConnectedRef.current) {
+          setConnected(false);
+        }
         if (participantRole === "host") {
           hasSentOfferRef.current = false;
         }
@@ -3591,6 +3619,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           logEvent("WebSocket connection closed after session end");
           return;
         }
+        wsConnectedRef.current = false;
         setConnected(false);
         resetPeerConnection({ recreate: false });
         logEvent("WebSocket connection closed");
@@ -3632,8 +3661,17 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             // Set connected when session is active with 2 participants (for mobile compatibility)
             const connectedParticipants = payload.connected_participants ?? [];
             if (payload.status === "active" && connectedParticipants.length >= 2) {
+              wsConnectedRef.current = true;
               setConnected(true);
               setError(null);
+              // For WebSocket-only connections (mobile), assume peer supports encryption
+              // This enables the send button when no data channel negotiation occurs
+              if (peerSupportsEncryptionRef.current === null) {
+                peerSupportsEncryptionRef.current = true;
+                setPeerSupportsEncryption(true);
+              }
+            } else {
+              wsConnectedRef.current = false;
             }
             logEvent("Updated status from WebSocket", payload);
           } else if (payload.type === "error") {

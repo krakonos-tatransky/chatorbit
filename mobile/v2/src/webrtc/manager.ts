@@ -24,6 +24,11 @@ import { WebRTCError, WebRTCErrorCode } from './types';
 export type VideoInviteCallback = () => void;
 
 /**
+ * Video accepted callback type (called when remote peer accepts our video invite)
+ */
+export type VideoAcceptedCallback = () => void;
+
+/**
  * Video ended callback type (called when remote peer ends video)
  */
 export type VideoEndedCallback = () => void;
@@ -61,6 +66,11 @@ export class WebRTCManager {
    * Callback when remote peer ends the session entirely
    */
   public onSessionEnded?: SessionEndedCallback;
+
+  /**
+   * Callback when remote peer accepts our video invite
+   */
+  public onVideoAccepted?: VideoAcceptedCallback;
 
   constructor(signaling?: SignalingClient) {
     this.signaling = signaling || signalingClient;
@@ -394,14 +404,30 @@ export class WebRTCManager {
   /**
    * Handle video accept from remote peer
    *
-   * NOTE: We do NOT create an offer here. The peer who ACCEPTS the invite
-   * (via acceptVideoInvite) is responsible for creating the offer.
-   * This handler just acknowledges that the remote peer accepted.
+   * This is called when WE sent the video invite and the remote peer accepted.
+   * Since we initiated the call, we are responsible for creating the offer.
    */
   private async handleVideoAccept(): Promise<void> {
-    console.log('[WebRTC] Remote peer accepted video - waiting for their offer');
-    // The accepting peer will send us an offer, we just wait for it.
-    // Our handleOffer will process it when it arrives.
+    console.log('[WebRTC] Remote peer accepted video - creating offer');
+
+    // Notify UI that video call is starting
+    if (this.onVideoAccepted) {
+      this.onVideoAccepted();
+    }
+
+    // Create data channel and offer
+    if (this.peerConnection) {
+      this.peerConnection.createDataChannel('chat');
+      const offer = await this.peerConnection.createOffer();
+      this.signaling.send({
+        type: 'signal',
+        signalType: 'offer',
+        payload: { sdp: offer.sdp },
+      });
+      console.log('[WebRTC] Offer sent after video accept');
+    } else {
+      console.error('[WebRTC] No peer connection to create offer');
+    }
   }
 
   /**
@@ -831,6 +857,7 @@ export class WebRTCManager {
     this.onVideoInvite = undefined;
     this.onVideoEnded = undefined;
     this.onSessionEnded = undefined;
+    this.onVideoAccepted = undefined;
   }
 }
 

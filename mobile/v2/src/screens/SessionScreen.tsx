@@ -226,6 +226,12 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
       setSpeakerEnabled(false);
     };
 
+    // Listen for remote peer accepting our video invite
+    webrtcManager.onVideoAccepted = () => {
+      console.log('[Session] Remote peer accepted video invite');
+      setVideoMode('active');
+    };
+
     // Listen for remote peer ending the session entirely
     webrtcManager.onSessionEnded = (reason?: string) => {
       console.log('[Session] Remote peer ended session:', reason);
@@ -241,6 +247,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
       clearInterval(checkRemoteStream);
       webrtcManager.onVideoInvite = undefined;
       webrtcManager.onVideoEnded = undefined;
+      webrtcManager.onVideoAccepted = undefined;
       webrtcManager.onSessionEnded = undefined;
     };
   }, [token, participantId, isHost, navigation, videoMode]);
