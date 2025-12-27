@@ -2890,9 +2890,53 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         if (callStateRef.current !== "idle") {
           teardownCall({ notifyPeer: false });
         }
+      } else if (signalType === "message") {
+        // Handle encrypted message from mobile app via WebSocket signaling
+        logEvent("Received message signal from mobile", payload);
+        const messagePayload = payload.payload;
+        if (!messagePayload?.payload || !messagePayload?.messageId) {
+          logEvent("Invalid message payload from mobile", payload);
+          return;
+        }
+        try {
+          const key = await ensureEncryptionKey();
+          const content = await decryptText(key, messagePayload.payload);
+          const messageId = messagePayload.messageId;
+          const timestamp = messagePayload.timestamp;
+          const createdAt = typeof timestamp === "number"
+            ? new Date(timestamp).toISOString()
+            : new Date().toISOString();
+
+          // Find the other participant's info
+          const otherParticipant = sessionStatus?.participants.find(
+            (p) => p.participantId !== participantId
+          );
+          const senderRole = otherParticipant?.role ?? "guest";
+          const senderId = otherParticipant?.participantId ?? "";
+
+          setMessages((prev) =>
+            upsertMessage(prev, {
+              messageId,
+              participantId: senderId,
+              role: senderRole,
+              content,
+              createdAt,
+            }),
+          );
+          setError(null);
+          logEvent("Processed incoming message from mobile", {
+            messageId,
+            participantId: senderId,
+            role: senderRole,
+            createdAt,
+          });
+        } catch (cause) {
+          console.error("Failed to decrypt message from mobile", cause);
+          setError("Failed to decrypt a message.");
+        }
       }
     },
-    [sendSignal, attachLocalMedia, requestRenegotiation, stopLocalMediaTracks, teardownCall, participantId],
+    [sendSignal, attachLocalMedia, requestRenegotiation, stopLocalMediaTracks, teardownCall, participantId, ensureEncryptionKey, sessionStatus?.participants],
   );
 
   const handleSignal = useCallback(
@@ -3580,6 +3624,12 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           if (payload.type === "status") {
             setSessionStatus(mapStatus(payload));
             setRemainingSeconds(payload.remaining_seconds ?? null);
+            // Set connected when session is active with 2 participants (for mobile compatibility)
+            const connectedParticipants = payload.connected_participants ?? [];
+            if (payload.status === "active" && connectedParticipants.length >= 2) {
+              setConnected(true);
+              setError(null);
+            }
             logEvent("Updated status from WebSocket", payload);
           } else if (payload.type === "error") {
             setError(payload.message);
@@ -4517,7 +4567,12 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return;
     }
     const channel = dataChannelRef.current;
-    if (!channel || channel.readyState !== "open") {
+    const socket = socketRef.current;
+    const hasDataChannel = channel && channel.readyState === "open";
+    const hasWebSocket = socket && socket.readyState === WebSocket.OPEN;
+
+    // Need at least one connection method
+    if (!hasDataChannel && !hasWebSocket) {
       setError("Connection is not ready yet.");
       focusComposer();
       return;
@@ -4537,13 +4592,16 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return;
     }
 
-    if (peerSupportsEncryption === null) {
+    // For data channel, check encryption negotiation
+    // For WebSocket-only (mobile), always use encryption
+    const useWebSocketOnly = !hasDataChannel && hasWebSocket;
+    if (!useWebSocketOnly && peerSupportsEncryption === null) {
       setError("Connection is still negotiating. Please wait a moment before sending a message.");
       focusComposer();
       return;
     }
 
-    const useEncryption = supportsEncryption === true && peerSupportsEncryption === true;
+    const useEncryption = useWebSocketOnly || (supportsEncryption === true && peerSupportsEncryption === true);
     const encryptionMode: EncryptionMode = useEncryption ? "aes-gcm" : "none";
 
     const messageId = generateMessageId();
@@ -4552,12 +4610,15 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     try {
       const hash = await computeMessageHash(token, participantId, messageId, trimmed);
       let record: EncryptedMessage;
+      let encryptedPayload: string | undefined;
+
       if (useEncryption) {
         const key = await ensureEncryptionKey();
         if (!key) {
           throw new Error("Encryption key unavailable");
         }
         const encryptedContent = await encryptText(key, trimmed);
+        encryptedPayload = encryptedContent;
         record = {
           sessionId: token,
           messageId,
@@ -4583,12 +4644,30 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         };
       }
       hashedMessagesRef.current.set(messageId, record);
-      channel.send(
-        JSON.stringify({
-          type: "message",
-          message: record,
-        }),
-      );
+
+      // Prefer data channel if available, otherwise use WebSocket
+      if (hasDataChannel) {
+        channel.send(
+          JSON.stringify({
+            type: "message",
+            message: record,
+          }),
+        );
+      } else if (hasWebSocket && encryptedPayload) {
+        // Send via WebSocket using mobile-compatible format
+        socket.send(
+          JSON.stringify({
+            type: "signal",
+            signalType: "message",
+            payload: {
+              payload: encryptedPayload,
+              messageId,
+              timestamp: Date.now(),
+            },
+          }),
+        );
+      }
+
       setMessages((prev) =>
         upsertMessage(prev, {
           messageId,
