@@ -226,10 +226,22 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
       setSpeakerEnabled(false);
     };
 
+    // Listen for remote peer ending the session entirely
+    webrtcManager.onSessionEnded = (reason?: string) => {
+      console.log('[Session] Remote peer ended session:', reason);
+      InCallManager.stop();
+      setVideoMode('idle');
+      setLocalStream(null);
+      setRemoteStream(null);
+      // Show modal instead of navigating immediately
+      setShowSessionEndedModal(true);
+    };
+
     return () => {
       clearInterval(checkRemoteStream);
       webrtcManager.onVideoInvite = undefined;
       webrtcManager.onVideoEnded = undefined;
+      webrtcManager.onSessionEnded = undefined;
     };
   }, [token, participantId, isHost, navigation, videoMode]);
 
@@ -746,7 +758,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
               </View>
               <Text style={styles.modalTitle}>Session Ended</Text>
               <Text style={styles.modalMessage}>
-                This session has been closed and the token is no longer valid.
+                The other participant has ended the session.
               </Text>
               <Button
                 onPress={handleSessionEndedDismiss}

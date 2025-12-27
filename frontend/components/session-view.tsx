@@ -1895,6 +1895,11 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       if (!pc) {
         return false;
       }
+      // Only do ICE restart if there's an active video call
+      if (callStateRef.current !== "active") {
+        logEvent("Skipping ICE restart when no active call", { reason, callState: callStateRef.current });
+        return false;
+      }
       if (iceRestartInProgressRef.current) {
         logEvent("ICE restart already in progress", { reason });
         return true;
@@ -2004,6 +2009,11 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       }
       const pc = peerConnectionRef.current;
       if (!pc) {
+        return;
+      }
+      // Only handle network changes if there's an active video call
+      if (callStateRef.current !== "active") {
+        logEvent("Ignoring network change when no active call", { callState: callStateRef.current });
         return;
       }
       setIsReconnecting(true);
@@ -2809,9 +2819,80 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           await pc.addIceCandidate(null);
           logEvent("Applied end-of-candidates signal");
         }
+      } else if (signalType === "video-invite") {
+        // Handle video invite from mobile app
+        logEvent("Received video-invite signal from mobile");
+        if (callStateRef.current === "active" || callStateRef.current === "connecting") {
+          // Already in a call, send busy via signaling
+          const socket = socketRef.current;
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+              type: "signal",
+              signalType: "video-busy",
+              participantId,
+            }));
+          }
+          return;
+        }
+        if (callStateRef.current === "requesting") {
+          // Both sides requested simultaneously - auto-accept
+          setCallDialogOpen(false);
+          setCallState("connecting");
+          try {
+            await attachLocalMedia();
+            // Check if state changed during async operation
+            if ((callStateRef.current as CallState) !== "connecting") {
+              stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+              return;
+            }
+            // Send video-accept back via signaling
+            const socket = socketRef.current;
+            if (socket && socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({
+                type: "signal",
+                signalType: "video-accept",
+                participantId,
+              }));
+            }
+            requestRenegotiation();
+          } catch (cause) {
+            console.error("Failed to auto-accept video chat", cause);
+            setCallState("idle");
+            stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+          }
+          return;
+        }
+        // Show incoming call dialog
+        setIncomingCallFrom(participantId ?? null);
+        setCallDialogOpen(true);
+        setCallState("incoming");
+      } else if (signalType === "video-accept") {
+        // Handle video accept from mobile app
+        logEvent("Received video-accept signal from mobile");
+        setCallDialogOpen(false);
+        setIncomingCallFrom(null);
+        setCallState("connecting");
+        try {
+          await attachLocalMedia();
+          if (callStateRef.current !== "connecting") {
+            stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+            return;
+          }
+          requestRenegotiation();
+        } catch (cause) {
+          console.error("Failed to attach local media after acceptance", cause);
+          setCallState("idle");
+          stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
+        }
+      } else if (signalType === "video-end") {
+        // Handle video end from mobile app
+        logEvent("Received video-end signal from mobile");
+        if (callStateRef.current !== "idle") {
+          teardownCall({ notifyPeer: false });
+        }
       }
     },
-    [sendSignal],
+    [sendSignal, attachLocalMedia, requestRenegotiation, stopLocalMediaTracks, teardownCall, participantId],
   );
 
   const handleSignal = useCallback(
@@ -4026,7 +4107,17 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
         return;
       }
+      // Send accept via data channel (for browser-to-browser)
       sendCallMessage("accept");
+      // Also send via WebSocket signaling (for mobile compatibility)
+      const socket = socketRef.current;
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+          type: "signal",
+          signalType: "video-accept",
+          participantId,
+        }));
+      }
       requestRenegotiation();
       showCallNotice("Starting video chat…");
     } catch (cause) {
@@ -4038,6 +4129,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     }
   }, [
     attachLocalMedia,
+    participantId,
     requestRenegotiation,
     sendCallMessage,
     setCallDialogOpen,

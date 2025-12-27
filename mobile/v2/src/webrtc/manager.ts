@@ -29,6 +29,11 @@ export type VideoInviteCallback = () => void;
 export type VideoEndedCallback = () => void;
 
 /**
+ * Session ended callback type (called when remote peer ends session)
+ */
+export type SessionEndedCallback = (reason?: string) => void;
+
+/**
  * WebRTC manager
  */
 export class WebRTCManager {
@@ -51,6 +56,11 @@ export class WebRTCManager {
    * Callback when remote peer ends video (but keeps text chat)
    */
   public onVideoEnded?: VideoEndedCallback;
+
+  /**
+   * Callback when remote peer ends the session entirely
+   */
+  public onSessionEnded?: SessionEndedCallback;
 
   constructor(signaling?: SignalingClient) {
     this.signaling = signaling || signalingClient;
@@ -566,15 +576,19 @@ export class WebRTCManager {
       return;
     }
 
-    // Handle "glare" (offer collision) - if we already sent an offer, decide who wins
+    // Handle "glare" (offer collision) - if we already sent an offer, use rollback
+    // This aligns with browser implementation for cross-platform compatibility
     if (signalingState === 'have-local-offer') {
-      // "Polite peer" pattern: guest backs off, host wins
-      if (!this.isInitiator) {
-        console.log('[WebRTC] Offer collision - backing off as guest (polite peer)');
-        // We'll just process the incoming offer since we're the polite peer
-        // The remote offer takes precedence
-      } else {
-        console.log('[WebRTC] Offer collision - ignoring as host (impolite peer)');
+      console.log('[WebRTC] Offer collision detected - rolling back local offer to accept remote');
+      // Use rollback pattern (compatible with browser implementation)
+      // This ensures both mobile-browser and browser-mobile connections work
+      await this.peerConnection.rollback();
+
+      // After rollback, check if we're in stable state to continue
+      const newState = this.peerConnection.getSignalingState();
+      if (newState && newState !== 'stable') {
+        console.log(`[WebRTC] After rollback, signaling state is ${newState} - deferring offer`);
+        // Store for later processing when stable
         return;
       }
     }
@@ -659,10 +673,16 @@ export class WebRTCManager {
   }
 
   /**
-   * Handle session ended
+   * Handle session ended (triggered by remote peer ending session)
    */
   private async handleSessionEnded(reason?: string): Promise<void> {
-    console.log('[WebRTC] Session ended:', reason);
+    console.log('[WebRTC] Session ended by remote peer:', reason);
+
+    // Notify UI before cleanup (so it can show modal)
+    if (this.onSessionEnded) {
+      this.onSessionEnded(reason);
+    }
+
     await this.endSession();
   }
 
@@ -810,6 +830,7 @@ export class WebRTCManager {
     this.isProcessingOffer = false;
     this.onVideoInvite = undefined;
     this.onVideoEnded = undefined;
+    this.onSessionEnded = undefined;
   }
 }
 

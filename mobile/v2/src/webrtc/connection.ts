@@ -482,6 +482,38 @@ export class PeerConnection {
   }
 
   /**
+   * Rollback local description (for handling offer collisions)
+   * Used when we have a local offer but receive a remote offer
+   */
+  async rollback(): Promise<void> {
+    if (!this.pc) {
+      console.log('[PeerConnection] No peer connection for rollback');
+      return;
+    }
+
+    const signalingState = this.pc.signalingState;
+    if (signalingState !== 'have-local-offer') {
+      console.log(`[PeerConnection] Rollback not needed in state: ${signalingState}`);
+      return;
+    }
+
+    try {
+      console.log('[PeerConnection] Rolling back local description');
+      // Use RTCSessionDescription for react-native-webrtc compatibility
+      const rollbackDesc = new RTCSessionDescription({
+        type: 'rollback',
+        sdp: '',
+      });
+      await this.pc.setLocalDescription(rollbackDesc);
+      console.log('[PeerConnection] Rollback successful');
+    } catch (error) {
+      console.warn('[PeerConnection] Rollback failed, will try to continue:', error);
+      // Don't throw - some platforms may not support rollback
+      // The offer processing will attempt to continue anyway
+    }
+  }
+
+  /**
    * Toggle local audio
    */
   toggleAudio(enabled: boolean): void {
