@@ -49,44 +49,50 @@ export default async function globalSetup() {
   // Store test run directory for later use
   process.env.TEST_RUN_DIR = testRunDir;
 
-  // Start Docker backend
-  try {
-    console.log('\n🐳 Starting Docker containers (backend + frontend)...');
-    const infraDir = path.join(__dirname, '../../../infra');
+  // Check if Docker is disabled
+  const useDocker = process.env.TEST_USE_DOCKER !== 'false';
 
-    // Stop any existing containers
+  if (useDocker) {
+    // Start Docker backend
     try {
-      await execFileAsync('docker-compose', ['-f', 'docker-compose.yml', 'down'], {
+      console.log('\n🐳 Starting Docker containers (backend + frontend)...');
+      const infraDir = path.join(__dirname, '../../../infra');
+
+      // Stop any existing containers
+      try {
+        await execFileAsync('docker-compose', ['-f', 'docker-compose.yml', 'down'], {
+          cwd: infraDir,
+        });
+      } catch (e) {
+        // Ignore if nothing to stop
+      }
+
+      // Start backend and frontend
+      await execFileAsync('docker-compose', ['-f', 'docker-compose.yml', 'up', '-d', 'backend', 'frontend'], {
         cwd: infraDir,
       });
-    } catch (e) {
-      // Ignore if nothing to stop
+      console.log('✅ Docker containers started');
+    } catch (error) {
+      console.error('❌ Failed to start Docker backend:', error);
+      throw error;
     }
-
-    // Start backend and frontend
-    await execFileAsync('docker-compose', ['-f', 'docker-compose.yml', 'up', '-d', 'backend', 'frontend'], {
-      cwd: infraDir,
-    });
-    console.log('✅ Docker containers started');
-
-    // Wait for backend to be ready
-    console.log('\n⏳ Waiting for backend to be ready...');
-    const apiBaseUrl = process.env.TEST_API_BASE_URL || 'http://localhost:50003';
-    console.log(`Checking health at ${apiBaseUrl}/api/health`);
-    await waitForBackend(apiBaseUrl, 20000);
-    console.log('✅ Backend is ready');
-
-    // Wait for frontend to be ready
-    console.log('\n⏳ Waiting for frontend to be ready...');
-    const frontendUrl = process.env.TEST_FRONTEND_URL || 'http://localhost:3003';
-    console.log(`Checking frontend at ${frontendUrl}`);
-    await waitForFrontend(frontendUrl, 20000);
-    console.log('✅ Frontend is ready');
-
-  } catch (error) {
-    console.error('❌ Failed to start Docker backend:', error);
-    throw error;
+  } else {
+    console.log('\n🌐 Using real endpoints (Docker disabled)');
   }
+
+  // Wait for backend to be ready
+  console.log('\n⏳ Waiting for backend to be ready...');
+  const apiBaseUrl = process.env.TEST_API_BASE_URL || 'http://localhost:50003';
+  console.log(`Checking health at ${apiBaseUrl}/api/health/database`);
+  await waitForBackend(apiBaseUrl, 20000);
+  console.log('✅ Backend is ready');
+
+  // Wait for frontend to be ready
+  console.log('\n⏳ Waiting for frontend to be ready...');
+  const frontendUrl = process.env.TEST_FRONTEND_URL || 'http://localhost:3003';
+  console.log(`Checking frontend at ${frontendUrl}`);
+  await waitForFrontend(frontendUrl, 20000);
+  console.log('✅ Frontend is ready');
 
   console.log('\n✨ Test environment ready!\n');
 }
@@ -96,7 +102,7 @@ export default async function globalSetup() {
  */
 async function waitForBackend(baseUrl: string, timeout: number): Promise<void> {
   const startTime = Date.now();
-  const healthUrl = `${baseUrl}/docs`;
+  const healthUrl = `${baseUrl}/api/health/database`;
 
   while (Date.now() - startTime < timeout) {
     try {

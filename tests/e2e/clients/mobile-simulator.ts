@@ -49,6 +49,9 @@ export class MobileSimulator {
   private hasSentOffer = false;
   private localStream: any = null;
   private remoteStream: any = null;
+  private pendingVideoInvite = false;
+  private videoCallActive = false;
+  private onVideoInviteCallback?: () => void;
 
   constructor(logger: TestLogger, options: MobileSimulatorOptions = {}) {
     this.logger = logger;
@@ -300,12 +303,63 @@ export class MobileSimulator {
         if (message.type === 'text' && message.text) {
           this.receivedMessages.push(message.text);
           this.logger.info('Text message received', { text: message.text });
+        } else if (message.type === 'call') {
+          // Handle browser-compatible call protocol
+          this.handleCallMessage(message);
+        } else if (message.type === 'capabilities') {
+          this.logger.info('Received capabilities from peer', message);
         }
       } catch (e) {
         // Not JSON, treat as plain text
         this.receivedMessages.push(event.data);
       }
     };
+  }
+
+  /**
+   * Handle call protocol messages from browser
+   */
+  private handleCallMessage(message: { type: 'call'; action: string; from?: string }): void {
+    const action = message.action;
+    this.logger.info('Received call message', { action, from: message.from });
+
+    switch (action) {
+      case 'request':
+        // Browser is requesting video call
+        this.pendingVideoInvite = true;
+        this.logger.info('Received video invite from browser');
+        if (this.onVideoInviteCallback) {
+          this.onVideoInviteCallback();
+        }
+        break;
+
+      case 'accept':
+        // Browser accepted our video request
+        this.videoCallActive = true;
+        this.logger.info('Video invite accepted by browser');
+        break;
+
+      case 'reject':
+        // Browser rejected our video request
+        this.pendingVideoInvite = false;
+        this.logger.info('Video invite rejected by browser');
+        break;
+
+      case 'cancel':
+        // Browser cancelled their video request
+        this.pendingVideoInvite = false;
+        this.logger.info('Video invite cancelled by browser');
+        break;
+
+      case 'end':
+        // Browser ended video call
+        this.videoCallActive = false;
+        this.logger.info('Video call ended by browser');
+        break;
+
+      default:
+        this.logger.debug('Unknown call action', { action });
+    }
   }
 
   /**
@@ -737,6 +791,151 @@ export class MobileSimulator {
    */
   getReceivedMessages(): string[] {
     return [...this.receivedMessages];
+  }
+
+  /**
+   * Send video invite to remote peer
+   */
+  sendVideoInvite(): void {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      throw new Error('Data channel not open');
+    }
+
+    this.logger.info('Sending video invite');
+
+    const message = JSON.stringify({
+      type: 'call',
+      action: 'request',
+      from: this.participantId,
+    });
+
+    this.dataChannel.send(message);
+  }
+
+  /**
+   * Accept video invite from remote peer
+   */
+  acceptVideoInvite(): void {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      throw new Error('Data channel not open');
+    }
+
+    if (!this.pendingVideoInvite) {
+      this.logger.warn('No pending video invite to accept');
+    }
+
+    this.logger.info('Accepting video invite');
+
+    const message = JSON.stringify({
+      type: 'call',
+      action: 'accept',
+      from: this.participantId,
+    });
+
+    this.dataChannel.send(message);
+    this.pendingVideoInvite = false;
+    this.videoCallActive = true;
+  }
+
+  /**
+   * Decline video invite from remote peer
+   */
+  declineVideoInvite(): void {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      throw new Error('Data channel not open');
+    }
+
+    this.logger.info('Declining video invite');
+
+    const message = JSON.stringify({
+      type: 'call',
+      action: 'reject',
+      from: this.participantId,
+    });
+
+    this.dataChannel.send(message);
+    this.pendingVideoInvite = false;
+  }
+
+  /**
+   * End video call
+   */
+  endVideoCall(): void {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      throw new Error('Data channel not open');
+    }
+
+    this.logger.info('Ending video call');
+
+    const message = JSON.stringify({
+      type: 'call',
+      action: 'end',
+      from: this.participantId,
+    });
+
+    this.dataChannel.send(message);
+    this.videoCallActive = false;
+  }
+
+  /**
+   * Wait for video invite from remote peer
+   */
+  async waitForVideoInvite(timeout = 30000): Promise<void> {
+    this.logger.info('Waiting for video invite');
+
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeout) {
+      if (this.pendingVideoInvite) {
+        this.logger.info('Video invite received');
+        return;
+      }
+
+      await this.wait(500);
+    }
+
+    throw new Error(`Video invite not received within ${timeout}ms`);
+  }
+
+  /**
+   * Set callback for video invite
+   */
+  onVideoInvite(callback: () => void): void {
+    this.onVideoInviteCallback = callback;
+  }
+
+  /**
+   * Check if video invite is pending
+   */
+  hasPendingVideoInvite(): boolean {
+    return this.pendingVideoInvite;
+  }
+
+  /**
+   * Check if video call is active
+   */
+  isVideoCallActive(): boolean {
+    return this.videoCallActive;
+  }
+
+  /**
+   * Wait for video call to become active
+   */
+  async waitForVideoCallActive(timeout = 30000): Promise<void> {
+    this.logger.info('Waiting for video call to become active');
+
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeout) {
+      if (this.videoCallActive) {
+        this.logger.info('Video call is now active');
+        return;
+      }
+
+      await this.wait(500);
+    }
+
+    throw new Error(`Video call did not become active within ${timeout}ms`);
   }
 
   /**

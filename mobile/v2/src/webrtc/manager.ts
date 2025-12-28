@@ -726,8 +726,21 @@ export class WebRTCManager {
         break;
 
       case 'renegotiate':
-        // Browser wants to renegotiate - we handle this via handleVideoAccept which creates offer
-        console.log('[WebRTC] Received renegotiate request from browser (handled via accept)');
+        // Browser (guest) wants to renegotiate - if we're host, create offer
+        console.log('[WebRTC] Received renegotiate request from browser');
+        if (this.isInitiator && this.peerConnection) {
+          try {
+            const offer = await this.peerConnection.createOffer();
+            this.signaling.send({
+              type: 'signal',
+              signalType: 'offer',
+              payload: offer,
+            });
+            console.log('[WebRTC] Renegotiation offer sent (triggered by browser request)');
+          } catch (error) {
+            console.error('[WebRTC] Failed to create renegotiation offer:', error);
+          }
+        }
         break;
 
       default:
@@ -921,6 +934,7 @@ export class WebRTCManager {
             },
           };
 
+          console.log('[WebRTC] Sending message to browser:', JSON.stringify(browserMessage));
           this.peerConnection.sendRawMessage(browserMessage);
           console.log('[WebRTC] Message sent via data channel (browser format)');
           return;

@@ -261,12 +261,38 @@ export class BrowserClient {
     const input = this.page.locator('[data-testid="message-input"], textarea, input[type="text"]').first();
     await input.waitFor({ state: 'visible', timeout: 5000 });
 
+    // Click to focus the input first
+    await input.click();
+
     // Type message
     await input.fill(text);
 
-    // Find and click send button
+    // Find and click send button - wait for it to be enabled
     const sendButton = this.page.locator('[data-testid="send-button"], button:has-text("Send")').first();
-    await sendButton.click();
+    await sendButton.waitFor({ state: 'visible', timeout: 5000 });
+
+    // Wait for button to be enabled (it enables when input has text)
+    await this.page.waitForFunction(
+      () => {
+        const btn = document.querySelector('[data-testid="send-button"], button:has-text("Send")') as HTMLButtonElement;
+        return btn && !btn.disabled;
+      },
+      { timeout: 5000 }
+    ).catch(() => {
+      // If button is still disabled, try pressing Enter instead
+      this.logger.info('Send button still disabled, trying Enter key');
+    });
+
+    // Try clicking the button, or press Enter if it fails
+    try {
+      if (await sendButton.isEnabled()) {
+        await sendButton.click();
+      } else {
+        await input.press('Enter');
+      }
+    } catch (e) {
+      await input.press('Enter');
+    }
 
     this.logger.info('Message sent');
 
@@ -312,7 +338,7 @@ export class BrowserClient {
   }
 
   /**
-   * Initiate video call
+   * Initiate video call by clicking the video call button
    */
   async initiateVideoCall(): Promise<void> {
     if (!this.page) {
@@ -321,10 +347,8 @@ export class BrowserClient {
 
     this.logger.info('Initiating video call');
 
-    // Find video call button (adjust selector based on your frontend)
-    const videoButton = this.page.locator(
-      '[data-testid="video-call-button"], button:has-text("Video"), button[aria-label*="video"]'
-    ).first();
+    // Find the video call button
+    const videoButton = this.page.locator('.chat-panel__call-button').first();
 
     await videoButton.waitFor({ state: 'visible', timeout: 5000 });
     await videoButton.click();
@@ -333,24 +357,179 @@ export class BrowserClient {
   }
 
   /**
-   * Accept incoming video call
+   * Wait for incoming video call dialog to appear
    */
-  async acceptVideoCall(timeout = 10000): Promise<void> {
+  async waitForIncomingCallDialog(timeout = 30000): Promise<void> {
     if (!this.page) {
       throw new Error('Browser not launched');
     }
 
-    this.logger.info('Waiting for video call invite');
+    this.logger.info('Waiting for incoming call dialog');
 
-    // Wait for accept button to appear
-    const acceptButton = this.page.locator(
-      '[data-testid="accept-call-button"], button:has-text("Accept"), button:has-text("Join")'
-    ).first();
+    // Wait for the modal dialog to appear
+    const modal = this.page.locator('.modal[role="dialog"]');
+    await modal.waitFor({ state: 'visible', timeout });
 
+    this.logger.info('Incoming call dialog appeared');
+  }
+
+  /**
+   * Accept incoming video call from the dialog
+   */
+  async acceptVideoCall(timeout = 30000): Promise<void> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    this.logger.info('Waiting for and accepting video call');
+
+    // Wait for the accept button in the modal
+    const acceptButton = this.page.locator('.modal__confirm');
     await acceptButton.waitFor({ state: 'visible', timeout });
     await acceptButton.click();
 
     this.logger.info('Video call accepted');
+  }
+
+  /**
+   * Decline incoming video call from the dialog
+   */
+  async declineVideoCall(): Promise<void> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    this.logger.info('Declining video call');
+
+    const declineButton = this.page.locator('.modal__cancel');
+    await declineButton.waitFor({ state: 'visible', timeout: 5000 });
+    await declineButton.click();
+
+    this.logger.info('Video call declined');
+  }
+
+  /**
+   * Check if video call is active (has local/remote streams)
+   */
+  async isVideoCallActive(): Promise<boolean> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    const state = await this.getWebRTCState();
+    return state.hasLocalStream || state.hasRemoteStream;
+  }
+
+  /**
+   * Wait for video call to become active
+   */
+  async waitForVideoCallActive(timeout = 30000): Promise<void> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    this.logger.info('Waiting for video call to become active');
+
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeout) {
+      const state = await this.getWebRTCState();
+
+      if (state.hasLocalStream && state.hasRemoteStream) {
+        this.logger.info('Video call is active', state);
+        return;
+      }
+
+      await this.page.waitForTimeout(500);
+    }
+
+    throw new Error(`Video call did not become active within ${timeout}ms`);
+  }
+
+  /**
+   * Check if remote video element is visible
+   */
+  async isRemoteVideoVisible(): Promise<boolean> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    // Check for remote video element in the media panel
+    const remoteVideo = this.page.locator('video').first();
+
+    try {
+      const isVisible = await remoteVideo.isVisible();
+      this.logger.info('Remote video visibility', { isVisible });
+      return isVisible;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * End the video call
+   */
+  async endVideoCall(): Promise<void> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    this.logger.info('Ending video call');
+
+    // Click the call button again to end the call (it toggles)
+    const videoButton = this.page.locator('.chat-panel__call-button').first();
+    await videoButton.click();
+
+    this.logger.info('Video call ended');
+  }
+
+  /**
+   * Check if video invite button is visible
+   * The button shows when: connected && dataChannelState === "open" && sessionIsActive
+   */
+  async isVideoInviteButtonVisible(): Promise<boolean> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    // The video call button has class chat-panel__call-button and aria-label containing "video" or "call"
+    const videoButton = this.page.locator(
+      '.chat-panel__call-button, [data-testid="video-call-button"], button[aria-label*="video" i], button[aria-label*="call" i]'
+    ).first();
+
+    try {
+      const isVisible = await videoButton.isVisible();
+      this.logger.info('Video invite button visibility check', { isVisible });
+      return isVisible;
+    } catch (e) {
+      this.logger.info('Video invite button not found');
+      return false;
+    }
+  }
+
+  /**
+   * Wait for video invite button to become visible
+   */
+  async waitForVideoInviteButton(timeout = 30000): Promise<void> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    this.logger.info('Waiting for video invite button to appear');
+
+    const videoButton = this.page.locator(
+      '.chat-panel__call-button, [data-testid="video-call-button"], button[aria-label*="video" i], button[aria-label*="call" i]'
+    ).first();
+
+    await videoButton.waitFor({ state: 'visible', timeout });
+    this.logger.info('Video invite button is now visible');
+  }
+
+  /**
+   * Get the page instance for advanced operations
+   */
+  getPage(): Page | null {
+    return this.page;
   }
 
   /**
