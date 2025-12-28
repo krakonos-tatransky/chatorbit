@@ -232,6 +232,18 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
       setVideoMode('active');
     };
 
+    webrtcManager.onVideoBusy = () => {
+      console.log('[Session] Remote peer is busy');
+      InCallManager.stop();
+      setVideoMode('idle');
+      setLocalStream(null);
+      setRemoteStream(null);
+      setVideoEnabled(true);
+      setAudioEnabled(true);
+      setSpeakerEnabled(false);
+      Alert.alert('Video call unavailable', 'Peer is already in a video call.');
+    };
+
     // Listen for remote peer ending the session entirely
     webrtcManager.onSessionEnded = (reason?: string) => {
       console.log('[Session] Remote peer ended session:', reason);
@@ -248,6 +260,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
       webrtcManager.onVideoInvite = undefined;
       webrtcManager.onVideoEnded = undefined;
       webrtcManager.onVideoAccepted = undefined;
+      webrtcManager.onVideoBusy = undefined;
       webrtcManager.onSessionEnded = undefined;
     };
   }, [token, participantId, isHost, navigation, videoMode]);

@@ -34,6 +34,11 @@ export type VideoAcceptedCallback = () => void;
 export type VideoEndedCallback = () => void;
 
 /**
+ * Video busy callback type (called when remote peer is already in a video call)
+ */
+export type VideoBusyCallback = () => void;
+
+/**
  * Session ended callback type (called when remote peer ends session)
  */
 export type SessionEndedCallback = (reason?: string) => void;
@@ -73,6 +78,11 @@ export class WebRTCManager {
    * Callback when remote peer accepts our video invite
    */
   public onVideoAccepted?: VideoAcceptedCallback;
+
+  /**
+   * Callback when remote peer is already busy in a video call
+   */
+  public onVideoBusy?: VideoBusyCallback;
 
   constructor(signaling?: SignalingClient) {
     this.signaling = signaling || signalingClient;
@@ -412,6 +422,21 @@ export class WebRTCManager {
   }
 
   /**
+   * Handle remote peer busy response for video invite
+   */
+  private handleVideoBusy(): void {
+    console.log('[WebRTC] Remote peer is busy');
+    if (this.peerConnection) {
+      this.peerConnection.stopVideoTracks();
+    }
+    this.videoStarted = false;
+    this.videoAcceptHandled = false;
+    if (this.onVideoBusy) {
+      this.onVideoBusy();
+    }
+  }
+
+  /**
    * Handle video accept from remote peer
    *
    * This is called when WE sent the video invite and the remote peer accepted.
@@ -598,6 +623,10 @@ export class WebRTCManager {
         this.handleVideoEnd();
         break;
 
+      case 'video-busy':
+        this.handleVideoBusy();
+        break;
+
       default:
         console.log('[WebRTC] Unknown signal type:', signalType);
     }
@@ -722,7 +751,7 @@ export class WebRTCManager {
       case 'busy':
         // Browser is busy (already in a call)
         console.log('[WebRTC] Peer is busy');
-        // Could notify UI here if needed
+        this.handleVideoBusy();
         break;
 
       case 'renegotiate':
@@ -1054,6 +1083,7 @@ export class WebRTCManager {
     this.onVideoEnded = undefined;
     this.onSessionEnded = undefined;
     this.onVideoAccepted = undefined;
+    this.onVideoBusy = undefined;
   }
 }
 
