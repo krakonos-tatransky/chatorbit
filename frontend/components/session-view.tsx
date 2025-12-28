@@ -2154,18 +2154,58 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         return;
       }
       const channel = dataChannelRef.current;
-      if (!channel || channel.readyState !== "open") {
-        logEvent("Data channel not ready, queueing call message", { action, readyState: channel?.readyState });
-        pendingCallMessagesRef.current.push({ action, detail });
+      if (channel && channel.readyState === "open") {
+        const payload = { type: "call", action, from: participantId, ...detail };
+        try {
+          channel.send(JSON.stringify(payload));
+          logEvent("Sent call control message", payload);
+        } catch (cause) {
+          console.warn("Failed to send call control message", cause);
+        }
         return;
       }
-      const payload = { type: "call", action, from: participantId, ...detail };
-      try {
-        channel.send(JSON.stringify(payload));
-        logEvent("Sent call control message", payload);
-      } catch (cause) {
-        console.warn("Failed to send call control message", cause);
+
+      const socket = socketRef.current;
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        let signalType: string | null = null;
+        switch (action) {
+          case "request":
+            signalType = "video-invite";
+            break;
+          case "accept":
+            signalType = "video-accept";
+            break;
+          case "cancel":
+          case "reject":
+          case "end":
+            signalType = "video-end";
+            break;
+          case "busy":
+            signalType = "video-busy";
+            break;
+          default:
+            signalType = null;
+            break;
+        }
+
+        if (signalType) {
+          socket.send(
+            JSON.stringify({
+              type: "signal",
+              signalType,
+              payload: detail,
+            }),
+          );
+          logEvent("Sent call control message via signaling", { action, signalType, detail });
+          return;
+        }
       }
+
+      logEvent("Call control path not ready, queueing message", {
+        action,
+        readyState: channel?.readyState,
+      });
+      pendingCallMessagesRef.current.push({ action, detail });
     },
     [participantId],
   );
@@ -2914,10 +2954,17 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         if (callStateRef.current !== "idle") {
           teardownCall({ notifyPeer: false });
         }
+      } else if (signalType === "video-busy") {
+        logEvent("Received video-busy signal from mobile");
+        if (callStateRef.current === "requesting") {
+          const shouldRenegotiate = localStreamRef.current !== null;
+          teardownCall({ notifyPeer: false, renegotiate: shouldRenegotiate });
+          showCallNotice("Peer is already in a video chat.");
+        }
       } else if (signalType === "message") {
         // Handle encrypted message from mobile app via WebSocket signaling
         logEvent("Received message signal from mobile", payload);
-        const messagePayload = payload.payload;
+        const messagePayload = payload?.payload;
         if (!messagePayload?.payload || !messagePayload?.messageId) {
           logEvent("Invalid message payload from mobile", payload);
           return;
@@ -3825,8 +3872,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [remainingSeconds]);
 
   const sessionIsActive = sessionStatus?.status === "active";
-  const canInitiateCall = connected && dataChannelState === "open" && sessionIsActive === true;
-  const shouldShowCallButton = canInitiateCall || callState !== "idle";
+  const canInitiateCall =
+    connected && sessionIsActive === true && (dataChannelState === "open" || socketReady);
+  const shouldShowCallButton = (sessionIsActive === true && connected) || callState !== "idle";
   const callButtonVariant =
     callState === "active"
       ? "active"
