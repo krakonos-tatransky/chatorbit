@@ -562,8 +562,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   const [selectedIceRoute, setSelectedIceRoute] = useState<string | null>(null);
   const [callState, setCallState] = useState<CallState>("idle");
   const callStateRef = useRef<CallState>("idle");
-  const sessionStatusRef = useRef<SessionStatus | null>(null);
-  const wsConnectedRef = useRef(false); // Tracks if connected via WebSocket with 2 participants
   const [callDialogOpen, setCallDialogOpen] = useState(false);
   const [incomingCallFrom, setIncomingCallFrom] = useState<string | null>(null);
   const [callNotice, setCallNotice] = useState<string | null>(null);
@@ -929,10 +927,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   useEffect(() => {
     callStateRef.current = callState;
   }, [callState]);
-
-  useEffect(() => {
-    sessionStatusRef.current = sessionStatus;
-  }, [sessionStatus]);
 
   useEffect(() => {
     isCallFullscreenRef.current = isCallFullscreen;
@@ -1614,16 +1608,10 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       pendingSignalsRef.current = [];
       deferredOffersRef.current = [];
       hasSentOfferRef.current = false;
-      // Only set disconnected if not connected via WebSocket with 2 participants
-      if (!wsConnectedRef.current) {
-        setConnected(false);
-      }
+      setConnected(false);
       capabilityAnnouncedRef.current = false;
-      // Keep encryption support if we're connected via WebSocket
-      if (!wsConnectedRef.current) {
-        peerSupportsEncryptionRef.current = null;
-        setPeerSupportsEncryption(null);
-      }
+      peerSupportsEncryptionRef.current = null;
+      setPeerSupportsEncryption(null);
       if (!recreate) {
         setIsReconnecting(false);
         return;
@@ -1907,11 +1895,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       if (!pc) {
         return false;
       }
-      // Only do ICE restart if there's an active video call
-      if (callStateRef.current !== "active") {
-        logEvent("Skipping ICE restart when no active call", { reason, callState: callStateRef.current });
-        return false;
-      }
       if (iceRestartInProgressRef.current) {
         logEvent("ICE restart already in progress", { reason });
         return true;
@@ -2021,11 +2004,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       }
       const pc = peerConnectionRef.current;
       if (!pc) {
-        return;
-      }
-      // Only handle network changes if there's an active video call
-      if (callStateRef.current !== "active") {
-        logEvent("Ignoring network change when no active call", { callState: callStateRef.current });
         return;
       }
       setIsReconnecting(true);
@@ -2658,10 +2636,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         }
       };
       channel.onclose = () => {
-        // Only set disconnected if not connected via WebSocket with 2 participants
-        if (!wsConnectedRef.current) {
-          setConnected(false);
-        }
+        setConnected(false);
         dataChannelRef.current = null;
         if (dataChannelTimeoutRef.current) {
           clearTimeout(dataChannelTimeoutRef.current);
@@ -2670,11 +2645,8 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         if (participantRole === "host") {
           hasSentOfferRef.current = false;
         }
-        // Keep encryption support if we're connected via WebSocket
-        if (!wsConnectedRef.current) {
-          peerSupportsEncryptionRef.current = null;
-          setPeerSupportsEncryption(null);
-        }
+        peerSupportsEncryptionRef.current = null;
+        setPeerSupportsEncryption(null);
         logEvent("Data channel closed", { label: channel.label });
         setDataChannelState(channel.readyState);
         if (sessionActiveRef.current) {
@@ -2685,19 +2657,13 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         }
       };
       channel.onerror = () => {
-        // Only set disconnected if not connected via WebSocket with 2 participants
-        if (!wsConnectedRef.current) {
-          setConnected(false);
-        }
+        setConnected(false);
         if (dataChannelTimeoutRef.current) {
           clearTimeout(dataChannelTimeoutRef.current);
           dataChannelTimeoutRef.current = null;
         }
-        // Keep encryption support if we're connected via WebSocket
-        if (!wsConnectedRef.current) {
-          peerSupportsEncryptionRef.current = null;
-          setPeerSupportsEncryption(null);
-        }
+        peerSupportsEncryptionRef.current = null;
+        setPeerSupportsEncryption(null);
         logEvent("Data channel encountered an error", { label: channel.label });
         setDataChannelState(channel.readyState);
         if (sessionActiveRef.current) {
@@ -2825,7 +2791,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           pendingCandidatesRef.current = [];
           throw cause;
         }
-      } else if (signalType === "iceCandidate" || signalType === "ice-candidate") {
+      } else if (signalType === "iceCandidate") {
         if (detail) {
           const candidateInit = detail as RTCIceCandidateInit;
           if (isDuplicateCandidate(candidateInit)) {
@@ -2843,124 +2809,9 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           await pc.addIceCandidate(null);
           logEvent("Applied end-of-candidates signal");
         }
-      } else if (signalType === "video-invite") {
-        // Handle video invite from mobile app
-        logEvent("Received video-invite signal from mobile");
-        if (callStateRef.current === "active" || callStateRef.current === "connecting") {
-          // Already in a call, send busy via signaling
-          const socket = socketRef.current;
-          if (socket && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({
-              type: "signal",
-              signalType: "video-busy",
-              participantId,
-            }));
-          }
-          return;
-        }
-        if (callStateRef.current === "requesting") {
-          // Both sides requested simultaneously - auto-accept
-          setCallDialogOpen(false);
-          setCallState("connecting");
-          try {
-            await attachLocalMedia();
-            // Check if state changed during async operation
-            if ((callStateRef.current as CallState) !== "connecting") {
-              stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
-              return;
-            }
-            // Send video-accept back via signaling
-            const socket = socketRef.current;
-            if (socket && socket.readyState === WebSocket.OPEN) {
-              socket.send(JSON.stringify({
-                type: "signal",
-                signalType: "video-accept",
-                participantId,
-              }));
-            }
-            requestRenegotiation();
-          } catch (cause) {
-            console.error("Failed to auto-accept video chat", cause);
-            setCallState("idle");
-            stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
-          }
-          return;
-        }
-        // Show incoming call dialog
-        setIncomingCallFrom(participantId ?? null);
-        setCallDialogOpen(true);
-        setCallState("incoming");
-      } else if (signalType === "video-accept") {
-        // Handle video accept from mobile app
-        logEvent("Received video-accept signal from mobile");
-        setCallDialogOpen(false);
-        setIncomingCallFrom(null);
-        setCallState("connecting");
-        try {
-          await attachLocalMedia();
-          if (callStateRef.current !== "connecting") {
-            stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
-            return;
-          }
-          requestRenegotiation();
-        } catch (cause) {
-          console.error("Failed to attach local media after acceptance", cause);
-          setCallState("idle");
-          stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
-        }
-      } else if (signalType === "video-end") {
-        // Handle video end from mobile app
-        logEvent("Received video-end signal from mobile");
-        if (callStateRef.current !== "idle") {
-          teardownCall({ notifyPeer: false });
-        }
-      } else if (signalType === "message") {
-        // Handle encrypted message from mobile app via WebSocket signaling
-        logEvent("Received message signal from mobile", payload);
-        const messagePayload = payload.payload;
-        if (!messagePayload?.payload || !messagePayload?.messageId) {
-          logEvent("Invalid message payload from mobile", payload);
-          return;
-        }
-        try {
-          const key = await ensureEncryptionKey();
-          const content = await decryptText(key, messagePayload.payload);
-          const messageId = messagePayload.messageId;
-          const timestamp = messagePayload.timestamp;
-          const createdAt = typeof timestamp === "number"
-            ? new Date(timestamp).toISOString()
-            : new Date().toISOString();
-
-          // Find the other participant's info (use ref to avoid dependency loop)
-          const otherParticipant = sessionStatusRef.current?.participants.find(
-            (p) => p.participantId !== participantId
-          );
-          const senderRole = otherParticipant?.role ?? "guest";
-          const senderId = otherParticipant?.participantId ?? "";
-
-          setMessages((prev) =>
-            upsertMessage(prev, {
-              messageId,
-              participantId: senderId,
-              role: senderRole,
-              content,
-              createdAt,
-            }),
-          );
-          setError(null);
-          logEvent("Processed incoming message from mobile", {
-            messageId,
-            participantId: senderId,
-            role: senderRole,
-            createdAt,
-          });
-        } catch (cause) {
-          console.error("Failed to decrypt message from mobile", cause);
-          setError("Failed to decrypt a message.");
-        }
       }
     },
-    [sendSignal, attachLocalMedia, requestRenegotiation, stopLocalMediaTracks, teardownCall, participantId, ensureEncryptionKey],
+    [sendSignal],
   );
 
   const handleSignal = useCallback(
@@ -3062,10 +2913,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           });
         }
       } else if (state === "disconnected") {
-        // Only set disconnected if not connected via WebSocket with 2 participants
-        if (!wsConnectedRef.current) {
-          setConnected(false);
-        }
+        setConnected(false);
         if (sessionActiveRef.current) {
           if (!disconnectionRecoveryTimeoutRef.current) {
             setIsReconnecting(true);
@@ -3084,10 +2932,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           }
         }
       } else if (state === "failed") {
-        // Only set disconnected if not connected via WebSocket with 2 participants
-        if (!wsConnectedRef.current) {
-          setConnected(false);
-        }
+        setConnected(false);
         if (participantRole === "host") {
           hasSentOfferRef.current = false;
         }
@@ -3100,10 +2945,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           logEvent("Connection FAILED - awaiting ICE restart");
         }
       } else if (state === "closed") {
-        // Only set disconnected if not connected via WebSocket with 2 participants
-        if (!wsConnectedRef.current) {
-          setConnected(false);
-        }
+        setConnected(false);
         if (participantRole === "host") {
           hasSentOfferRef.current = false;
         }
@@ -3619,7 +3461,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           logEvent("WebSocket connection closed after session end");
           return;
         }
-        wsConnectedRef.current = false;
         setConnected(false);
         resetPeerConnection({ recreate: false });
         logEvent("WebSocket connection closed");
@@ -3658,21 +3499,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           if (payload.type === "status") {
             setSessionStatus(mapStatus(payload));
             setRemainingSeconds(payload.remaining_seconds ?? null);
-            // Set connected when session is active with 2 participants (for mobile compatibility)
-            const connectedParticipants = payload.connected_participants ?? [];
-            if (payload.status === "active" && connectedParticipants.length >= 2) {
-              wsConnectedRef.current = true;
-              setConnected(true);
-              setError(null);
-              // For WebSocket-only connections (mobile), assume peer supports encryption
-              // This enables the send button when no data channel negotiation occurs
-              if (peerSupportsEncryptionRef.current === null) {
-                peerSupportsEncryptionRef.current = true;
-                setPeerSupportsEncryption(true);
-              }
-            } else {
-              wsConnectedRef.current = false;
-            }
             logEvent("Updated status from WebSocket", payload);
           } else if (payload.type === "error") {
             setError(payload.message);
@@ -4200,17 +4026,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         stopLocalMediaTracks(peerConnectionRef.current ?? undefined);
         return;
       }
-      // Send accept via data channel (for browser-to-browser)
       sendCallMessage("accept");
-      // Also send via WebSocket signaling (for mobile compatibility)
-      const socket = socketRef.current;
-      if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({
-          type: "signal",
-          signalType: "video-accept",
-          participantId,
-        }));
-      }
       requestRenegotiation();
       showCallNotice("Starting video chat…");
     } catch (cause) {
@@ -4222,7 +4038,6 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     }
   }, [
     attachLocalMedia,
-    participantId,
     requestRenegotiation,
     sendCallMessage,
     setCallDialogOpen,
@@ -4610,12 +4425,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return;
     }
     const channel = dataChannelRef.current;
-    const socket = socketRef.current;
-    const hasDataChannel = channel && channel.readyState === "open";
-    const hasWebSocket = socket && socket.readyState === WebSocket.OPEN;
-
-    // Need at least one connection method
-    if (!hasDataChannel && !hasWebSocket) {
+    if (!channel || channel.readyState !== "open") {
       setError("Connection is not ready yet.");
       focusComposer();
       return;
@@ -4635,16 +4445,13 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       return;
     }
 
-    // For data channel, check encryption negotiation
-    // For WebSocket-only (mobile), always use encryption
-    const useWebSocketOnly = !hasDataChannel && hasWebSocket;
-    if (!useWebSocketOnly && peerSupportsEncryption === null) {
+    if (peerSupportsEncryption === null) {
       setError("Connection is still negotiating. Please wait a moment before sending a message.");
       focusComposer();
       return;
     }
 
-    const useEncryption = useWebSocketOnly || (supportsEncryption === true && peerSupportsEncryption === true);
+    const useEncryption = supportsEncryption === true && peerSupportsEncryption === true;
     const encryptionMode: EncryptionMode = useEncryption ? "aes-gcm" : "none";
 
     const messageId = generateMessageId();
@@ -4653,15 +4460,12 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     try {
       const hash = await computeMessageHash(token, participantId, messageId, trimmed);
       let record: EncryptedMessage;
-      let encryptedPayload: string | undefined;
-
       if (useEncryption) {
         const key = await ensureEncryptionKey();
         if (!key) {
           throw new Error("Encryption key unavailable");
         }
         const encryptedContent = await encryptText(key, trimmed);
-        encryptedPayload = encryptedContent;
         record = {
           sessionId: token,
           messageId,
@@ -4687,30 +4491,12 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
         };
       }
       hashedMessagesRef.current.set(messageId, record);
-
-      // Prefer data channel if available, otherwise use WebSocket
-      if (hasDataChannel) {
-        channel.send(
-          JSON.stringify({
-            type: "message",
-            message: record,
-          }),
-        );
-      } else if (hasWebSocket && encryptedPayload) {
-        // Send via WebSocket using mobile-compatible format
-        socket.send(
-          JSON.stringify({
-            type: "signal",
-            signalType: "message",
-            payload: {
-              payload: encryptedPayload,
-              messageId,
-              timestamp: Date.now(),
-            },
-          }),
-        );
-      }
-
+      channel.send(
+        JSON.stringify({
+          type: "message",
+          message: record,
+        }),
+      );
       setMessages((prev) =>
         upsertMessage(prev, {
           messageId,

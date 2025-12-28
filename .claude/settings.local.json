@@ -51,7 +51,8 @@
       "Bash(git commit:*)",
       "Bash(open:*)",
       "Bash(sudo pkill:*)",
-      "Bash(docker compose:*)"
+      "Bash(docker compose:*)",
+      "Bash(git checkout:*)"
     ]
   }
 }
