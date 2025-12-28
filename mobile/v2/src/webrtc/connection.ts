@@ -151,21 +151,32 @@ export class PeerConnection {
     // Remote stream
     pc.addEventListener('track', (event: any) => {
       console.log('[PeerConnection] Remote track received:', event.track.kind);
-      if (event.streams && event.streams[0]) {
-        this.remoteStream = event.streams[0];
-        this.remoteStreamHandlers.forEach((handler) => {
-          try {
-            handler(event.streams[0]);
-          } catch (error) {
-            console.error('[PeerConnection] Remote stream handler error:', error);
-          }
-        });
+      console.log('[PeerConnection] Track event streams:', event.streams?.length, event.streams);
 
-        // Update media state
-        const hasVideo = this.remoteStream!.getVideoTracks().length > 0;
-        const hasAudio = this.remoteStream!.getAudioTracks().length > 0;
-        useConnectionStore.getState().setRemoteMedia(hasVideo, hasAudio);
+      let stream = event.streams?.[0];
+
+      // Handle case where streams array is empty (common in renegotiation scenarios)
+      if (!stream) {
+        console.log('[PeerConnection] No stream in track event, creating/reusing MediaStream');
+        stream = this.remoteStream ?? new MediaStream();
+        if (!stream.getTrackById(event.track.id)) {
+          stream.addTrack(event.track);
+        }
       }
+
+      this.remoteStream = stream;
+      this.remoteStreamHandlers.forEach((handler) => {
+        try {
+          handler(stream);
+        } catch (error) {
+          console.error('[PeerConnection] Remote stream handler error:', error);
+        }
+      });
+
+      // Update media state
+      const hasVideo = stream.getVideoTracks().length > 0;
+      const hasAudio = stream.getAudioTracks().length > 0;
+      useConnectionStore.getState().setRemoteMedia(hasVideo, hasAudio);
     });
 
     // Data channel (when received)
@@ -431,6 +442,31 @@ export class PeerConnection {
       console.log('[PeerConnection] Sent data channel message:', message.type);
     } catch (error) {
       console.error('[PeerConnection] Failed to send message:', error);
+      throw new WebRTCError(
+        WebRTCErrorCode.SEND_MESSAGE_FAILED,
+        'Failed to send message via data channel',
+        error as Error
+      );
+    }
+  }
+
+  /**
+   * Send raw message via data channel (for browser-compatible protocols like "call")
+   */
+  sendRawMessage(message: Record<string, unknown>): void {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      throw new WebRTCError(
+        WebRTCErrorCode.DATA_CHANNEL_ERROR,
+        'Data channel is not open'
+      );
+    }
+
+    try {
+      const data = JSON.stringify(message);
+      this.dataChannel.send(data);
+      console.log('[PeerConnection] Sent raw data channel message:', message.type);
+    } catch (error) {
+      console.error('[PeerConnection] Failed to send raw message:', error);
       throw new WebRTCError(
         WebRTCErrorCode.SEND_MESSAGE_FAILED,
         'Failed to send message via data channel',

@@ -52,6 +52,7 @@ export class WebRTCManager {
   private peerConnectionInitialized = false;
   private pendingIceCandidates: RTCIceCandidateInit[] = [];
   private isProcessingOffer = false;
+  private videoAcceptHandled = false;
 
   /**
    * Callback when remote peer sends video invite
@@ -157,16 +158,17 @@ export class WebRTCManager {
 
   /**
    * Send video invite to remote peer via DataChannel
+   * Uses browser-compatible "call" protocol with action: "request"
    */
   sendVideoInvite(): void {
     console.log('[WebRTC] Sending video invite via DataChannel');
     if (this.peerConnection) {
       try {
-        this.peerConnection.sendMessage({
-          type: 'video-invite' as any,
-          payload: '',
-          messageId: '',
-          timestamp: Date.now(),
+        // Use browser-compatible call protocol
+        this.peerConnection.sendRawMessage({
+          type: 'call',
+          action: 'request',
+          from: this.participantId,
         });
         return;
       } catch (error) {
@@ -223,18 +225,18 @@ export class WebRTCManager {
   /**
    * Accept video invite via DataChannel
    * Note: Data channel already exists from text chat connection
+   * Uses browser-compatible "call" protocol with action: "accept"
    */
   async acceptVideoInvite(): Promise<void> {
     console.log('[WebRTC] Accepting video invite via DataChannel');
 
-    // Send accept message via DataChannel
+    // Send accept message via DataChannel using browser-compatible call protocol
     if (this.peerConnection) {
       try {
-        this.peerConnection.sendMessage({
-          type: 'video-accept' as any,
-          payload: '',
-          messageId: '',
-          timestamp: Date.now(),
+        this.peerConnection.sendRawMessage({
+          type: 'call',
+          action: 'accept',
+          from: this.participantId,
         });
       } catch (error) {
         console.log('[WebRTC] DataChannel not ready, falling back to signaling');
@@ -401,6 +403,7 @@ export class WebRTCManager {
 
     // Reset video state but keep peer connection connected
     this.videoStarted = false;
+    this.videoAcceptHandled = false;  // Reset for next video call
 
     // Notify UI
     if (this.onVideoEnded) {
@@ -416,6 +419,13 @@ export class WebRTCManager {
    * to include the video tracks we've already added to the connection.
    */
   private async handleVideoAccept(): Promise<void> {
+    // Prevent duplicate handling - browser sends accept via both data channel and signaling
+    if (this.videoAcceptHandled) {
+      console.log('[WebRTC] Video accept already handled, ignoring duplicate');
+      return;
+    }
+    this.videoAcceptHandled = true;
+
     console.log('[WebRTC] Remote peer accepted video - creating renegotiation offer');
 
     // Notify UI that video call is starting
@@ -611,12 +621,22 @@ export class WebRTCManager {
           case 'message':
             // Decrypt and add to messages store
             if (this.token) {
-              await decryptAndAddMessage(
-                this.token,
-                message.payload,
-                message.messageId,
-                message.timestamp
-              );
+              // Handle both mobile format (payload) and browser format (message.encryptedContent)
+              const browserMessage = (message as any).message;
+              const payload = message.payload || browserMessage?.encryptedContent;
+              const messageId = message.messageId || browserMessage?.messageId;
+              const timestamp = message.timestamp || (browserMessage?.createdAt ? new Date(browserMessage.createdAt).getTime() : Date.now());
+
+              if (payload && messageId) {
+                await decryptAndAddMessage(
+                  this.token,
+                  payload,
+                  messageId,
+                  timestamp
+                );
+              } else {
+                console.warn('[WebRTC] Received message with missing payload or messageId:', message);
+              }
             }
             break;
 
@@ -629,20 +649,31 @@ export class WebRTCManager {
             // Handle typing indicator (future enhancement)
             break;
 
+          case 'capabilities' as any:
+            // Handle browser capabilities announcement
+            console.log('[WebRTC] Received capabilities from browser:', message);
+            // Browser is announcing encryption support - we can ignore for now
+            break;
+
+          case 'call' as any:
+            // Handle browser-compatible call protocol
+            await this.handleCallMessage(message as any);
+            break;
+
           case 'video-invite' as any:
-            // Handle video invite from remote peer
+            // Handle video invite from remote peer (mobile-to-mobile compatibility)
             console.log('[WebRTC] Received video invite via DataChannel');
             this.handleVideoInvite();
             break;
 
           case 'video-accept' as any:
-            // Handle video accept from remote peer
+            // Handle video accept from remote peer (mobile-to-mobile compatibility)
             console.log('[WebRTC] Received video accept via DataChannel');
             await this.handleVideoAccept();
             break;
 
           case 'video-end' as any:
-            // Handle video end from remote peer
+            // Handle video end from remote peer (mobile-to-mobile compatibility)
             console.log('[WebRTC] Received video end via DataChannel');
             this.handleVideoEnd();
             break;
@@ -651,6 +682,57 @@ export class WebRTCManager {
         console.error('[WebRTC] Failed to handle data channel message:', error);
       }
     });
+  }
+
+  /**
+   * Handle browser-compatible "call" protocol messages
+   */
+  private async handleCallMessage(message: { type: 'call'; action: string; from?: string }): Promise<void> {
+    const action = message.action;
+    console.log('[WebRTC] Received call message:', action);
+
+    switch (action) {
+      case 'request':
+        // Browser is requesting video call - treat as video invite
+        this.handleVideoInvite();
+        break;
+
+      case 'accept':
+        // Browser accepted our video request
+        await this.handleVideoAccept();
+        break;
+
+      case 'reject':
+        // Browser rejected our video request
+        console.log('[WebRTC] Video request rejected by peer');
+        // Could notify UI here if needed
+        break;
+
+      case 'cancel':
+        // Browser cancelled their video request
+        console.log('[WebRTC] Video request cancelled by peer');
+        // Could notify UI here if needed
+        break;
+
+      case 'end':
+        // Browser ended video call
+        this.handleVideoEnd();
+        break;
+
+      case 'busy':
+        // Browser is busy (already in a call)
+        console.log('[WebRTC] Peer is busy');
+        // Could notify UI here if needed
+        break;
+
+      case 'renegotiate':
+        // Browser wants to renegotiate - we handle this via handleVideoAccept which creates offer
+        console.log('[WebRTC] Received renegotiate request from browser (handled via accept)');
+        break;
+
+      default:
+        console.log('[WebRTC] Unknown call action:', action);
+    }
   }
 
   /**
@@ -816,18 +898,31 @@ export class WebRTCManager {
       // Encrypt message
       const encrypted = await useMessagesStore.getState().sendMessage(this.token, content);
 
-      // If we have a data channel open, use it
+      // Get session info for browser-compatible format
+      const sessionState = useSessionStore.getState();
+      const participantId = this.participantId || sessionState.participantId || '';
+      const role = sessionState.role || 'guest';
+
+      // If we have a data channel open, use it with browser-compatible format
       if (this.peerConnection) {
         try {
-          const message: DataChannelMessage = {
+          // Browser expects { type: 'message', message: { ... } }
+          const browserMessage = {
             type: 'message',
-            payload: encrypted.payload,
-            messageId: encrypted.messageId,
-            timestamp: encrypted.timestamp,
+            message: {
+              sessionId: this.token,
+              messageId: encrypted.messageId,
+              participantId: participantId,
+              role: role,
+              createdAt: new Date(encrypted.timestamp).toISOString(),
+              encryptedContent: encrypted.payload,
+              hash: '', // Optional - browser skips verification if empty
+              encryption: 'aes-gcm',
+            },
           };
 
-          this.peerConnection.sendMessage(message);
-          console.log('[WebRTC] Message sent via data channel');
+          this.peerConnection.sendRawMessage(browserMessage);
+          console.log('[WebRTC] Message sent via data channel (browser format)');
           return;
         } catch (error) {
           console.log('[WebRTC] Data channel failed, falling back to signaling');
@@ -872,18 +967,18 @@ export class WebRTCManager {
    * Stop video chat while keeping text chat connected.
    * Removes video/audio tracks but keeps peer connection and data channel open.
    * Notifies remote peer so they also stop video.
+   * Uses browser-compatible "call" protocol with action: "end"
    */
   stopVideo(): void {
     console.log('[WebRTC] Stopping video (keeping text chat via DataChannel)');
 
-    // Notify remote peer that video is ending via DataChannel
+    // Notify remote peer that video is ending via DataChannel using browser-compatible call protocol
     if (this.peerConnection) {
       try {
-        this.peerConnection.sendMessage({
-          type: 'video-end' as any,
-          payload: '',
-          messageId: '',
-          timestamp: Date.now(),
+        this.peerConnection.sendRawMessage({
+          type: 'call',
+          action: 'end',
+          from: this.participantId,
         });
       } catch (error) {
         // Fallback to signaling if data channel not ready
@@ -954,6 +1049,7 @@ export class WebRTCManager {
     this.peerConnectionInitialized = false;
     this.pendingIceCandidates = [];
     this.isProcessingOffer = false;
+    this.videoAcceptHandled = false;
     this.onVideoInvite = undefined;
     this.onVideoEnded = undefined;
     this.onSessionEnded = undefined;
