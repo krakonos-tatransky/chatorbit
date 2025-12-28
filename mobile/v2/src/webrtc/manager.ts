@@ -49,6 +49,7 @@ export class WebRTCManager {
   private participantId: string | null = null;
   private videoStarted = false;
   private signalingInitialized = false;
+  private peerConnectionInitialized = false;
   private pendingIceCandidates: RTCIceCandidateInit[] = [];
   private isProcessingOffer = false;
 
@@ -118,8 +119,9 @@ export class WebRTCManager {
   }
 
   /**
-   * Start video/audio capture and initialize peer connection
+   * Start video/audio capture and add to existing peer connection
    * Called when user taps camera button or accepts video invite
+   * Requires peer connection to be already initialized (via text chat connection)
    */
   async startVideo(
     config?: WebRTCConfig,
@@ -130,27 +132,17 @@ export class WebRTCManager {
       return this.peerConnection!.getLocalStream()!;
     }
 
+    if (!this.peerConnection) {
+      throw new WebRTCError(
+        WebRTCErrorCode.INVALID_STATE,
+        'Peer connection not initialized - text chat must be connected first'
+      );
+    }
+
     try {
-      console.log('[WebRTC] Starting video');
+      console.log('[WebRTC] Starting video on existing peer connection');
 
-      // Initialize peer connection
-      this.peerConnection = new PeerConnection();
-      await this.peerConnection.initialize(config);
-
-      // Setup ICE candidate handler with queuing
-      this.peerConnection.onIceCandidate((candidate) => {
-        this.sendIceCandidate(candidate.toJSON());
-      });
-
-      // Setup remote stream handler
-      this.peerConnection.onRemoteStream((stream) => {
-        console.log('[WebRTC] Remote stream received');
-      });
-
-      // Setup data channel handlers
-      this.setupDataChannelHandlers();
-
-      // Add local media stream
+      // Add local media stream to existing peer connection
       const localStream = await this.peerConnection.addLocalStream(mediaConstraints);
 
       this.videoStarted = true;
@@ -164,10 +156,24 @@ export class WebRTCManager {
   }
 
   /**
-   * Send video invite to remote peer
+   * Send video invite to remote peer via DataChannel
    */
   sendVideoInvite(): void {
-    console.log('[WebRTC] Sending video invite');
+    console.log('[WebRTC] Sending video invite via DataChannel');
+    if (this.peerConnection) {
+      try {
+        this.peerConnection.sendMessage({
+          type: 'video-invite' as any,
+          payload: '',
+          messageId: '',
+          timestamp: Date.now(),
+        });
+        return;
+      } catch (error) {
+        console.log('[WebRTC] DataChannel not ready, falling back to signaling');
+      }
+    }
+    // Fallback to signaling
     this.signaling.send({
       type: 'signal',
       signalType: 'video-invite',
@@ -215,28 +221,32 @@ export class WebRTCManager {
   }
 
   /**
-   * Accept video invite and start WebRTC negotiation
+   * Accept video invite via DataChannel
+   * Note: Data channel already exists from text chat connection
    */
   async acceptVideoInvite(): Promise<void> {
-    console.log('[WebRTC] Accepting video invite');
+    console.log('[WebRTC] Accepting video invite via DataChannel');
 
-    // Send accept message
-    this.signaling.send({
-      type: 'signal',
-      signalType: 'video-accept',
-      payload: {},
-    });
-
-    // Create data channel and offer
+    // Send accept message via DataChannel
     if (this.peerConnection) {
-      this.peerConnection.createDataChannel('chat');
-      const offer = await this.peerConnection.createOffer();
-      this.signaling.send({
-        type: 'signal',
-        signalType: 'offer',
-        payload: { sdp: offer.sdp },
-      });
+      try {
+        this.peerConnection.sendMessage({
+          type: 'video-accept' as any,
+          payload: '',
+          messageId: '',
+          timestamp: Date.now(),
+        });
+      } catch (error) {
+        console.log('[WebRTC] DataChannel not ready, falling back to signaling');
+        this.signaling.send({
+          type: 'signal',
+          signalType: 'video-accept',
+          payload: {},
+        });
+      }
     }
+    // Note: The caller (SessionScreen) will call startVideo() after this
+    // which adds video tracks to the existing peer connection
   }
 
   /**
@@ -384,16 +394,13 @@ export class WebRTCManager {
   private handleVideoEnd(): void {
     console.log('[WebRTC] Remote peer ended video');
 
-    // Close peer connection video only (keeps connection state)
+    // Stop video tracks only (keep data channel open for text chat)
     if (this.peerConnection) {
-      this.peerConnection.closeVideoOnly();
-      this.peerConnection = null;
+      this.peerConnection.stopVideoTracks();
     }
 
-    // Reset video state but keep signaling connected
+    // Reset video state but keep peer connection connected
     this.videoStarted = false;
-    this.pendingIceCandidates = [];
-    this.isProcessingOffer = false;
 
     // Notify UI
     if (this.onVideoEnded) {
@@ -405,26 +412,27 @@ export class WebRTCManager {
    * Handle video accept from remote peer
    *
    * This is called when WE sent the video invite and the remote peer accepted.
-   * Since we initiated the call, we are responsible for creating the offer.
+   * Since we initiated the call, we are responsible for creating a renegotiation offer
+   * to include the video tracks we've already added to the connection.
    */
   private async handleVideoAccept(): Promise<void> {
-    console.log('[WebRTC] Remote peer accepted video - creating offer');
+    console.log('[WebRTC] Remote peer accepted video - creating renegotiation offer');
 
     // Notify UI that video call is starting
     if (this.onVideoAccepted) {
       this.onVideoAccepted();
     }
 
-    // Create data channel and offer
+    // Create renegotiation offer to include video tracks
+    // Data channel already exists from text chat connection
     if (this.peerConnection) {
-      this.peerConnection.createDataChannel('chat');
       const offer = await this.peerConnection.createOffer();
       this.signaling.send({
         type: 'signal',
         signalType: 'offer',
-        payload: { sdp: offer.sdp },
+        payload: offer,  // Send full RTCSessionDescriptionInit { type, sdp }
       });
-      console.log('[WebRTC] Offer sent after video accept');
+      console.log('[WebRTC] Renegotiation offer sent after video accept');
     } else {
       console.error('[WebRTC] No peer connection to create offer');
     }
@@ -449,8 +457,15 @@ export class WebRTCManager {
 
     // Update connection state based on session status and participant count
     if (isSessionActive && participantCount >= 2) {
-      console.log('[WebRTC] Session is active with 2 participants - connected');
-      connectionStore.setConnectionState('connected');
+      console.log('[WebRTC] Session is active with 2 participants');
+
+      // Initialize peer connection for text chat when both participants are connected
+      if (!this.peerConnectionInitialized) {
+        console.log('[WebRTC] Initializing peer connection for text chat');
+        this.initializePeerConnectionForText().catch((error) => {
+          console.error('[WebRTC] Failed to initialize peer connection:', error);
+        });
+      }
     } else if (isSessionActive && participantCount === 1) {
       console.log('[WebRTC] Session active but waiting for peer');
       connectionStore.setConnectionState('connecting');
@@ -469,6 +484,54 @@ export class WebRTCManager {
           console.error('[WebRTC] Failed to update session status:', error);
         });
       }
+    }
+  }
+
+  /**
+   * Initialize peer connection for text chat (called when 2 participants connect)
+   * Host creates data channel and sends offer
+   * Guest waits for offer and creates answer (handled by handleOffer)
+   */
+  private async initializePeerConnectionForText(): Promise<void> {
+    if (this.peerConnectionInitialized) {
+      console.log('[WebRTC] Peer connection already initialized');
+      return;
+    }
+
+    try {
+      console.log('[WebRTC] Creating peer connection for text chat as', this.isInitiator ? 'host' : 'guest');
+      this.peerConnectionInitialized = true;
+
+      this.peerConnection = new PeerConnection();
+      await this.peerConnection.initialize();
+
+      // Setup ICE candidate handler
+      this.peerConnection.onIceCandidate((candidate) => {
+        this.sendIceCandidate(candidate.toJSON());
+      });
+
+      // Setup data channel handlers (for receiving messages)
+      this.setupDataChannelHandlers();
+
+      if (this.isInitiator) {
+        // Host: Create data channel and send offer
+        console.log('[WebRTC] Host: Creating data channel and offer');
+        this.peerConnection.createDataChannel('chat');
+
+        const offer = await this.peerConnection.createOffer();
+        this.signaling.send({
+          type: 'signal',
+          signalType: 'offer',
+          payload: offer,  // Send full RTCSessionDescriptionInit { type, sdp }
+        });
+        console.log('[WebRTC] Host: Offer sent for text chat');
+      }
+      // Guest: Wait for offer (handled by handleOffer which will create peer connection if needed)
+
+    } catch (error) {
+      console.error('[WebRTC] Failed to initialize peer connection for text:', error);
+      this.peerConnectionInitialized = false;
+      throw error;
     }
   }
 
@@ -507,6 +570,7 @@ export class WebRTCManager {
         break;
 
       case 'ice-candidate':
+      case 'iceCandidate':  // Browser sends camelCase
         if (payload) {
           await this.handleIceCandidate(payload);
         }
@@ -535,6 +599,12 @@ export class WebRTCManager {
   private setupDataChannelHandlers(): void {
     if (!this.peerConnection) return;
 
+    // Set connection state to 'connected' when data channel opens
+    this.peerConnection.onDataChannelOpen(() => {
+      console.log('[WebRTC] Data channel opened - text chat ready');
+      useConnectionStore.getState().setConnectionState('connected');
+    });
+
     this.peerConnection.onDataChannelMessage(async (message: DataChannelMessage) => {
       try {
         switch (message.type) {
@@ -558,6 +628,24 @@ export class WebRTCManager {
           case 'typing':
             // Handle typing indicator (future enhancement)
             break;
+
+          case 'video-invite' as any:
+            // Handle video invite from remote peer
+            console.log('[WebRTC] Received video invite via DataChannel');
+            this.handleVideoInvite();
+            break;
+
+          case 'video-accept' as any:
+            // Handle video accept from remote peer
+            console.log('[WebRTC] Received video accept via DataChannel');
+            await this.handleVideoAccept();
+            break;
+
+          case 'video-end' as any:
+            // Handle video end from remote peer
+            console.log('[WebRTC] Received video end via DataChannel');
+            this.handleVideoEnd();
+            break;
         }
       } catch (error) {
         console.error('[WebRTC] Failed to handle data channel message:', error);
@@ -576,10 +664,11 @@ export class WebRTCManager {
     }
 
     if (!this.peerConnection) {
-      console.log('[WebRTC] Received offer but no peer connection - initializing');
+      console.log('[WebRTC] Received offer but no peer connection - initializing as guest');
       // Initialize peer connection on-demand for guest
       this.peerConnection = new PeerConnection();
       await this.peerConnection.initialize();
+      this.peerConnectionInitialized = true;
 
       // Setup ICE candidate handler with queuing
       this.peerConnection.onIceCandidate((candidate) => {
@@ -630,7 +719,7 @@ export class WebRTCManager {
       this.signaling.send({
         type: 'signal',
         signalType: 'answer',
-        payload: { sdp: answer.sdp },
+        payload: answer,  // Send full RTCSessionDescriptionInit { type, sdp }
       });
 
       // Flush any pending ICE candidates now that signaling is stable
@@ -781,31 +870,41 @@ export class WebRTCManager {
 
   /**
    * Stop video chat while keeping text chat connected.
-   * Closes peer connection but keeps signaling open.
+   * Removes video/audio tracks but keeps peer connection and data channel open.
    * Notifies remote peer so they also stop video.
    */
   stopVideo(): void {
-    console.log('[WebRTC] Stopping video (keeping text chat)');
+    console.log('[WebRTC] Stopping video (keeping text chat via DataChannel)');
 
-    // Notify remote peer that video is ending
-    if (this.signaling.isConnected()) {
-      this.signaling.send({
-        type: 'signal',
-        signalType: 'video-end',
-        payload: {},
-      });
-    }
-
-    // Close peer connection video only (keeps connection state)
+    // Notify remote peer that video is ending via DataChannel
     if (this.peerConnection) {
-      this.peerConnection.closeVideoOnly();
-      this.peerConnection = null;
+      try {
+        this.peerConnection.sendMessage({
+          type: 'video-end' as any,
+          payload: '',
+          messageId: '',
+          timestamp: Date.now(),
+        });
+      } catch (error) {
+        // Fallback to signaling if data channel not ready
+        console.log('[WebRTC] DataChannel not ready, using signaling for video-end');
+        if (this.signaling.isConnected()) {
+          this.signaling.send({
+            type: 'signal',
+            signalType: 'video-end',
+            payload: {},
+          });
+        }
+      }
     }
 
-    // Reset video state but keep signaling connected
+    // Stop video tracks only (keep data channel open for text chat)
+    if (this.peerConnection) {
+      this.peerConnection.stopVideoTracks();
+    }
+
+    // Reset video state but keep peer connection and signaling connected
     this.videoStarted = false;
-    this.pendingIceCandidates = [];
-    this.isProcessingOffer = false;
   }
 
   /**
@@ -852,6 +951,7 @@ export class WebRTCManager {
     this.isInitiator = false;
     this.videoStarted = false;
     this.signalingInitialized = false;
+    this.peerConnectionInitialized = false;
     this.pendingIceCandidates = [];
     this.isProcessingOffer = false;
     this.onVideoInvite = undefined;

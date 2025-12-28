@@ -46,6 +46,7 @@ export class PeerConnection {
   private localStream: MediaStream | null = null;
   private remoteStream: MediaStream | null = null;
   private dataChannelHandlers: Set<DataChannelMessageHandler> = new Set();
+  private dataChannelOpenHandlers: Set<() => void> = new Set();
   private remoteStreamHandlers: Set<MediaStreamHandler> = new Set();
   private iceCandidateHandlers: Set<IceCandidateHandler> = new Set();
   private pendingIceCandidates: RTCIceCandidate[] = [];
@@ -183,6 +184,14 @@ export class PeerConnection {
 
     this.dataChannel.onopen = () => {
       console.log('[PeerConnection] Data channel open');
+      // Notify handlers that data channel is ready for text chat
+      this.dataChannelOpenHandlers.forEach((handler) => {
+        try {
+          handler();
+        } catch (error) {
+          console.error('[PeerConnection] Data channel open handler error:', error);
+        }
+      });
     };
 
     this.dataChannel.onclose = () => {
@@ -441,6 +450,16 @@ export class PeerConnection {
   }
 
   /**
+   * Register data channel open handler (called when data channel is ready for text chat)
+   */
+  onDataChannelOpen(handler: () => void): () => void {
+    this.dataChannelOpenHandlers.add(handler);
+    return () => {
+      this.dataChannelOpenHandlers.delete(handler);
+    };
+  }
+
+  /**
    * Register remote stream handler
    */
   onRemoteStream(handler: MediaStreamHandler): () => void {
@@ -535,6 +554,38 @@ export class PeerConnection {
       });
       console.log('[PeerConnection] Video:', enabled ? 'enabled' : 'disabled');
     }
+  }
+
+  /**
+   * Stop video/audio tracks only (keep data channel open for text chat)
+   * Used when stopping video call but keeping text chat active
+   */
+  stopVideoTracks(): void {
+    console.log('[PeerConnection] Stopping video tracks only (keeping data channel)');
+
+    // Stop and remove local video/audio tracks from peer connection
+    if (this.localStream && this.pc) {
+      this.localStream.getTracks().forEach((track) => {
+        track.stop();
+        // Remove track from peer connection
+        const senders = (this.pc as any).getSenders?.();
+        if (senders) {
+          senders.forEach((sender: any) => {
+            if (sender.track === track) {
+              (this.pc as any).removeTrack?.(sender);
+            }
+          });
+        }
+      });
+      this.localStream = null;
+    }
+
+    // Clear remote stream reference (remote will stop their tracks too)
+    this.remoteStream = null;
+
+    // Reset media state only (NOT connection state or data channel)
+    useConnectionStore.getState().setLocalMedia(false, false);
+    useConnectionStore.getState().setRemoteMedia(false, false);
   }
 
   /**

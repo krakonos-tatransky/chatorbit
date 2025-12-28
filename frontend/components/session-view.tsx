@@ -2825,7 +2825,7 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
           pendingCandidatesRef.current = [];
           throw cause;
         }
-      } else if (signalType === "iceCandidate") {
+      } else if (signalType === "iceCandidate" || signalType === "ice-candidate") {
         if (detail) {
           const candidateInit = detail as RTCIceCandidateInit;
           if (isDuplicateCandidate(candidateInit)) {

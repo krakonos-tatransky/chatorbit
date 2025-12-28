@@ -12,6 +12,7 @@ import type { APIError } from './types';
  * Create and configure the Axios instance
  */
 function createAPIClient(): AxiosInstance {
+  console.log('[API] Creating client with baseURL:', API_CONFIG.baseUrl);
   const client = axios.create({
     baseURL: API_CONFIG.baseUrl,
     timeout: 30000, // 30 seconds
@@ -25,7 +26,8 @@ function createAPIClient(): AxiosInstance {
     (config) => {
       // Log requests in development
       if (__DEV__) {
-        console.log(`[API] ${config.method?.toUpperCase()} ${config.url}`);
+        const fullUrl = `${config.baseURL || ''}${config.url}`;
+        console.log(`[API] ${config.method?.toUpperCase()} ${fullUrl}`);
       }
       return config;
     },
@@ -47,7 +49,14 @@ function createAPIClient(): AxiosInstance {
     (error: AxiosError<APIError>) => {
       // Handle errors
       const apiError = handleAPIError(error);
-      console.error('[API] Response error:', apiError);
+      if (__DEV__) {
+        console.error('[API] Response error:', JSON.stringify(apiError, null, 2));
+        console.error('[API] Original error:', error.message);
+        if (error.response) {
+          console.error('[API] Status:', error.response.status);
+          console.error('[API] Data:', JSON.stringify(error.response.data, null, 2));
+        }
+      }
       return Promise.reject(apiError);
     }
   );

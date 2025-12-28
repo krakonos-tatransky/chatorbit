@@ -96,8 +96,10 @@ export const MintContent: React.FC<MintContentProps> = ({
       const response = await mintToken(params);
       setMintedToken(response.token);
     } catch (error: any) {
-      console.error('Minting error:', error);
-      Alert.alert('Error', error.message || 'Failed to create token');
+      console.error('Minting error:', JSON.stringify(error, null, 2));
+      // API errors have 'detail', regular errors have 'message'
+      const errorMessage = error.detail || error.message || 'Failed to create token';
+      Alert.alert('Error', errorMessage);
     } finally {
       setIsMinting(false);
     }
