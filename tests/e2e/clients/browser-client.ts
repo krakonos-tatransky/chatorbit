@@ -536,6 +536,108 @@ export class BrowserClient {
   }
 
   /**
+   * Enter fullscreen mode during video call
+   */
+  async enterFullscreen(): Promise<void> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    this.logger.info('Entering fullscreen mode');
+
+    // Find the fullscreen toggle button (has aria-label containing "full screen")
+    const fullscreenButton = this.page.locator(
+      '.call-panel__icon-button[aria-label*="full screen" i], button[aria-label*="fullscreen" i]'
+    ).first();
+
+    await fullscreenButton.waitFor({ state: 'visible', timeout: 5000 });
+    await fullscreenButton.click();
+
+    this.logger.info('Entered fullscreen mode');
+  }
+
+  /**
+   * Exit fullscreen mode during video call
+   */
+  async exitFullscreen(): Promise<void> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    this.logger.info('Exiting fullscreen mode');
+
+    // Find exit button in fullscreen controls or toggle button
+    const exitButton = this.page.locator(
+      '.call-panel__fullscreen-control--dismiss, .call-panel__icon-button--active[aria-label*="full screen" i]'
+    ).first();
+
+    await exitButton.waitFor({ state: 'visible', timeout: 5000 });
+    await exitButton.click();
+
+    this.logger.info('Exited fullscreen mode');
+  }
+
+  /**
+   * End video call while in fullscreen mode
+   */
+  async endVideoCallFromFullscreen(): Promise<void> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    this.logger.info('Ending video call from fullscreen mode');
+
+    // Find the end call button in fullscreen controls
+    const endButton = this.page.locator('.call-panel__fullscreen-control--end').first();
+
+    await endButton.waitFor({ state: 'visible', timeout: 5000 });
+    await endButton.click();
+
+    this.logger.info('Video call ended from fullscreen');
+  }
+
+  /**
+   * Check if fullscreen toggle icon is visible
+   */
+  async isFullscreenIconVisible(): Promise<boolean> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    // The fullscreen button appears when callState === "active"
+    const fullscreenButton = this.page.locator(
+      '.call-panel__icon-button[aria-label*="full screen" i]'
+    ).first();
+
+    try {
+      const isVisible = await fullscreenButton.isVisible();
+      this.logger.info('Fullscreen icon visibility check', { isVisible });
+      return isVisible;
+    } catch (e) {
+      this.logger.info('Fullscreen icon not found');
+      return false;
+    }
+  }
+
+  /**
+   * Wait for fullscreen icon to become visible
+   */
+  async waitForFullscreenIcon(timeout = 10000): Promise<void> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    this.logger.info('Waiting for fullscreen icon to appear');
+
+    const fullscreenButton = this.page.locator(
+      '.call-panel__icon-button[aria-label*="full screen" i]'
+    ).first();
+
+    await fullscreenButton.waitFor({ state: 'visible', timeout });
+    this.logger.info('Fullscreen icon is now visible');
+  }
+
+  /**
    * Check if video invite button is visible
    * The button shows when: connected && dataChannelState === "open" && sessionIsActive
    */

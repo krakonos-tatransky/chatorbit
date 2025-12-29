@@ -1083,6 +1083,14 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     });
   }, [remoteStream]);
 
+  // Fallback transition: ensure callState becomes "active" when both streams are present
+  // This handles race conditions during second call setup after ending from fullscreen
+  useEffect(() => {
+    if (localStream && remoteStream && callState === "connecting") {
+      setCallState("active");
+    }
+  }, [localStream, remoteStream, callState, setCallState]);
+
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") {
       return;
@@ -2317,8 +2325,24 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
     ) => {
       const pc = peerConnectionRef.current;
       stopLocalMediaTracks(pc ?? undefined);
+      // Clean up remote stream handlers before clearing refs
+      const currentRemoteStream = remoteStreamRef.current;
+      if (currentRemoteStream) {
+        const handler = remoteStreamHandlersRef.current.get(currentRemoteStream);
+        if (handler) {
+          currentRemoteStream.removeEventListener("removetrack", handler);
+          remoteStreamHandlersRef.current.delete(currentRemoteStream);
+        }
+      }
       remoteStreamRef.current = null;
       setRemoteStream(null);
+      // Clear all remote track refs to ensure clean state for next call
+      remoteTrackStreamsRef.current.clear();
+      remoteStreamHandlersRef.current = new WeakMap<
+        MediaStream,
+        (event: MediaStreamTrackEvent) => void
+      >();
+      remoteTrackHandlersRef.current = new WeakMap<MediaStreamTrack, () => void>();
       setCallState("idle");
       setIncomingCallFrom(null);
       setCallDialogOpen(false);

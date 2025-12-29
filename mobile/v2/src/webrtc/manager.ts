@@ -52,6 +52,7 @@ export class WebRTCManager {
   private peerConnectionInitialized = false;
   private pendingIceCandidates: RTCIceCandidateInit[] = [];
   private isProcessingOffer = false;
+  private negotiationPending = false;
   private videoAcceptHandled = false;
 
   /**
@@ -104,6 +105,7 @@ export class WebRTCManager {
       this.isInitiator = isHost;
       this.pendingIceCandidates = [];
       this.isProcessingOffer = false;
+      this.negotiationPending = false;
 
       // Connect to signaling server
       await this.signaling.connect(token, participantId);
@@ -523,7 +525,25 @@ export class WebRTCManager {
       // Recommendation #1: Register negotiation callback
       this.peerConnection.onNegotiationNeeded(async () => {
         if (!this.peerConnection) return;
+
+        // Don't create offer if we're currently processing a remote offer
+        // This prevents race conditions during offer collision handling
+        if (this.isProcessingOffer) {
+          console.log('[WebRTC] Negotiation needed but processing offer - deferring');
+          this.negotiationPending = true;
+          return;
+        }
+
+        // Check signaling state - only create offer if we're in stable state
+        const signalingState = this.peerConnection.getSignalingState();
+        if (signalingState && signalingState !== 'stable') {
+          console.log(`[WebRTC] Negotiation needed but signaling state is ${signalingState} - deferring`);
+          this.negotiationPending = true;
+          return;
+        }
+
         console.log('[WebRTC] Negotiation needed - creating new offer');
+        this.negotiationPending = false;
         try {
           const offer = await this.peerConnection.createOffer();
           this.signaling.send({
@@ -858,6 +878,26 @@ export class WebRTCManager {
       this.flushPendingIceCandidates();
     } finally {
       this.isProcessingOffer = false;
+
+      // Process any pending negotiation that was deferred during offer processing
+      if (this.negotiationPending && this.peerConnection) {
+        const signalingState = this.peerConnection.getSignalingState();
+        if (signalingState === 'stable') {
+          console.log('[WebRTC] Processing deferred negotiation after offer handling');
+          this.negotiationPending = false;
+          try {
+            const offer = await this.peerConnection.createOffer();
+            this.signaling.send({
+              type: 'signal',
+              signalType: 'offer',
+              payload: offer,
+            });
+            console.log('[WebRTC] Deferred renegotiation offer sent');
+          } catch (error) {
+            console.error('[WebRTC] Failed to create deferred renegotiation offer:', error);
+          }
+        }
+      }
     }
   }
 
@@ -1136,6 +1176,7 @@ export class WebRTCManager {
     this.peerConnectionInitialized = false;
     this.pendingIceCandidates = [];
     this.isProcessingOffer = false;
+    this.negotiationPending = false;
     this.videoAcceptHandled = false;
     this.onVideoInvite = undefined;
     this.onVideoEnded = undefined;

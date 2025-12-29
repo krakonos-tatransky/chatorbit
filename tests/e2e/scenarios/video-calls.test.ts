@@ -434,4 +434,246 @@ describe('Video Call Tests', () => {
 
     logger.info('✅ Video rejection handling verified');
   }, 180000);
+
+  test('Mobile-to-Mobile video call negotiation (M2M)', async () => {
+    /**
+     * This test reproduces the M2M video negotiation race condition:
+     * - Mobile1 initiates video call (adds tracks, sends invite)
+     * - Mobile2 accepts with media (adds tracks, sends accept)
+     * - Both trigger onnegotiationneeded simultaneously
+     * - Without proper signaling state checks, one side may fail to create offer
+     *
+     * BUG SYMPTOMS (before fix):
+     * - Only offer sender sees both videos
+     * - Acceptor only sees local video
+     * - Error: "Failed to create offer: Called in wrong state: have-remote-offer"
+     */
+    const apiBaseUrl = process.env.TEST_API_BASE_URL!;
+    const { token } = await createToken(apiBaseUrl, {
+      validity_period: '1_day',
+      session_ttl_minutes: 30,
+      message_char_limit: 2000,
+    });
+
+    logger.info('TEST: Mobile-to-Mobile video call negotiation', { token });
+
+    // Create two mobile simulators
+    const mobile1 = new MobileSimulator(
+      new TestLogger('mobile1-initiator', testRunDir),
+      { role: 'host', deviceName: 'Mobile1' }
+    );
+
+    const mobile2 = new MobileSimulator(
+      new TestLogger('mobile2-acceptor', testRunDir),
+      { role: 'guest', deviceName: 'Mobile2' }
+    );
+
+    try {
+      // Connect both mobiles
+      await mobile1.connect(token);
+      await mobile2.connect(token);
+
+      await Promise.all([
+        mobile1.waitForConnection(90000),
+        mobile2.waitForConnection(90000),
+      ]);
+
+      await Promise.all([
+        mobile1.waitForDataChannel(90000),
+        mobile2.waitForDataChannel(90000),
+      ]);
+
+      logger.info('Both mobiles connected via WebRTC');
+
+      // Verify initial state
+      const initialState1 = mobile1.getWebRTCState();
+      const initialState2 = mobile2.getWebRTCState();
+      logger.info('Initial mobile1 state', initialState1);
+      logger.info('Initial mobile2 state', initialState2);
+
+      expect(initialState1.connectionState).toMatch(/connected|completed/);
+      expect(initialState2.connectionState).toMatch(/connected|completed/);
+      expect(initialState1.dataChannelState).toBe('open');
+      expect(initialState2.dataChannelState).toBe('open');
+
+      // Step 1: Mobile1 initiates video call
+      logger.info('Step 1: Mobile1 initiating video call');
+      await mobile1.initiateVideoCall();
+
+      // Step 2: Wait for Mobile2 to receive video invite
+      logger.info('Step 2: Waiting for Mobile2 to receive video invite');
+      await mobile2.waitForVideoInvite(15000);
+
+      // Step 3: Mobile2 accepts video call with media
+      logger.info('Step 3: Mobile2 accepting video call with media');
+      await mobile2.acceptVideoCallWithMedia();
+
+      // Wait for negotiation to complete (offer/answer exchange)
+      // This is where the race condition bug manifested
+      logger.info('Step 4: Waiting for negotiation to complete');
+      await new Promise(resolve => setTimeout(resolve, 5000));
+
+      // Verify final states
+      const finalState1 = mobile1.getWebRTCState();
+      const finalState2 = mobile2.getWebRTCState();
+
+      logger.info('Final mobile1 state', finalState1);
+      logger.info('Final mobile2 state', finalState2);
+
+      // Connection should still be connected
+      expect(finalState1.connectionState).toMatch(/connected|completed/);
+      expect(finalState2.connectionState).toMatch(/connected|completed/);
+
+      // DataChannel should remain open
+      expect(finalState1.dataChannelState).toBe('open');
+      expect(finalState2.dataChannelState).toBe('open');
+
+      // Both should have local streams
+      expect(finalState1.hasLocalStream).toBe(true);
+      expect(finalState2.hasLocalStream).toBe(true);
+
+      // Signaling state should be stable after negotiation
+      expect(finalState1.signalingState).toBe('stable');
+      expect(finalState2.signalingState).toBe('stable');
+
+      // Video call should be active on both sides
+      expect(mobile1.isVideoCallActive()).toBe(true);
+      expect(mobile2.isVideoCallActive()).toBe(true);
+
+      // Test message exchange still works during video
+      const testMsg = `M2M video test message ${Date.now()}`;
+      await mobile1.sendMessage(testMsg);
+      await mobile2.waitForMessage(testMsg, 10000);
+
+      const mobile2Received = mobile2.getReceivedMessages();
+      expect(mobile2Received).toContain(testMsg);
+
+      logger.info('✅ M2M video call negotiation test passed');
+    } finally {
+      await mobile1.close();
+      await mobile2.close();
+    }
+  }, 180000);
+
+  test('Fullscreen icon after host ends video in fullscreen and guest re-invites (B2B)', async () => {
+    /**
+     * This test reproduces a bug where:
+     * 1. Guest initiates video call
+     * 2. Host accepts and enters fullscreen
+     * 3. Host ends video while in fullscreen
+     * 4. Guest sends new video invite
+     * 5. Host's fullscreen icon is missing after accepting
+     */
+    const apiBaseUrl = process.env.TEST_API_BASE_URL!;
+    const { token } = await createToken(apiBaseUrl, {
+      validity_period: '1_day',
+      session_ttl_minutes: 30,
+      message_char_limit: 2000,
+    });
+
+    logger.info('TEST: Fullscreen icon after host ends in fullscreen and guest re-invites', { token });
+
+    const headless = process.env.TEST_HEADLESS === 'true';
+    const screenshotsPath = path.join(testRunDir, 'screenshots');
+    const videosPath = path.join(testRunDir, 'videos');
+
+    // Browser 1 = Host
+    const hostBrowser = new BrowserClient(
+      new TestLogger('browser-host-fullscreen', testRunDir),
+      { headless, screenshotsPath, videosPath }
+    );
+
+    // Browser 2 = Guest
+    const guestBrowser = new BrowserClient(
+      new TestLogger('browser-guest-initiator', testRunDir),
+      { headless, screenshotsPath, videosPath }
+    );
+
+    try {
+      // Connect both browsers
+      await hostBrowser.launch();
+      await hostBrowser.navigateToSession(token);
+      await guestBrowser.launch();
+      await guestBrowser.navigateToSession(token);
+
+      await Promise.all([
+        hostBrowser.waitForConnection(90000),
+        guestBrowser.waitForConnection(90000),
+      ]);
+
+      await Promise.all([
+        hostBrowser.waitForDataChannel(90000),
+        guestBrowser.waitForDataChannel(90000),
+      ]);
+
+      logger.info('Both browsers connected via WebRTC');
+
+      // Step 1: Guest initiates video call
+      logger.info('Step 1: Guest initiating video call');
+      await guestBrowser.initiateVideoCall();
+
+      // Step 2: Host accepts the video call
+      logger.info('Step 2: Host accepting video call');
+      await hostBrowser.acceptVideoCall(15000);
+
+      // Wait for video call to be established
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // Verify fullscreen icon is visible on host
+      const iconVisibleAfterAccept = await hostBrowser.isFullscreenIconVisible();
+      logger.info('Fullscreen icon visible after initial accept', { visible: iconVisibleAfterAccept });
+      expect(iconVisibleAfterAccept).toBe(true);
+
+      // Step 3: Host enters fullscreen
+      logger.info('Step 3: Host entering fullscreen');
+      await hostBrowser.enterFullscreen();
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Step 4: Host ends video while in fullscreen
+      logger.info('Step 4: Host ending video from fullscreen');
+      await hostBrowser.endVideoCallFromFullscreen();
+
+      // Wait for video end to propagate
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Verify text chat still works
+      const testMsg1 = `Text after first video end ${Date.now()}`;
+      await hostBrowser.sendMessage(testMsg1);
+      await guestBrowser.waitForMessage(testMsg1, 10000);
+      logger.info('Text chat verified after first video end');
+
+      // Step 5: Guest sends new video invite
+      logger.info('Step 5: Guest sending new video invite');
+      await guestBrowser.initiateVideoCall();
+
+      // Step 6: Host accepts new video call
+      logger.info('Step 6: Host accepting new video call');
+      await hostBrowser.acceptVideoCall(15000);
+
+      // Wait for video call to be established
+      await new Promise(resolve => setTimeout(resolve, 3000));
+
+      // Step 7: Verify fullscreen icon is visible (BUG: sometimes not visible)
+      logger.info('Step 7: Checking fullscreen icon visibility after re-invite');
+      const iconVisibleAfterReinvite = await hostBrowser.isFullscreenIconVisible();
+      logger.info('Fullscreen icon visible after re-invite', { visible: iconVisibleAfterReinvite });
+
+      // Take screenshot for debugging
+      await hostBrowser.getPage()?.screenshot({
+        path: path.join(screenshotsPath, `fullscreen-icon-check-${Date.now()}.png`),
+      });
+
+      expect(iconVisibleAfterReinvite).toBe(true);
+
+      // Verify text chat still works after second video
+      const testMsg2 = `Text during second video ${Date.now()}`;
+      await hostBrowser.sendMessage(testMsg2);
+      await guestBrowser.waitForMessage(testMsg2, 10000);
+
+      logger.info('✅ Fullscreen icon test passed - icon visible after re-invite');
+    } finally {
+      await hostBrowser.close();
+      await guestBrowser.close();
+    }
+  }, 240000);
 });

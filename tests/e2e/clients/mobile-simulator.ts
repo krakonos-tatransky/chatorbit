@@ -918,6 +918,59 @@ export class MobileSimulator {
   }
 
   /**
+   * Initiate a video call - adds local media tracks and sends invite
+   * This triggers onnegotiationneeded which creates an offer
+   */
+  async initiateVideoCall(): Promise<void> {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      throw new Error('Data channel not open');
+    }
+
+    this.logger.info('Initiating video call');
+
+    // First add local media tracks - this triggers onnegotiationneeded
+    this.createFakeMediaStream();
+
+    // Send the video invite message
+    this.sendVideoInvite();
+
+    this.videoCallActive = true;
+    this.logger.info('Video call initiated with local media');
+  }
+
+  /**
+   * Accept video invite and add local media tracks
+   * This triggers onnegotiationneeded for the response
+   */
+  async acceptVideoCallWithMedia(): Promise<void> {
+    if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
+      throw new Error('Data channel not open');
+    }
+
+    if (!this.pendingVideoInvite) {
+      this.logger.warn('No pending video invite to accept');
+    }
+
+    this.logger.info('Accepting video invite with media');
+
+    // Add local media tracks - this triggers onnegotiationneeded
+    this.createFakeMediaStream();
+
+    // Send accept message
+    const message = JSON.stringify({
+      type: 'call',
+      action: 'accept',
+      from: this.participantId,
+    });
+
+    this.dataChannel.send(message);
+    this.pendingVideoInvite = false;
+    this.videoCallActive = true;
+
+    this.logger.info('Video call accepted with local media');
+  }
+
+  /**
    * Accept video invite from remote peer
    */
   acceptVideoInvite(): void {
