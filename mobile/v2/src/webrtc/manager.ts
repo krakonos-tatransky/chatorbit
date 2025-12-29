@@ -934,7 +934,7 @@ export class WebRTCManager {
   }
 
   /**
-   * Send encrypted message
+   * Send encrypted message via data channel (P2P, no backend relay)
    */
   async sendMessage(content: string): Promise<void> {
     if (!this.token) {
@@ -944,60 +944,38 @@ export class WebRTCManager {
       );
     }
 
-    try {
-      // Encrypt message
-      const encrypted = await useMessagesStore.getState().sendMessage(this.token, content);
-
-      // Get session info for browser-compatible format
-      const sessionState = useSessionStore.getState();
-      const participantId = this.participantId || sessionState.participantId || '';
-      const role = sessionState.role || 'guest';
-
-      // If we have a data channel open, use it with browser-compatible format
-      if (this.peerConnection) {
-        try {
-          // Browser expects { type: 'message', message: { ... } }
-          const browserMessage = {
-            type: 'message',
-            message: {
-              sessionId: this.token,
-              messageId: encrypted.messageId,
-              participantId: participantId,
-              role: role,
-              createdAt: new Date(encrypted.timestamp).toISOString(),
-              encryptedContent: encrypted.payload,
-              hash: '', // Optional - browser skips verification if empty
-              encryption: 'aes-gcm',
-            },
-          };
-
-          console.log('[WebRTC] Sending message to browser:', JSON.stringify(browserMessage));
-          this.peerConnection.sendRawMessage(browserMessage);
-          console.log('[WebRTC] Message sent via data channel (browser format)');
-          return;
-        } catch (error) {
-          console.log('[WebRTC] Data channel failed, falling back to signaling');
-        }
-      }
-
-      // Fallback to signaling - backend expects type: "signal" with signalType
-      this.signaling.send({
-        type: 'signal',
-        signalType: 'message',
-        payload: {
-          payload: encrypted.payload,
-          messageId: encrypted.messageId,
-          timestamp: encrypted.timestamp,
-        },
-      });
-      console.log('[WebRTC] Message sent via signaling');
-
-      // Mark message as sent (no ack from signaling, so mark immediately)
-      useMessagesStore.getState().markMessageSent(encrypted.messageId);
-    } catch (error) {
-      console.error('[WebRTC] Failed to send message:', error);
-      throw error;
+    if (!this.peerConnection) {
+      throw new WebRTCError(
+        WebRTCErrorCode.NOT_CONNECTED,
+        'No peer connection available'
+      );
     }
+
+    // Encrypt message
+    const encrypted = await useMessagesStore.getState().sendMessage(this.token, content);
+
+    // Get session info for browser-compatible format
+    const sessionState = useSessionStore.getState();
+    const participantId = this.participantId || sessionState.participantId || '';
+    const role = sessionState.role || 'guest';
+
+    // Browser expects { type: 'message', message: { ... } }
+    const browserMessage = {
+      type: 'message',
+      message: {
+        sessionId: this.token,
+        messageId: encrypted.messageId,
+        participantId: participantId,
+        role: role,
+        createdAt: new Date(encrypted.timestamp).toISOString(),
+        encryptedContent: encrypted.payload,
+        hash: '', // Optional - browser skips verification if empty
+        encryption: 'aes-gcm',
+      },
+    };
+
+    this.peerConnection.sendRawMessage(browserMessage);
+    console.log('[WebRTC] Message sent via data channel');
   }
 
   /**

@@ -403,10 +403,23 @@ describe('Text Chat Tests', () => {
     const browserMessages = Array.from({ length: 5 }, (_, i) => `Browser msg ${i + 1}`);
     const mobileMessages = Array.from({ length: 5 }, (_, i) => `Mobile msg ${i + 1}`);
 
-    // Send all messages concurrently
+    // Browser UI requires sequential sends (can't type in input concurrently)
+    // Mobile DataChannel can handle concurrent sends
+    // Run both sequences in parallel
     await Promise.all([
-      ...browserMessages.map(msg => browserClient.sendMessage(msg)),
-      ...mobileMessages.map(msg => mobileClient.sendMessage(msg)),
+      // Browser sends sequentially (UI limitation)
+      (async () => {
+        for (const msg of browserMessages) {
+          await browserClient.sendMessage(msg);
+        }
+      })(),
+      // Mobile sends with slight delays to simulate realistic concurrent sending
+      (async () => {
+        for (const msg of mobileMessages) {
+          await mobileClient.sendMessage(msg);
+          await new Promise(r => setTimeout(r, 50));
+        }
+      })(),
     ]);
 
     // Wait for all messages to be received

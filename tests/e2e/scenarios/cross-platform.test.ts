@@ -255,12 +255,16 @@ describe('Cross-Platform Compatibility Tests', () => {
     try {
       // Mobile connects first as host
       await mobileHost.connect(token);
-      await mobileHost.waitForConnection(90000);
 
-      // Browser connects as guest
+      // Browser connects as guest (must connect before we wait for WebRTC)
       await browserGuest.launch();
       await browserGuest.navigateToSession(token);
-      await browserGuest.waitForConnection(90000);
+
+      // Now wait for both WebRTC connections in parallel
+      await Promise.all([
+        mobileHost.waitForConnection(90000),
+        browserGuest.waitForConnection(90000),
+      ]);
 
       // Wait for data channels
       await Promise.all([

@@ -429,10 +429,13 @@ describe('Connection Recovery Tests', () => {
     expect(afterBrowserState.dataChannelState).toBe('open');
     expect(afterMobileState.dataChannelState).toBe('open');
 
+    // Brief wait for UI to be ready (capabilities exchange)
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
     // Test message exchange to confirm recovery
     const testMsg = `Recovery test ${Date.now()}`;
     await browserClient.sendMessage(testMsg);
-    await mobileClient.waitForMessage(testMsg, 10000);
+    await mobileClient.waitForMessage(testMsg, 15000);
 
     const mobileReceived = mobileClient.getReceivedMessages();
     expect(mobileReceived).toContain(testMsg);

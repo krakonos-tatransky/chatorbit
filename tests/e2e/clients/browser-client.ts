@@ -274,7 +274,19 @@ export class BrowserClient {
     // Wait for button to be enabled (it enables when input has text)
     await this.page.waitForFunction(
       () => {
-        const btn = document.querySelector('[data-testid="send-button"], button:has-text("Send")') as HTMLButtonElement;
+        // Try data-testid first, then find send button by text content
+        let btn = document.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
+        if (!btn) {
+          const buttons = Array.from(document.querySelectorAll('button'));
+          for (let i = 0; i < buttons.length; i++) {
+            const b = buttons[i];
+            if (b.textContent?.toLowerCase().includes('send') ||
+                b.textContent?.toLowerCase().includes('odoslať')) {
+              btn = b as HTMLButtonElement;
+              break;
+            }
+          }
+        }
         return btn && !btn.disabled;
       },
       { timeout: 5000 }
@@ -301,6 +313,42 @@ export class BrowserClient {
   }
 
   /**
+   * Normalize text for comparison (handle escaped vs literal special chars)
+   */
+  private normalizeText(text: string): string {
+    // Convert literal escape sequences to actual characters for comparison
+    return text
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\r/g, '\r');
+  }
+
+  /**
+   * Check if text contains expected content (handles special chars)
+   */
+  private textContains(haystack: string, needle: string): boolean {
+    const normalizedHaystack = this.normalizeText(haystack);
+    const normalizedNeedle = this.normalizeText(needle);
+
+    // Direct check
+    if (normalizedHaystack.includes(normalizedNeedle)) {
+      return true;
+    }
+
+    // Check with escaped quotes (console logs often escape quotes in JSON)
+    const escapedNeedle = normalizedNeedle.replace(/"/g, '\\"');
+    if (normalizedHaystack.includes(escapedNeedle)) {
+      return true;
+    }
+
+    // Also check with whitespace normalized (for DOM rendering differences)
+    const wsNormalizedHaystack = normalizedHaystack.replace(/\s+/g, ' ');
+    const wsNormalizedNeedle = normalizedNeedle.replace(/\s+/g, ' ');
+
+    return wsNormalizedHaystack.includes(wsNormalizedNeedle);
+  }
+
+  /**
    * Wait for message to be received
    */
   async waitForMessage(expectedText: string, timeout = 10000): Promise<void> {
@@ -312,23 +360,27 @@ export class BrowserClient {
       // Check console messages for received message events
       const consoleText = this.consoleMessages.map(m => m.text()).join('\n');
 
-      if (consoleText.includes(expectedText)) {
+      if (this.textContains(consoleText, expectedText)) {
         this.logger.info('Message found in console logs');
         this.receivedMessages.push(expectedText);
         return;
       }
 
-      // Also check DOM for message
+      // Check DOM for message by scanning all message bubbles
       try {
-        await this.page!.locator(`text=${expectedText}`).waitFor({
-          state: 'visible',
-          timeout: 1000,
-        });
-        this.logger.info('Message found in DOM');
-        this.receivedMessages.push(expectedText);
-        return;
+        const messageBubbles = this.page!.locator('.message-bubble, .chat-message, [class*="message"]');
+        const count = await messageBubbles.count();
+
+        for (let i = 0; i < count; i++) {
+          const bubbleText = await messageBubbles.nth(i).innerText().catch(() => '');
+          if (this.textContains(bubbleText, expectedText)) {
+            this.logger.info('Message found in DOM');
+            this.receivedMessages.push(expectedText);
+            return;
+          }
+        }
       } catch (e) {
-        // Message not in DOM yet, continue
+        // DOM check failed, continue
       }
 
       await this.page!.waitForTimeout(500);

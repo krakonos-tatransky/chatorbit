@@ -281,11 +281,30 @@ export class MobileSimulator {
   /**
    * Setup data channel
    */
+  private capabilitiesSent = false;
+
+  /**
+   * Send capabilities announcement to peer
+   */
+  private sendCapabilities(): void {
+    if (this.capabilitiesSent || !this.dataChannel || this.dataChannel.readyState !== 'open') {
+      return;
+    }
+    this.logger.info('Sending capabilities to peer');
+    this.dataChannel.send(JSON.stringify({
+      type: 'capabilities',
+      supportsEncryption: true,
+    }));
+    this.capabilitiesSent = true;
+  }
+
   private setupDataChannel(channel: RTCDataChannel): void {
     this.dataChannel = channel;
 
     this.dataChannel.onopen = () => {
       this.logger.info('Data channel opened', { label: channel.label });
+      // Send capabilities when data channel opens
+      this.sendCapabilities();
     };
 
     this.dataChannel.onclose = () => {
@@ -348,6 +367,8 @@ export class MobileSimulator {
         // Handle capabilities announcement
         else if (message.type === 'capabilities') {
           this.logger.info('Received capabilities from peer', message);
+          // Respond with our capabilities if we haven't already
+          this.sendCapabilities();
         }
         // Handle ACK messages
         else if (message.type === 'ack') {
@@ -791,6 +812,41 @@ export class MobileSimulator {
   }
 
   /**
+   * Normalize text for comparison (handle escaped vs literal special chars)
+   */
+  private normalizeText(text: string): string {
+    return text
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t')
+      .replace(/\\r/g, '\r');
+  }
+
+  /**
+   * Check if text contains expected content (handles special chars)
+   */
+  private textContains(haystack: string, needle: string): boolean {
+    const normalizedHaystack = this.normalizeText(haystack);
+    const normalizedNeedle = this.normalizeText(needle);
+
+    // Direct check
+    if (normalizedHaystack.includes(normalizedNeedle)) {
+      return true;
+    }
+
+    // Check with escaped quotes
+    const escapedNeedle = normalizedNeedle.replace(/"/g, '\\"');
+    if (normalizedHaystack.includes(escapedNeedle)) {
+      return true;
+    }
+
+    // Check with whitespace normalized
+    const wsNormalizedHaystack = normalizedHaystack.replace(/\s+/g, ' ');
+    const wsNormalizedNeedle = normalizedNeedle.replace(/\s+/g, ' ');
+
+    return wsNormalizedHaystack.includes(wsNormalizedNeedle);
+  }
+
+  /**
    * Wait for message to be received
    */
   async waitForMessage(expectedText: string, timeout = 10000): Promise<void> {
@@ -799,7 +855,7 @@ export class MobileSimulator {
     const startTime = Date.now();
 
     while (Date.now() - startTime < timeout) {
-      if (this.receivedMessages.some(msg => msg.includes(expectedText))) {
+      if (this.receivedMessages.some(msg => this.textContains(msg, expectedText))) {
         this.logger.info('Message received', { expectedText });
         return;
       }
@@ -1015,6 +1071,10 @@ export class MobileSimulator {
       this.ws = null;
     }
 
+    // Reset state for next connection
+    this.capabilitiesSent = false;
+    this.receivedMessages = [];
+
     this.logger.info('Mobile simulator closed');
   }
 
@@ -1027,16 +1087,12 @@ export class MobileSimulator {
 
   /**
    * Derive encryption key from token (matching browser's algorithm)
-   * Uses PBKDF2 with SHA-256, 100000 iterations
+   * Uses SHA-256 hash of token (matching browser implementation)
    */
   private async deriveKey(token: string): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
-      // Use token as both password and salt (matching browser implementation)
-      crypto.pbkdf2(token, token, 100000, 32, 'sha256', (err, derivedKey) => {
-        if (err) reject(err);
-        else resolve(derivedKey);
-      });
-    });
+    // Browser uses: crypto.subtle.digest("SHA-256", token)
+    // which is a simple SHA-256 hash of the token
+    return crypto.createHash('sha256').update(token).digest();
   }
 
   /**
