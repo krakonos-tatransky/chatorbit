@@ -131,16 +131,36 @@ class ConnectionManager:
         async with self._lock:
             websockets = list(self._connections.get(token, {}).items())
         payload = json.dumps(message)
+        disconnected: List[str] = []
         for participant, ws in websockets:
             if participant in skip:
                 continue
-            await ws.send_text(payload)
+            try:
+                await ws.send_text(payload)
+            except (WebSocketDisconnect, RuntimeError, Exception) as e:
+                # Client disconnected - mark for removal
+                logging.debug(f"WebSocket send failed for {participant}: {e}")
+                disconnected.append(participant)
+        # Clean up disconnected clients
+        if disconnected:
+            async with self._lock:
+                participants = self._connections.get(token)
+                if participants:
+                    for p in disconnected:
+                        participants.pop(p, None)
+                    if not participants:
+                        self._connections.pop(token, None)
 
     async def send(self, token: str, participant_id: str, message: Dict[str, Any]) -> None:
         async with self._lock:
             ws = self._connections.get(token, {}).get(participant_id)
         if ws:
-            await ws.send_text(json.dumps(message))
+            try:
+                await ws.send_text(json.dumps(message))
+            except (WebSocketDisconnect, RuntimeError, Exception) as e:
+                # Client disconnected - remove from pool
+                logging.debug(f"WebSocket send failed for {participant_id}: {e}")
+                await self.disconnect(token, participant_id)
 
     async def connected_participants(self, token: str) -> List[str]:
         async with self._lock:
