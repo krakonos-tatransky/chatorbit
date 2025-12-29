@@ -676,4 +676,167 @@ describe('Video Call Tests', () => {
       await guestBrowser.close();
     }
   }, 240000);
+
+  test('B2B video re-invite: guest initiates first, host ends, guest re-invites, host accepts (callState must become active)', async () => {
+    /**
+     * This test reproduces a race condition bug where:
+     * 1. Guest initiates video call first (to establish video)
+     * 2. Host accepts
+     * 3. Host ends video call
+     * 4. Guest sends new video invite (re-invite)
+     * 5. Host accepts
+     * 6. BUG (before fix): callState stuck at "connecting" instead of "active"
+     *    - Video feed works fine
+     *    - But UI shows "Connecting video chat" instead of "Active video chat"
+     *    - Fullscreen icon is missing (only shows when callState === "active")
+     *
+     * ROOT CAUSE: React state batching caused setCallState("connecting") to not
+     * be processed before attachLocalMedia() triggered ontrack event.
+     * The ontrack handler only transitions from "connecting" to "active",
+     * not from "incoming" to "active".
+     *
+     * FIX: Use flushSync to ensure state update is processed synchronously
+     * before calling attachLocalMedia().
+     */
+    const apiBaseUrl = process.env.TEST_API_BASE_URL!;
+    const { token } = await createToken(apiBaseUrl, {
+      validity_period: '1_day',
+      session_ttl_minutes: 30,
+      message_char_limit: 2000,
+    });
+
+    logger.info('TEST: B2B video re-invite callState transition', { token });
+
+    const headless = process.env.TEST_HEADLESS === 'true';
+    const screenshotsPath = path.join(testRunDir, 'screenshots');
+    const videosPath = path.join(testRunDir, 'videos');
+
+    // Browser 1 = Host
+    const hostBrowser = new BrowserClient(
+      new TestLogger('browser-host-reinvite', testRunDir),
+      { headless, screenshotsPath, videosPath }
+    );
+
+    // Browser 2 = Guest
+    const guestBrowser = new BrowserClient(
+      new TestLogger('browser-guest-reinvite', testRunDir),
+      { headless, screenshotsPath, videosPath }
+    );
+
+    try {
+      // Connect both browsers
+      await hostBrowser.launch();
+      await hostBrowser.navigateToSession(token);
+      await guestBrowser.launch();
+      await guestBrowser.navigateToSession(token);
+
+      await Promise.all([
+        hostBrowser.waitForConnection(90000),
+        guestBrowser.waitForConnection(90000),
+      ]);
+
+      await Promise.all([
+        hostBrowser.waitForDataChannel(90000),
+        guestBrowser.waitForDataChannel(90000),
+      ]);
+
+      logger.info('Both browsers connected via WebRTC');
+
+      // Step 1: GUEST initiates video call first
+      logger.info('Step 1: Guest initiating video call');
+      await guestBrowser.initiateVideoCall();
+
+      // Step 2: Host accepts the video call
+      logger.info('Step 2: Host accepting video call');
+      await hostBrowser.acceptVideoCall(15000);
+
+      // Wait for video call to be fully established on both sides
+      logger.info('Waiting for both call states to become active');
+      await Promise.all([
+        hostBrowser.waitForCallStateActive(15000),
+        guestBrowser.waitForCallStateActive(15000),
+      ]);
+
+      // Verify first video call is active on both sides
+      const hostActiveFirst = await hostBrowser.isCallStateActive();
+      const guestActiveFirst = await guestBrowser.isCallStateActive();
+      logger.info('First video call status', { hostActive: hostActiveFirst, guestActive: guestActiveFirst });
+
+      expect(hostActiveFirst).toBe(true);
+      expect(guestActiveFirst).toBe(true);
+
+      // Step 3: Host ends video call
+      logger.info('Step 3: Host ending video call');
+      await hostBrowser.endVideoCall();
+
+      // Wait for video end to propagate
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Verify text chat still works
+      const testMsg1 = `Text after host ends video ${Date.now()}`;
+      await hostBrowser.sendMessage(testMsg1);
+      await guestBrowser.waitForMessage(testMsg1, 10000);
+      logger.info('Text chat verified after host ended video');
+
+      // Step 4: Guest sends new video invite
+      logger.info('Step 4: Guest sending new video invite');
+      await guestBrowser.initiateVideoCall();
+
+      // Step 5: Host accepts new video call
+      logger.info('Step 5: Host accepting new video call from guest');
+      await hostBrowser.acceptVideoCall(15000);
+
+      // Step 6: Wait and verify callState becomes "active" (not stuck at "connecting")
+      logger.info('Step 6: Verifying host callState becomes active');
+
+      // Wait for both sides to transition to active state
+      // This is the critical check - host should NOT get stuck at "connecting"
+      await Promise.all([
+        hostBrowser.waitForCallStateActive(15000),
+        guestBrowser.waitForCallStateActive(15000),
+      ]);
+
+      // Check if host's callState is "active" (this is the critical check)
+      const hostCallStateActive = await hostBrowser.isCallStateActive();
+      const hostStatusText = await hostBrowser.getVideoCallStatusText();
+      const hostFullscreenVisible = await hostBrowser.isFullscreenIconVisible();
+
+      logger.info('Host state after accepting guest re-invite', {
+        callStateActive: hostCallStateActive,
+        statusText: hostStatusText,
+        fullscreenVisible: hostFullscreenVisible,
+      });
+
+      // Take screenshot for debugging
+      await hostBrowser.getPage()?.screenshot({
+        path: path.join(screenshotsPath, `b2b-reinvite-host-state-${Date.now()}.png`),
+      });
+
+      // Guest should also be active
+      const guestCallStateActive = await guestBrowser.isCallStateActive();
+      const guestStatusText = await guestBrowser.getVideoCallStatusText();
+      logger.info('Guest state after host accepts re-invite', {
+        callStateActive: guestCallStateActive,
+        statusText: guestStatusText,
+      });
+
+      // Critical assertions:
+      // 1. Host callState must be "active" (not "connecting")
+      expect(hostCallStateActive).toBe(true);
+      // 2. Fullscreen icon must be visible (only shows when active)
+      expect(hostFullscreenVisible).toBe(true);
+      // 3. Guest should also be active
+      expect(guestCallStateActive).toBe(true);
+
+      // Verify text chat still works during second video call
+      const testMsg2 = `Text during second video ${Date.now()}`;
+      await hostBrowser.sendMessage(testMsg2);
+      await guestBrowser.waitForMessage(testMsg2, 10000);
+
+      logger.info('✅ B2B re-invite test passed - host callState correctly transitioned to active');
+    } finally {
+      await hostBrowser.close();
+      await guestBrowser.close();
+    }
+  }, 240000);
 });

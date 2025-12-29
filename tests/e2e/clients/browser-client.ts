@@ -778,6 +778,65 @@ export class BrowserClient {
   }
 
   /**
+   * Get video call status text from the call panel
+   * Returns the text shown in .call-panel__status-text element
+   */
+  async getVideoCallStatusText(): Promise<string | null> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    const statusElement = this.page.locator('.call-panel__status-text').first();
+
+    try {
+      const text = await statusElement.textContent({ timeout: 5000 });
+      this.logger.info('Video call status text', { text });
+      return text;
+    } catch (e) {
+      this.logger.info('Video call status text not found');
+      return null;
+    }
+  }
+
+  /**
+   * Check if callState is "active" by examining the status indicator class
+   * The active state has class call-panel__status--active
+   * This differs from isVideoCallActive() which checks WebRTC stream presence
+   */
+  async isCallStateActive(): Promise<boolean> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    const activeStatus = this.page.locator('.call-panel__status--active').first();
+
+    try {
+      const isVisible = await activeStatus.isVisible();
+      this.logger.info('Call state active check', { isActive: isVisible });
+      return isVisible;
+    } catch (e) {
+      this.logger.info('Call state active status not found');
+      return false;
+    }
+  }
+
+  /**
+   * Wait for callState to become "active"
+   */
+  async waitForCallStateActive(timeout = 10000): Promise<void> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    this.logger.info('Waiting for call state to become active');
+
+    const activeStatus = this.page.locator('.call-panel__status--active').first();
+    await activeStatus.waitFor({ state: 'visible', timeout });
+
+    this.logger.info('Call state is now active');
+  }
+
+  /**
    * Close browser
    */
   async close(): Promise<void> {
