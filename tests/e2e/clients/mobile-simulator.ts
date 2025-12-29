@@ -52,7 +52,10 @@ export class MobileSimulator {
   private remoteStream: any = null;
   private pendingVideoInvite = false;
   private videoCallActive = false;
+  private sessionEnded = false;
+  private sessionEndedReason: string | null = null;
   private onVideoInviteCallback?: () => void;
+  private onSessionEndedCallback?: (reason: string) => void;
 
   constructor(logger: TestLogger, options: MobileSimulatorOptions = {}) {
     this.logger = logger;
@@ -465,7 +468,39 @@ export class MobileSimulator {
           break;
 
         case 'session-ended':
-          this.logger.info('Session ended', message);
+          this.logger.info('Session ended by peer', message);
+          this.sessionEnded = true;
+          this.sessionEndedReason = message.reason || 'Session ended by other participant';
+          if (this.onSessionEndedCallback && this.sessionEndedReason) {
+            this.onSessionEndedCallback(this.sessionEndedReason);
+          }
+          break;
+
+        case 'session_deleted':
+          this.logger.info('Session deleted (ended via API)', message);
+          this.sessionEnded = true;
+          this.sessionEndedReason = 'Session ended by other participant';
+          if (this.onSessionEndedCallback) {
+            this.onSessionEndedCallback('Session ended by other participant');
+          }
+          break;
+
+        case 'session_closed':
+          this.logger.info('Session closed', message);
+          this.sessionEnded = true;
+          this.sessionEndedReason = 'Session closed';
+          if (this.onSessionEndedCallback) {
+            this.onSessionEndedCallback('Session closed');
+          }
+          break;
+
+        case 'session_expired':
+          this.logger.info('Session expired', message);
+          this.sessionEnded = true;
+          this.sessionEndedReason = 'Session expired';
+          if (this.onSessionEndedCallback) {
+            this.onSessionEndedCallback('Session expired');
+          }
           break;
 
         case 'status':
@@ -1016,7 +1051,8 @@ export class MobileSimulator {
   }
 
   /**
-   * End video call
+   * End video call - sends end message and stops local tracks
+   * This simulates the mobile app's stopVideo() behavior
    */
   endVideoCall(): void {
     if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
@@ -1025,6 +1061,7 @@ export class MobileSimulator {
 
     this.logger.info('Ending video call');
 
+    // Send end message to remote peer
     const message = JSON.stringify({
       type: 'call',
       action: 'end',
@@ -1032,7 +1069,83 @@ export class MobileSimulator {
     });
 
     this.dataChannel.send(message);
+
+    // Stop local media tracks (simulates stopVideoTracks)
+    if (this.localStream) {
+      this.localStream.getTracks().forEach((track: any) => {
+        track.stop();
+        // Remove track from peer connection
+        if (this.pc) {
+          const senders = (this.pc as any).getSenders?.();
+          if (senders) {
+            senders.forEach((sender: any) => {
+              if (sender.track === track) {
+                (this.pc as any).removeTrack?.(sender);
+              }
+            });
+          }
+        }
+      });
+      this.localStream = null;
+    }
+
+    // Clear remote stream reference
+    this.remoteStream = null;
     this.videoCallActive = false;
+  }
+
+  /**
+   * Wait for video call to end (received end message from remote)
+   */
+  async waitForVideoCallEnded(timeout = 15000): Promise<void> {
+    this.logger.info('Waiting for video call to end');
+
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeout) {
+      if (!this.videoCallActive) {
+        this.logger.info('Video call has ended');
+        return;
+      }
+
+      await this.wait(500);
+    }
+
+    throw new Error(`Video call did not end within ${timeout}ms`);
+  }
+
+  /**
+   * Check if we have remote audio track
+   */
+  hasRemoteAudioTrack(): boolean {
+    if (!this.remoteStream) {
+      return false;
+    }
+    return this.remoteStream.getAudioTracks().length > 0;
+  }
+
+  /**
+   * Check if we have remote video track
+   */
+  hasRemoteVideoTrack(): boolean {
+    if (!this.remoteStream) {
+      return false;
+    }
+    return this.remoteStream.getVideoTracks().length > 0;
+  }
+
+  /**
+   * Get remote stream info for debugging
+   */
+  getRemoteStreamInfo(): { hasAudio: boolean; hasVideo: boolean; trackCount: number } {
+    if (!this.remoteStream) {
+      return { hasAudio: false, hasVideo: false, trackCount: 0 };
+    }
+    return {
+      hasAudio: this.remoteStream.getAudioTracks().length > 0,
+      hasVideo: this.remoteStream.getVideoTracks().length > 0,
+      trackCount: this.remoteStream.getTracks().length,
+    };
   }
 
   /**
@@ -1136,6 +1249,72 @@ export class MobileSimulator {
    */
   isConnected(): boolean {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * End the session via API (triggers session_deleted notification to other party)
+   */
+  async endSession(): Promise<void> {
+    if (!this.token) {
+      throw new Error('No token available - not connected to session');
+    }
+
+    this.logger.info('Ending session via API', { token: this.token });
+
+    const response = await fetch(`${this.apiBaseUrl}/api/sessions/${this.token}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Failed to end session: ${response.status} ${response.statusText} ${body}`);
+    }
+
+    this.sessionEnded = true;
+    this.sessionEndedReason = 'Session ended by self';
+    this.logger.info('Session ended successfully');
+  }
+
+  /**
+   * Check if session has ended
+   */
+  isSessionEnded(): boolean {
+    return this.sessionEnded;
+  }
+
+  /**
+   * Get reason why session ended
+   */
+  getSessionEndedReason(): string | null {
+    return this.sessionEndedReason;
+  }
+
+  /**
+   * Set callback for session ended event
+   */
+  onSessionEnded(callback: (reason: string) => void): void {
+    this.onSessionEndedCallback = callback;
+  }
+
+  /**
+   * Wait for session to end (notification from other party)
+   */
+  async waitForSessionEnded(timeout = 15000): Promise<void> {
+    this.logger.info('Waiting for session to end');
+
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeout) {
+      if (this.sessionEnded) {
+        this.logger.info('Session ended', { reason: this.sessionEndedReason });
+        return;
+      }
+
+      await this.wait(500);
+    }
+
+    throw new Error(`Session did not end within ${timeout}ms`);
   }
 
   /**

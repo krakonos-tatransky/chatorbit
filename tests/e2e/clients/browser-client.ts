@@ -145,7 +145,8 @@ export class BrowserClient {
     await joinButton.click();
 
     // Wait for navigation to the session route
-    await this.page.waitForURL(`**/session/${token}**`, { timeout: 10000 });
+    // Increased timeout from 10s to 30s to handle Next.js on-demand compilation in dev mode
+    await this.page.waitForURL(`**/session/${token}**`, { timeout: 30000 });
 
     // Set terms accepted in case the session view checks again after navigation
     await this.page.evaluate((tok) => {
@@ -834,6 +835,88 @@ export class BrowserClient {
     await activeStatus.waitFor({ state: 'visible', timeout });
 
     this.logger.info('Call state is now active');
+  }
+
+  /**
+   * End session by clicking the end session button and confirming
+   */
+  async endSession(): Promise<void> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    this.logger.info('Ending session');
+
+    // Click the end session button using JavaScript to bypass overlapping elements
+    const endSessionButton = this.page.locator('.session-end-button').first();
+    await endSessionButton.waitFor({ state: 'visible', timeout: 5000 });
+
+    // Use evaluate to click the button directly via JavaScript
+    await endSessionButton.evaluate((button: HTMLButtonElement) => button.click());
+
+    // Wait for confirmation modal and confirm
+    const confirmButton = this.page.locator('.modal__confirm').first();
+    await confirmButton.waitFor({ state: 'visible', timeout: 5000 });
+    await confirmButton.click();
+
+    this.logger.info('Session end confirmed');
+  }
+
+  /**
+   * Check if session has ended (shows "Session has ended" state)
+   */
+  async isSessionEnded(): Promise<boolean> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    try {
+      // Check for session ended indicators
+      // The page shows a different UI when session ends
+      const sessionEndedText = await this.page.locator('text=/session.*ended|session.*closed|session.*expired/i').first().isVisible();
+      return sessionEndedText;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Wait for session to end (triggered by remote peer ending session)
+   */
+  async waitForSessionEnded(timeout = 15000): Promise<void> {
+    if (!this.page) {
+      throw new Error('Browser not launched');
+    }
+
+    this.logger.info('Waiting for session to end');
+
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeout) {
+      // Check for session ended indicators
+      // Look for status changing to deleted/closed/expired or UI showing ended state
+      const isEnded = await this.page.evaluate(() => {
+        // Check if session status shows ended
+        const statusText = document.querySelector('.session-status__value')?.textContent?.toLowerCase() || '';
+        if (statusText.includes('deleted') || statusText.includes('closed') || statusText.includes('expired')) {
+          return true;
+        }
+        // Check for session ended modal/message
+        const bodyText = document.body.innerText.toLowerCase();
+        if (bodyText.includes('session has ended') || bodyText.includes('session ended')) {
+          return true;
+        }
+        return false;
+      });
+
+      if (isEnded) {
+        this.logger.info('Session has ended');
+        return;
+      }
+
+      await this.page.waitForTimeout(500);
+    }
+
+    throw new Error(`Session did not end within ${timeout}ms`);
   }
 
   /**

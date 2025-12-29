@@ -16,6 +16,9 @@ export type SignalingMessageType =
   | 'message'
   | 'error'
   | 'session-ended'
+  | 'session_deleted'  // Backend sends this when session is ended via API
+  | 'session_closed'   // Backend may send this for other close scenarios
+  | 'session_expired'  // Backend sends this when session expires
   | 'video-invite'
   | 'video-accept'
   | 'status'
@@ -72,11 +75,32 @@ export interface ErrorMessage extends BaseSignalingMessage {
 }
 
 /**
- * Session ended message
+ * Session ended message (peer-to-peer notification)
  */
 export interface SessionEndedMessage extends BaseSignalingMessage {
   type: 'session-ended';
   reason?: string;
+}
+
+/**
+ * Session deleted message (from backend when session is ended via API)
+ */
+export interface SessionDeletedMessage {
+  type: 'session_deleted';
+}
+
+/**
+ * Session closed message (from backend)
+ */
+export interface SessionClosedMessage {
+  type: 'session_closed';
+}
+
+/**
+ * Session expired message (from backend when session times out)
+ */
+export interface SessionExpiredMessage {
+  type: 'session_expired';
 }
 
 /**
@@ -126,6 +150,9 @@ export type SignalingMessage =
   | ChatMessage
   | ErrorMessage
   | SessionEndedMessage
+  | SessionDeletedMessage
+  | SessionClosedMessage
+  | SessionExpiredMessage
   | VideoInviteMessage
   | VideoAcceptMessage
   | StatusMessage

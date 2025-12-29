@@ -355,6 +355,22 @@ export class WebRTCManager {
             await this.handleSessionEnded(message.reason);
             break;
 
+          case 'session_deleted':
+            // Backend sends this when remote peer ends session via API
+            console.log('[WebRTC] Session deleted by remote peer');
+            await this.handleSessionEnded('Session ended by other participant');
+            break;
+
+          case 'session_closed':
+            console.log('[WebRTC] Session closed');
+            await this.handleSessionEnded('Session closed');
+            break;
+
+          case 'session_expired':
+            console.log('[WebRTC] Session expired');
+            await this.handleSessionEnded('Session has expired');
+            break;
+
           case 'video-invite':
             this.handleVideoInvite();
             break;
@@ -1069,6 +1085,7 @@ export class WebRTCManager {
 
     // Reset video state but keep peer connection and signaling connected
     this.videoStarted = false;
+    this.videoAcceptHandled = false;  // Reset for next video call (fixes reinvite audio bug)
   }
 
   /**

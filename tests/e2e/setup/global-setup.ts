@@ -94,6 +94,12 @@ export default async function globalSetup() {
   await waitForFrontend(frontendUrl, 20000);
   console.log('✅ Frontend is ready');
 
+  // Pre-warm the session route to trigger Next.js on-demand compilation
+  // This prevents the first test in each suite from timing out due to route compilation
+  console.log('\n⏳ Pre-warming session route...');
+  await warmupSessionRoute(frontendUrl);
+  console.log('✅ Session route pre-warmed');
+
   console.log('\n✨ Test environment ready!\n');
 }
 
@@ -162,4 +168,31 @@ async function waitForFrontend(baseUrl: string, timeout: number): Promise<void> 
   }
 
   throw new Error(`Frontend did not become ready within ${timeout}ms`);
+}
+
+/**
+ * Pre-warm the session route to trigger Next.js on-demand compilation
+ * This prevents the first test in each suite from timing out due to cold route compilation
+ */
+async function warmupSessionRoute(baseUrl: string): Promise<void> {
+  const sessionUrl = `${baseUrl}/session/warmup-test-route`;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    // Request the session route - it will 404 or error, but that's fine
+    // The goal is just to trigger Next.js to compile the dynamic route
+    await fetch(sessionUrl, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'ChatOrbit-E2E-Warmup/1.0',
+      },
+    });
+
+    clearTimeout(timeoutId);
+  } catch (e) {
+    // Expected to fail (no valid session), but route should now be compiled
+    console.log('Session route warmup request completed (expected to fail, route is now compiled)');
+  }
 }
