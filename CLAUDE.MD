@@ -1,319 +1,470 @@
 # ChatOrbit - Project Context for Claude
 
+> **Last Updated**: December 28, 2024
+> **Status**: Mobile v2 Field Testing
+> **Documentation Version**: 2.0
+
+---
+
+## Quick Reference
+
+| Component | Technology | Port | Status |
+|-----------|------------|------|--------|
+| Frontend | Next.js 14 (App Router) | 3000 | Production |
+| Backend | FastAPI + SQLAlchemy | 50001 | Production |
+| Mobile v2 | React Native (Expo SDK 51) | - | Field Testing |
+| Mobile v1 | React Native (legacy) | - | Archived |
+
+---
+
 ## Project Overview
 
-ChatOrbit is a token-based two-person chat application with video chat capabilities. It focuses on issuing limited-use chat tokens and connecting exactly two devices in an end-to-end session with text messaging and WebRTC video/audio communication.
+ChatOrbit is a token-based, two-person chat application with optional WebRTC video capabilities. It emphasizes:
 
-## Technology Stack
+- **Ephemeral messaging**: Messages exist only in client memory, not stored on backend
+- **Token-gated access**: Time-limited, single-use tokens control session access
+- **End-to-end encryption**: AES-GCM encryption, keys derived client-side from token
+- **Peer-to-peer video**: WebRTC direct connections, backend only coordinates signaling
+- **Cross-platform consistency**: Shared design system and i18n between web and mobile
 
-### Frontend
-- **Framework**: Next.js 14 (App Router)
-- **Language**: TypeScript
-- **Styling**: Handcrafted CSS
-- **Key Features**:
-  - Landing page for token issuance/redemption
-  - Responsive chat workspace with countdown and connection state
-  - WebRTC video/audio chat with screen sharing
-  - Mobile-responsive design
+### Architecture Diagram
 
-### Backend
-- **Framework**: FastAPI
-- **Database**: SQLAlchemy ORM with SQLite
-- **Key Features**:
-  - Token issuance with 10/hour rate limit
-  - Session lifecycle management
-  - WebSocket bridge for message exchange and deletion
-  - Email notifications and abuse reporting
+```
+┌──────────────────┐         ┌──────────────────┐
+│   Next.js Web    │◄───────►│    FastAPI       │
+│   Frontend       │  HTTP   │    Backend       │
+│   (Port 3000)    │  WS     │   (Port 50001)   │
+└──────────────────┘         └──────────────────┘
+         ▲                            ▲
+         │                            │
+         │ WebRTC P2P                │ HTTP/WS
+         │ (Signaling via Backend)   │
+         ▼                            ▼
+┌──────────────────┐         ┌──────────────────┐
+│  React Native    │◄────────┤    SQLite DB     │
+│  Mobile App      │         │   (Sessions)     │
+│  (Expo)          │         │   data/chat.db   │
+└──────────────────┘         └──────────────────┘
+```
 
-### Mobile
-- **Framework**: React Native (Expo SDK 51)
-- **Language**: TypeScript
-- **Styling**: StyleSheet API with shared design constants
-- **Key Features**:
-  - Native iOS and Android apps
-  - WebRTC video chat with mobile optimizations
-  - i18n system with AsyncStorage persistence
-  - Shared design system with frontend (colors, spacing)
-
-### Infrastructure
-- Docker Compose for local development
-- Production-ready Docker configuration
-- ISPConfig-compatible reverse proxy setup
+---
 
 ## Project Structure
 
 ```
 /
-├── backend/              # FastAPI backend
+├── backend/                  # FastAPI backend
 │   ├── app/
-│   │   ├── config.py     # Settings & environment parsing
-│   │   ├── database.py   # SQLAlchemy engine + session helpers
-│   │   ├── main.py       # FastAPI routes + WebSocket gateway
-│   │   ├── models.py     # SQLAlchemy ORM models
-│   │   ├── schemas.py    # Pydantic request/response models
-│   │   ├── security.py   # Security utilities
-│   │   └── email_utils.py # Email notification helpers
+│   │   ├── config.py         # Settings & environment parsing
+│   │   ├── database.py       # SQLAlchemy engine + session helpers
+│   │   ├── main.py           # FastAPI routes + WebSocket gateway
+│   │   ├── models.py         # SQLAlchemy ORM models
+│   │   ├── schemas.py        # Pydantic request/response models
+│   │   ├── security.py       # Security utilities, rate limiting
+│   │   └── email_utils.py    # Email notification helpers
 │   ├── tests/
 │   │   └── test_sessions.py
 │   └── requirements.txt
 │
-├── frontend/             # Next.js frontend
-│   ├── app/             # Next.js routes
-│   │   ├── page.tsx     # Landing page
+├── frontend/                 # Next.js frontend
+│   ├── app/                  # Next.js routes
+│   │   ├── page.tsx          # Landing page
 │   │   ├── session/[token]/  # Session UI
-│   │   ├── help/        # Help page
+│   │   ├── help/             # Help page
 │   │   ├── administracia/    # Admin pages
 │   │   ├── privacy-policy/
 │   │   └── terms-of-service/
-│   ├── components/      # Reusable React components
-│   │   ├── ui/         # UI primitives
-│   │   └── admin/      # Admin components
-│   ├── lib/            # Frontend helpers (API endpoints)
-│   └── public/brand/   # Brand assets (SVG logos)
+│   ├── components/           # Reusable React components
+│   │   ├── ui/               # UI primitives
+│   │   ├── language/         # i18n provider and switcher
+│   │   ├── session-view.tsx  # Main session component
+│   │   └── ...
+│   ├── lib/                  # Frontend helpers
+│   │   ├── api.ts            # API client functions
+│   │   ├── webrtc.ts         # WebRTC utilities
+│   │   ├── crypto.ts         # AES-GCM encryption
+│   │   └── i18n/             # Translations (EN + SK)
+│   └── public/brand/         # Brand assets (SVG logos)
 │
-├── mobile/             # React Native mobile app
-│   ├── App.tsx        # Entry point
-│   ├── src/
-│   │   ├── components/    # React Native components
-│   │   ├── constants/     # Colors, spacing, styles
-│   │   ├── i18n/         # Internationalization system
-│   │   ├── utils/        # Crypto, WebRTC, formatting
-│   │   └── types/        # TypeScript type definitions
-│   └── README.md
+├── mobile/
+│   └── v2/                   # React Native mobile app (current)
+│       ├── App.tsx           # Entry point
+│       ├── src/
+│       │   ├── components/   # UI components
+│       │   ├── constants/    # Colors, spacing, styles
+│       │   ├── screens/      # Screen components
+│       │   ├── services/     # API and encryption
+│       │   ├── state/        # Zustand stores
+│       │   ├── utils/        # Helpers (env, date parsing)
+│       │   └── webrtc/       # WebRTC manager, signaling
+│       └── docs/             # Mobile-specific docs
 │
-├── infra/              # Docker infrastructure
-│   ├── docker-compose.yml
-│   └── docker-compose.production.yml
+├── tests/
+│   └── e2e/                  # End-to-end WebRTC tests
+│       ├── clients/          # Browser and mobile simulators
+│       ├── scenarios/        # Test scenarios
+│       └── README.md         # Test documentation
 │
-├── docs/              # Documentation
-│   ├── architecture.md    # Technical architecture
-│   └── CHANGELOG.md       # Version history
+├── infra/                    # Docker infrastructure
+│   ├── docker-compose.yml    # Development environment
+│   ├── docker-compose.production.yml
+│   └── docs/
+│       └── ispconfig-deployment.md
 │
-└── .claude/          # Claude Code configuration
-    └── skills/       # Custom Claude Code skills
-        ├── chatorbit-design-sync/      # Cross-platform design sync
-        ├── chatorbit-docs-keeper/      # Documentation maintenance
-        ├── session-flow-test/          # Session testing
-        └── webrtc-debug/               # WebRTC debugging
+├── docs/                     # Project documentation
+│   ├── architecture.md       # Comprehensive technical architecture
+│   ├── CHANGELOG.md          # Version history
+│   ├── PROJECT_STATUS.md     # Current status and next steps
+│   ├── OUTSTANDING_ISSUES.md # Issue tracking
+│   └── archive/              # Historical/completed docs
+│
+└── .claude/                  # Claude Code configuration
+    └── skills/               # Custom Claude Code skills
 ```
+
+---
+
+## Technology Stack
+
+### Frontend (Next.js)
+- **Framework**: Next.js 14.2.15 (App Router)
+- **Language**: TypeScript 5.x
+- **Styling**: Handcrafted CSS (no framework)
+- **WebRTC**: Native browser APIs
+- **i18n**: Custom LanguageProvider with localStorage
+- **Package Manager**: pnpm
+
+### Backend (FastAPI)
+- **Framework**: FastAPI 0.104+
+- **Database**: SQLAlchemy 2.x ORM with SQLite
+- **WebSocket**: FastAPI WebSocket support (Starlette)
+- **Validation**: Pydantic 2.x schemas
+- **ASGI Server**: Uvicorn
+
+### Mobile v2 (React Native)
+- **Framework**: React Native 0.74.x (Expo SDK 51)
+- **Language**: TypeScript 5.x
+- **State**: Zustand
+- **WebRTC**: react-native-webrtc 118.x
+- **Encryption**: react-native-quick-crypto
+- **i18n**: Custom LanguageProvider with AsyncStorage
+
+---
 
 ## Key Concepts
 
 ### Token System
-- Each device can request up to 10 tokens per hour
-- Configurable validity window (day/week/month/year)
-- Configurable active session TTL
-- Per-message character cap (200-16,000)
+- 12-character alphanumeric tokens (A-Z, 0-9)
+- Rate limit: 10 tokens/hour per IP
+- Configurable validity window: day/week/month/year
+- Configurable session TTL and message character limit
 
 ### Session Flow
-1. **Token Minting**: First user requests a token with desired parameters
-2. **Host Join**: First device to join reserves the host seat
-3. **Guest Join**: Second device activates session, starts countdown, locks token
-4. **Active Session**: Both participants can exchange messages and video/audio
-5. **Session End**: Timer expires, backend closes session and notifies both peers
+```
+1. TOKEN MINTING     → First user requests token with parameters
+2. HOST JOIN         → First device reserves host seat
+3. GUEST JOIN        → Second device activates session, starts timer
+4. ACTIVE SESSION    → Both exchange encrypted messages + optional video
+5. SESSION END       → Timer expires or manual end, cleanup
+```
 
-### WebRTC Integration
-- Peer-to-peer video and audio communication
-- Screen sharing capability
-- Configurable STUN/TURN servers via environment variables
-- Mobile and browser compatibility
-- Network traversal for restrictive NAT environments
+### WebRTC Implementation
+- **Signaling**: Offer/answer exchange via WebSocket
+- **ICE Candidates**: Buffered until remote description set
+- **Glare Prevention**: Deferred negotiation when signaling state not stable
+- **Cross-platform**: Browser ↔ Mobile tested and working
 
-### Security & Moderation
-- End-to-end message encryption
-- Abuse reporting system
-- Admin interface for reviewing reports
-- Email notifications for abuse reports
+### End-to-End Encryption
+- **Algorithm**: AES-256-GCM
+- **Key Derivation**: PBKDF2 (100,000 iterations, SHA-256)
+- **IV**: 96-bit random nonce per message
+- **Key Source**: Derived from session token
 
-## Important Environment Variables
+---
 
+## Environment Variables
+
+### Backend
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CHAT_DATABASE_URL` | `sqlite:///./data/yourapp.db` | Database location |
+| `CHAT_TOKEN_RATE_LIMIT_PER_HOUR` | `10` | Max token requests per IP |
+| `CHAT_CORS_ALLOWED_ORIGINS` | `*` | CORS origins (JSON array or comma-separated) |
+
+### Frontend
 | Variable | Purpose |
 |----------|---------|
-| `CHAT_DATABASE_URL` | Database location (SQLite by default) |
-| `CHAT_TOKEN_RATE_LIMIT_PER_HOUR` | Max token requests per IP (default: 10) |
-| `CHAT_CORS_ALLOWED_ORIGINS` | CORS origins configuration |
-| `NEXT_PUBLIC_API_BASE_URL` | Frontend → Backend HTTP base |
-| `NEXT_PUBLIC_WS_BASE_URL` | Frontend → Backend WebSocket base |
+| `NEXT_PUBLIC_API_BASE_URL` | Backend HTTP base (e.g., `http://localhost:50001`) |
+| `NEXT_PUBLIC_WS_BASE_URL` | Backend WebSocket base (e.g., `ws://localhost:50001`) |
 | `NEXT_PUBLIC_WEBRTC_STUN_URLS` | STUN server URLs |
 | `NEXT_PUBLIC_WEBRTC_TURN_URLS` | TURN server URLs |
 | `NEXT_PUBLIC_WEBRTC_TURN_USER` | TURN username |
 | `NEXT_PUBLIC_WEBRTC_TURN_PASSWORD` | TURN password |
 
-See README.md for complete environment variable documentation.
+### Mobile
+Configure in `.env` or `src/session/config.ts`:
+| Variable | Purpose |
+|----------|---------|
+| `EXPO_PUBLIC_API_BASE_URL` | Backend HTTP base |
+| `EXPO_PUBLIC_WS_BASE_URL` | Backend WebSocket base |
+| `EXPO_PUBLIC_WEBRTC_STUN_URLS` | STUN server URLs |
+| `EXPO_PUBLIC_WEBRTC_TURN_URLS` | TURN server URLs |
+
+---
 
 ## Development Workflow
 
-### Local Development
-1. Backend runs on port 50001 (FastAPI with hot reload)
-2. Frontend runs on port 3000 (Next.js dev server)
-3. Use pnpm for frontend package management
-4. Python virtual environment recommended for backend
+### Quick Start (Local)
+```bash
+# Terminal 1: Backend
+cd backend
+pip install -r requirements.txt
+uvicorn app.main:app --host 0.0.0.0 --port 50001 --reload
+
+# Terminal 2: Frontend
+cd frontend
+pnpm install
+NEXT_PUBLIC_API_BASE_URL=http://localhost:50001 \
+NEXT_PUBLIC_WS_BASE_URL=ws://localhost:50001 \
+pnpm dev
+
+# Terminal 3: Mobile (optional)
+cd mobile/v2
+npm install
+npx expo start
+```
 
 ### Docker Development
 ```bash
 cd infra
 docker compose up --build
+# Frontend: http://localhost:3000
+# Backend: http://localhost:50001
+```
+
+### Mobile iOS Deployment
+```bash
+cd mobile/v2
+
+# Development (with Metro)
+npx expo run:ios --device "DEVICE_NAME"
+
+# Release (standalone, no Metro needed)
+npx expo run:ios --device "DEVICE_NAME" --configuration Release
+
+# Manual install after build
+xcrun devicectl device install app \
+  --device DEVICE_UUID \
+  ~/Library/Developer/Xcode/DerivedData/ChatOrbitv2-*/Build/Products/Release-iphoneos/ChatOrbitv2.app
 ```
 
 ### Testing
-- **Backend**: `cd backend && pytest`
-- **Frontend**: TypeScript compilation + `pnpm lint`
+```bash
+# Backend
+cd backend && pytest
 
-## Recent Changes
+# Frontend
+cd frontend && pnpm lint
 
-**December 2024**:
-- **Mobile i18n System**: Implemented complete internationalization for mobile app
-  - Created `mobile/src/i18n/` with LanguageProvider using AsyncStorage
-  - Ported all translations from frontend (English + Slovak)
-  - Added LanguageSwitcher component with modal UI
-  - Device language auto-detection with expo-localization
-  - Wrapped App.tsx with LanguageProvider
-  - Updated AcceptScreen to demonstrate i18n usage
+# E2E WebRTC tests
+cd tests/e2e && npm install && npm test
+```
 
-- **Documentation Infrastructure**:
-  - Created `docs/architecture.md` with comprehensive technical architecture
-  - Created `docs/CHANGELOG.md` following Keep a Changelog format
-  - Created Documentation Keeper skill for maintaining all docs
+---
 
-- **Claude Code Skills**:
-  - Created `.claude/skills/` directory for custom skills
-  - **chatorbit-design-sync**: Cross-platform design consistency expert
-  - **chatorbit-docs-keeper**: Documentation maintenance automation
+## API Reference
 
-- **WebRTC Improvements**:
-  - Fixed critical WebRTC issues for browser-mobile compatibility
-  - Added signaling state checks to prevent mobile disconnections
-  - Improved connection management and error handling
+### Token Endpoints
 
-- **Mobile v2 (December 2024)**:
-  - Complete rewrite with chat-first UI paradigm
-  - Video is optional, initiated via floating camera button
-  - Stop video while keeping text chat connected
-  - Speaker toggle (earpiece/loudspeaker)
-  - Echo cancellation and noise suppression
-  - Draggable local video PiP
-  - Fullscreen video mode
-  - UTC timezone fix for session timers
-  - Auto-cleanup of messages on session end
-  - Stuck message resolution on WebSocket reconnect
+**POST /api/tokens/issue**
+```json
+// Request
+{ "validity_option": "week", "ttl_minutes": 120, "max_message_length": 2000 }
 
-## Common Patterns
+// Response
+{ "token": "ABCD1234WXYZ", "valid_until": "...", "ttl_minutes": 120 }
+```
 
-### Frontend
-- Uses App Router with TypeScript
-- Server and client components clearly separated
-- API calls through lib/ helper functions
-- CSS modules for component styling
+**POST /api/tokens/join**
+```json
+// Request
+{ "token": "ABCD1234WXYZ", "client_identity": "host-abc-123" }
 
-### Backend
-- FastAPI async/await patterns
-- SQLAlchemy ORM for database operations
-- Pydantic schemas for validation
-- WebSocket connections managed per session
+// Response
+{ "role": "host", "session_status": {...} }
+```
 
-## Known Issues & Troubleshooting
+**GET /api/session/{token}/status**
+```json
+// Response
+{ "token": "...", "state": "ACTIVE", "participants": {...}, "timer": {...} }
+```
 
-### WebRTC ICE Errors
-- Avoid wildcard hosts (0.0.0.0, localhost) in ICE configuration
-- Ensure IPv4/IPv6 compatibility
-- Verify TURN credentials are correct
-- Check port accessibility (UDP 3478/5349, TCP 80/443)
+### WebSocket Protocol
 
-See "Troubleshooting WebRTC ICE errors" section in README.md for detailed guidance.
+Connect: `ws://backend/api/ws/{token}/{client_identity}`
 
-## Brand Assets
+Message types:
+- `session-status` - Session state updates
+- `message` - Encrypted chat messages
+- `delete` - Message deletion
+- `webrtc-offer/answer/ice-candidate` - WebRTC signaling
+- `session-ended` - Session termination
+- `video-end` - Video call ended (keeps text chat)
 
-Located in `frontend/public/brand/`:
-- `chat-orbit-logo-token.svg` - Primary badge with mirrored chat silhouettes
-- `chat-orbit-logo-link.svg` - Wide lockup for hero/banner usage
-- `chat-orbit-logo-glyph.svg` - Compact glyph for favicons/avatars
+---
 
-## Git Workflow
+## Current Status (December 2024)
 
-- **Main Branch**: `master`
-- **Current Worktree**: `flamboyant-nash`
-- Repository uses git worktrees for parallel development
+### Mobile v2 - Field Testing Phase
 
-## Future Enhancements (TODO)
+**Completed Features**:
+- Token-based session joining
+- End-to-end encrypted text messaging
+- WebRTC video/audio calls (mobile-to-mobile, mobile-to-browser)
+- Chat-first UI (text primary, video optional)
+- Session countdown timer with auto-end
+- Speaker toggle (earpiece/loudspeaker)
+- Echo cancellation and noise suppression
+- Draggable local video PiP
+- Fullscreen video mode
+- UTC timezone handling
+- Message cleanup on session end
+- Message reorder button
+- Video control overlay
 
-### Priority Options (Choose Next Steps)
+**Known Issues**:
+- Development-signed apps expire after 7 days
+- WebSocket behavior during extended sleep needs investigation
 
-#### Option A: Production Deployment
-Prepare for App Store / TestFlight release:
-- Set up Apple Developer Program account ($99/year)
-- Configure production signing certificates
-- Create App Store Connect listing
-- Set up TestFlight for beta distribution
-- 90-day testing builds instead of 7-day dev builds
+### What's Next (Priority Options)
 
-#### Option B: Token Minting on Mobile
-Allow users to create new session tokens from mobile:
-- Add "Create Token" screen with duration/settings options
-- Integrate with backend `/api/tokens` endpoint
-- Share token via system share sheet
-- QR code generation for easy sharing
+1. **Production Deployment**: TestFlight/App Store preparation
+2. **Token Minting on Mobile**: Create tokens from app
+3. **Device Identity System**: Session reclaim after disconnect
+4. **Push Notifications**: Incoming message/video alerts
+5. **Android Support**: Cross-platform testing
+6. **Settings Screen**: Language, notifications, preferences
 
-#### Option C: Push Notifications
-Add push notifications for incoming messages/video invites:
-- Set up Firebase Cloud Messaging (FCM) / APNs
-- Backend integration for sending notifications
-- Handle notification tap to open specific session
-- Background message handling
+---
 
-#### Option D: Android Support
-Extend to Android devices:
-- Test existing codebase on Android emulator
-- Fix any platform-specific issues
-- Configure Android build and signing
-- Test on physical Android devices
+## Design System
 
-#### Option E: Settings Screen
-Add user preferences:
-- Language selection (i18n already implemented)
-- Notification preferences
-- Default camera (front/back)
-- Auto-answer video calls option
+### Colors (shared across platforms)
+```
+midnight:   #020B1F  (background)
+abyss:      #041335
+deepBlue:   #06255E
+ocean:      #0A4A89
+lagoon:     #0F6FBA
+aurora:     #6FE7FF  (primary brand)
+ice:        #F4F9FF  (text)
+mint:       #88E6FF
+danger:     #EF476F
+```
 
-### Device Identity & Session Reclaim System
-**Goal**: Allow users to leave a session and rejoin later, while preventing other devices from hijacking their slot.
+### Spacing
+```
+Container padding: 24px
+Card padding: 28px
+Section gap: 20px
+Element gap: 12-16px
+Border radius: 16-28px
+```
 
-**Proposed Approach**:
-1. On first app launch, call `POST /api/devices/register`
-2. Server returns JWT device token (TTL: 3 months) + device_id
-3. Store in Keychain (iOS) / Keystore (Android)
-4. Include device token in all API requests
-5. When joining session, server binds `participant_id ↔ device_id`
-6. When reclaiming, server verifies device_id matches
+---
 
-**Additional Considerations**:
-- Silent token refresh (check weekly, refresh if < 30 days remaining)
-- Reinstall behavior (new device or recovery code?)
-- Optional: Signed requests with HMAC for extra security
-- Web frontend parity
+## WebRTC Troubleshooting
 
-**Backend Changes Needed**:
-- `POST /api/devices/register` - Issue device token
-- `POST /api/devices/refresh` - Refresh expiring token
-- Modify session join to store/verify device binding
-- Add `device_id` column to SessionParticipant model
+### Common ICE Errors
+- **Wildcard hosts**: Remove `0.0.0.0`, `localhost` from ICE config
+- **IPv4/IPv6 mismatch**: Ensure URLs resolve to matching address types
+- **Missing TURN credentials**: Check username/password configuration
+- **Port blocks**: Corporate networks may block UDP 3478/5349
+
+### Signaling State Issues
+If connections fail, check:
+1. Signaling state is `stable` before creating offers
+2. ICE candidates are buffered until remote description set
+3. Deferred negotiation flag is cleared after completion
+
+---
+
+## Documentation Map
+
+### Primary References (kept current)
+| File | Purpose |
+|------|---------|
+| `/CLAUDE.md` | This file - AI assistant context |
+| `/README.md` | User-facing setup guide |
+| `/docs/architecture.md` | Comprehensive technical architecture |
+| `/docs/CHANGELOG.md` | Version history |
+| `/docs/PROJECT_STATUS.md` | Current status and next steps |
+| `/docs/OUTSTANDING_ISSUES.md` | Active issue tracking |
+| `/mobile/v2/README.md` | Mobile app setup & deployment |
+
+### Operational Guides
+| File | Purpose |
+|------|---------|
+| `/infra/docs/ispconfig-deployment.md` | Production deployment with ISPConfig |
+| `/tests/e2e/README.md` | E2E WebRTC test documentation |
+| `/docs/MOBILE_TESTING_CHECKLIST.md` | Mobile testing procedures |
+
+### Archived Documentation
+See `/docs/archive/` for historical documents:
+- WebRTC analysis and compatibility docs
+- Stage completion logs
+- Planning documents for abandoned features
+- Implementation summaries
 
 ---
 
 ## Pre-Production Cleanup
 
-Before building for production, remove the following dev-only features:
+Before building for App Store release:
 
-### Mobile App (v2)
-- **PatternPreviewScreen**: Remove `src/screens/PatternPreviewScreen.tsx` and its navigation entry
-- **Dev Button**: Remove the "BG" button in `MainScreen.tsx` (wrapped in `__DEV__` check)
-- **BackgroundPattern component**: Either finalize the logo design or remove `src/components/ui/BackgroundPattern.tsx`
-- Update `App.tsx` to remove PatternPreview from the navigation stack
-- Update `src/components/ui/index.ts` to remove BackgroundPattern export if not used
+1. **Remove PatternPreviewScreen**: `src/screens/PatternPreviewScreen.tsx`
+2. **Remove Dev Button**: "BG" button in MainScreen (wrapped in `__DEV__`)
+3. **Finalize BackgroundPattern**: Either complete or remove
+4. **Update navigation**: Remove dev screens from stack
 
-## Additional Notes
+---
 
-- Project emphasizes lightweight, focused functionality
-- End-to-end encryption for privacy
-- Mobile-first responsive design
-- Production-ready with ISPConfig integration
-- Rate limiting and abuse prevention built-in
+## Git Workflow
+
+- **Main Branch**: `master`
+- **Commit Format**: Use conventional commits
+- **PR Template**: Summary + Test plan format
+
+---
+
+## Brand Assets
+
+Located in `frontend/public/brand/`:
+- `chat-orbit-logo-token.svg` - Primary badge
+- `chat-orbit-logo-link.svg` - Wide lockup for hero/banner
+- `chat-orbit-logo-glyph.svg` - Compact glyph for favicons/avatars
+
+---
+
+## Glossary
+
+| Term | Definition |
+|------|------------|
+| **Token** | 12-char alphanumeric string granting session access |
+| **Host** | First participant to join (reserves seat) |
+| **Guest** | Second participant (activates session, starts timer) |
+| **Session** | Time-limited chat room for exactly two participants |
+| **TTL** | Time-to-live; active session duration |
+| **E2E** | End-to-end encryption |
+| **P2P** | Peer-to-peer (direct connection) |
+| **WebRTC** | Web Real-Time Communication |
+| **ICE** | Interactive Connectivity Establishment |
+| **STUN** | Session Traversal Utilities for NAT |
+| **TURN** | Traversal Using Relays around NAT |
+| **SDP** | Session Description Protocol |
+
+---
+
+**Document maintained by**: Documentation automation
+**Canonical source**: `/CLAUDE.md`

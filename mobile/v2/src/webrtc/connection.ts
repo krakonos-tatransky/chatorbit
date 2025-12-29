@@ -50,6 +50,9 @@ export class PeerConnection {
   private remoteStreamHandlers: Set<MediaStreamHandler> = new Set();
   private iceCandidateHandlers: Set<IceCandidateHandler> = new Set();
   private pendingIceCandidates: RTCIceCandidate[] = [];
+  private negotiationCallback?: () => Promise<void>;
+  private iceConnectionFailedCallback?: () => void;
+  private dataChannelTimeoutRef: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Initialize peer connection
@@ -136,6 +139,14 @@ export class PeerConnection {
       console.log('[PeerConnection] ICE connection state:', state);
       if (state) {
         useConnectionStore.getState().setIceConnectionState(state as any);
+
+        // Recommendation #5: Improve error recovery parity with browser
+        if (state === 'failed') {
+          console.log('[PeerConnection] ICE connection failed - triggering recovery callback');
+          if (this.iceConnectionFailedCallback) {
+            this.iceConnectionFailedCallback();
+          }
+        }
       }
     });
 
@@ -185,6 +196,18 @@ export class PeerConnection {
       this.dataChannel = event.channel;
       this.setupDataChannel();
     });
+
+    // Recommendation #1: Align renegotiation strategy with browser
+    pc.addEventListener('negotiationneeded', async () => {
+      console.log('[PeerConnection] Negotiation needed');
+      if (this.negotiationCallback) {
+        try {
+          await this.negotiationCallback();
+        } catch (error) {
+          console.error('[PeerConnection] Negotiation callback error:', error);
+        }
+      }
+    });
   }
 
   /**
@@ -193,8 +216,28 @@ export class PeerConnection {
   private setupDataChannel(): void {
     if (!this.dataChannel) return;
 
+    // Recommendation #3: Add DataChannel timeout (15 seconds)
+    if (this.dataChannel.readyState !== 'open') {
+      this.dataChannelTimeoutRef = setTimeout(() => {
+        if (this.dataChannel?.readyState !== 'open') {
+          console.error('[PeerConnection] DataChannel failed to open within timeout');
+          // Trigger ICE recovery callback
+          if (this.iceConnectionFailedCallback) {
+            this.iceConnectionFailedCallback();
+          }
+        }
+      }, 15000); // 15 seconds
+    }
+
     this.dataChannel.onopen = () => {
       console.log('[PeerConnection] Data channel open');
+
+      // Clear timeout
+      if (this.dataChannelTimeoutRef) {
+        clearTimeout(this.dataChannelTimeoutRef);
+        this.dataChannelTimeoutRef = null;
+      }
+
       // Notify handlers that data channel is ready for text chat
       this.dataChannelOpenHandlers.forEach((handler) => {
         try {
@@ -516,6 +559,20 @@ export class PeerConnection {
   }
 
   /**
+   * Register negotiation needed callback (Recommendation #1)
+   */
+  onNegotiationNeeded(callback: () => Promise<void>): void {
+    this.negotiationCallback = callback;
+  }
+
+  /**
+   * Register ICE connection failed callback (Recommendation #5)
+   */
+  onIceConnectionFailed(callback: () => void): void {
+    this.iceConnectionFailedCallback = callback;
+  }
+
+  /**
    * Get local stream
    */
   getLocalStream(): MediaStream | null {
@@ -667,6 +724,12 @@ export class PeerConnection {
    */
   close(): void {
     console.log('[PeerConnection] Closing');
+
+    // Clear data channel timeout
+    if (this.dataChannelTimeoutRef) {
+      clearTimeout(this.dataChannelTimeoutRef);
+      this.dataChannelTimeoutRef = null;
+    }
 
     // Close data channel
     if (this.dataChannel) {

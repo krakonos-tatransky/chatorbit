@@ -520,6 +520,30 @@ export class WebRTCManager {
         this.sendIceCandidate(candidate.toJSON());
       });
 
+      // Recommendation #1: Register negotiation callback
+      this.peerConnection.onNegotiationNeeded(async () => {
+        if (!this.peerConnection) return;
+        console.log('[WebRTC] Negotiation needed - creating new offer');
+        try {
+          const offer = await this.peerConnection.createOffer();
+          this.signaling.send({
+            type: 'signal',
+            signalType: 'offer',
+            payload: offer,
+          });
+          console.log('[WebRTC] Renegotiation offer sent (triggered by negotiationneeded)');
+        } catch (error) {
+          console.error('[WebRTC] Failed to create renegotiation offer:', error);
+        }
+      });
+
+      // Recommendation #5: Register ICE connection failure callback
+      this.peerConnection.onIceConnectionFailed(() => {
+        console.log('[WebRTC] ICE connection failed - attempting recovery');
+        // Attempt ICE restart
+        this.attemptIceRestart();
+      });
+
       // Setup data channel handlers (for receiving messages)
       this.setupDataChannelHandlers();
 
@@ -634,6 +658,19 @@ export class WebRTCManager {
                   messageId,
                   timestamp
                 );
+
+                // Recommendation #2: Send ACK message back to browser
+                if (this.peerConnection) {
+                  try {
+                    this.peerConnection.sendRawMessage({
+                      type: 'ack',
+                      messageId: messageId,
+                    });
+                    console.log('[WebRTC] Sent ACK for message:', messageId);
+                  } catch (error) {
+                    console.log('[WebRTC] Failed to send ACK (DataChannel not ready):', error);
+                  }
+                }
               } else {
                 console.warn('[WebRTC] Received message with missing payload or messageId:', message);
               }
@@ -1028,6 +1065,64 @@ export class WebRTCManager {
    */
   getRemoteStream(): MediaStream | null {
     return this.peerConnection?.getRemoteStream() || null;
+  }
+
+  /**
+   * Recommendation #5: Attempt ICE restart on connection failure
+   * Progressive recovery: ICE restart → full reconnection
+   */
+  private async attemptIceRestart(): Promise<void> {
+    if (!this.peerConnection || !this.isInitiator) {
+      console.log('[WebRTC] Cannot restart ICE (no peer connection or not initiator)');
+      return;
+    }
+
+    try {
+      console.log('[WebRTC] Attempting ICE restart...');
+      const offer = await this.peerConnection.createOffer();
+      this.signaling.send({
+        type: 'signal',
+        signalType: 'offer',
+        payload: offer,
+      });
+      console.log('[WebRTC] ICE restart offer sent');
+    } catch (error) {
+      console.error('[WebRTC] ICE restart failed:', error);
+      // If ICE restart fails, attempt full peer connection reset
+      console.log('[WebRTC] Attempting full peer connection reset...');
+      await this.resetPeerConnection();
+    }
+  }
+
+  /**
+   * Reset peer connection completely (last resort recovery)
+   */
+  private async resetPeerConnection(): Promise<void> {
+    if (!this.token || !this.participantId) {
+      console.log('[WebRTC] Cannot reset peer connection (no session info)');
+      return;
+    }
+
+    try {
+      console.log('[WebRTC] Resetting peer connection...');
+
+      // Close existing peer connection
+      if (this.peerConnection) {
+        this.peerConnection.close();
+        this.peerConnection = null;
+      }
+
+      // Reset flags
+      this.peerConnectionInitialized = false;
+      this.pendingIceCandidates = [];
+      this.isProcessingOffer = false;
+
+      // Reinitialize peer connection
+      await this.initializePeerConnectionForText();
+      console.log('[WebRTC] Peer connection reset complete');
+    } catch (error) {
+      console.error('[WebRTC] Failed to reset peer connection:', error);
+    }
   }
 
   /**

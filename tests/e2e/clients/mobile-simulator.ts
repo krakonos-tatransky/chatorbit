@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import * as crypto from 'crypto';
 import { TestLogger } from '../utils/logger';
 import { getIceServersFromEnv } from '../utils/webrtc-config';
 
@@ -295,23 +296,71 @@ export class MobileSimulator {
       this.logger.error('Data channel error', error);
     };
 
-    this.dataChannel.onmessage = (event) => {
-      this.logger.info('Data channel message received', { data: event.data });
+    this.dataChannel.onmessage = async (event) => {
+      this.logger.debug('Data channel message received', { data: event.data });
 
       try {
         const message = JSON.parse(event.data);
-        if (message.type === 'text' && message.text) {
+
+        // Handle browser's message format: {type: 'message', message: {...}}
+        if (message.type === 'message' && message.message) {
+          const browserMsg = message.message;
+          this.logger.info('Browser message received', {
+            messageId: browserMsg.messageId,
+            hasEncryptedContent: !!browserMsg.encryptedContent,
+            hasPlainContent: !!browserMsg.content,
+          });
+
+          // Try to decrypt if encrypted, otherwise use plain content
+          if (browserMsg.encryptedContent && this.token) {
+            try {
+              const decrypted = await this.decryptMessage(browserMsg.encryptedContent);
+              this.receivedMessages.push(decrypted);
+              this.logger.info('Decrypted message received', { text: decrypted });
+            } catch (decryptError) {
+              // If decryption fails, store the encrypted content for debugging
+              this.logger.warn('Failed to decrypt message, storing raw', { error: decryptError });
+              this.receivedMessages.push(browserMsg.encryptedContent);
+            }
+          } else if (browserMsg.content) {
+            // Plain text message
+            this.receivedMessages.push(browserMsg.content);
+            this.logger.info('Plain text message received', { text: browserMsg.content });
+          }
+
+          // Send ACK back to browser (as per protocol)
+          if (browserMsg.messageId && this.dataChannel?.readyState === 'open') {
+            this.dataChannel.send(JSON.stringify({
+              type: 'ack',
+              messageId: browserMsg.messageId,
+            }));
+          }
+        }
+        // Handle legacy text format: {type: 'text', text: '...'}
+        else if (message.type === 'text' && message.text) {
           this.receivedMessages.push(message.text);
-          this.logger.info('Text message received', { text: message.text });
-        } else if (message.type === 'call') {
-          // Handle browser-compatible call protocol
+          this.logger.info('Text message received (legacy)', { text: message.text });
+        }
+        // Handle call protocol
+        else if (message.type === 'call') {
           this.handleCallMessage(message);
-        } else if (message.type === 'capabilities') {
+        }
+        // Handle capabilities announcement
+        else if (message.type === 'capabilities') {
           this.logger.info('Received capabilities from peer', message);
+        }
+        // Handle ACK messages
+        else if (message.type === 'ack') {
+          this.logger.debug('Received ACK', { messageId: message.messageId });
+        }
+        // Unknown message type
+        else {
+          this.logger.warn('Unknown message type received', { type: message.type, message });
         }
       } catch (e) {
         // Not JSON, treat as plain text
         this.receivedMessages.push(event.data);
+        this.logger.info('Plain text received (non-JSON)', { text: event.data });
       }
     };
   }
@@ -974,5 +1023,57 @@ export class MobileSimulator {
    */
   isConnected(): boolean {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * Derive encryption key from token (matching browser's algorithm)
+   * Uses PBKDF2 with SHA-256, 100000 iterations
+   */
+  private async deriveKey(token: string): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      // Use token as both password and salt (matching browser implementation)
+      crypto.pbkdf2(token, token, 100000, 32, 'sha256', (err, derivedKey) => {
+        if (err) reject(err);
+        else resolve(derivedKey);
+      });
+    });
+  }
+
+  /**
+   * Decrypt a message encrypted with AES-256-GCM
+   * Format: base64(IV + ciphertext + authTag)
+   */
+  private async decryptMessage(encryptedBase64: string): Promise<string> {
+    if (!this.token) {
+      throw new Error('No token available for decryption');
+    }
+
+    try {
+      // Decode base64
+      const encrypted = Buffer.from(encryptedBase64, 'base64');
+
+      // Extract IV (first 12 bytes), ciphertext (middle), and auth tag (last 16 bytes)
+      const iv = encrypted.subarray(0, 12);
+      const authTag = encrypted.subarray(encrypted.length - 16);
+      const ciphertext = encrypted.subarray(12, encrypted.length - 16);
+
+      // Derive key from token
+      const key = await this.deriveKey(this.token);
+
+      // Create decipher
+      const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+      decipher.setAuthTag(authTag);
+
+      // Decrypt
+      const decrypted = Buffer.concat([
+        decipher.update(ciphertext),
+        decipher.final(),
+      ]);
+
+      return decrypted.toString('utf8');
+    } catch (error) {
+      this.logger.error('Decryption failed', error as Error);
+      throw error;
+    }
   }
 }
