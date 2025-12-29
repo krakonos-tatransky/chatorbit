@@ -28,7 +28,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from .config import get_settings
+from .config import get_settings, VERSION
 from .database import (
     SessionLocal,
     check_database_connection,
@@ -176,6 +176,12 @@ def database_healthcheck() -> Dict[str, Any]:
     if not check_database_connection():
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database unavailable")
     return {"status": "ok", "statistics": get_database_statistics()}
+
+
+@router.get("/version")
+def get_version() -> Dict[str, str]:
+    """Return the backend API version."""
+    return {"version": VERSION, "component": "backend"}
 
 
 def _normalize_ip(candidate: Optional[str]) -> Optional[str]:

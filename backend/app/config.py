@@ -7,6 +7,9 @@ from typing import Iterable, List
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
 
+# Application version
+VERSION = "2.0.0"
+
 
 class Settings(BaseSettings):
     """Application configuration."""

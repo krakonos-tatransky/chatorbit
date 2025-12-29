@@ -1,0 +1,16 @@
+# ChatOrbit Version Manifest
+# Format: MAJOR.MINOR.PATCH
+# Updated: 2024-12-29
+
+# Overall project version (used for releases)
+PROJECT=2.0.0
+
+# Component versions
+FRONTEND=2.0.0
+BACKEND=2.0.0
+MOBILE=2.0.0
+
+# Version history:
+# 2.0.0 - Mobile v2 rewrite, chat-first UI, WebSocket fallback removed
+# 1.1.0 - WebRTC video chat, browser-mobile compatibility
+# 1.0.0 - Initial release
