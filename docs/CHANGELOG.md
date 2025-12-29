@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed - December 29, 2024
+- **Video re-invite callState race condition**: Host's `callState` was getting stuck at "connecting" when accepting guest's video re-invite after ending a previous call
+  - Root cause: React state batching caused `setCallState("connecting")` to not be processed before `attachLocalMedia()` triggered the WebRTC `ontrack` event
+  - The `ontrack` handler only transitions from "connecting" → "active", not from "incoming" → "active"
+  - Fix: Use `flushSync` from `react-dom` to force synchronous state updates before calling `attachLocalMedia()`
+  - Applied to 3 locations in `frontend/components/session-view.tsx`: auto-accept flow (~L2397), accept message handler (~L2436), handleCallAccept (~L4055)
+
+### Added - December 29, 2024
+- **E2E testing infrastructure**: Docker compose for testing local frontend changes against production backend
+  - `infra/docker-compose.test.yml` - Runs frontend at localhost:3003 with hot reload
+  - Updated `tests/e2e/.env.test` to use local Docker frontend
+- **B2B video re-invite test**: E2E test case verifying callState transitions correctly after re-invite
+  - Tests: guest initiates → host accepts → host ends → guest re-invites → host accepts → verify callState becomes "active"
+- **BrowserClient helper methods**: `getVideoCallStatusText()`, `isCallStateActive()`, `waitForCallStateActive()`
+
 ### Added - December 2024 (Mobile v2)
 - **Chat-first UI paradigm**: Text chat is primary, video is optional via floating camera button
 - **Stop video button**: End video call while keeping text chat connected (seamless transition)

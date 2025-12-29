@@ -1,8 +1,8 @@
 # ChatOrbit - Project Context for Claude
 
-> **Last Updated**: December 28, 2024
+> **Last Updated**: December 29, 2024
 > **Status**: Mobile v2 Field Testing
-> **Documentation Version**: 2.0
+> **Documentation Version**: 2.1
 
 ---
 
@@ -108,6 +108,7 @@ ChatOrbit is a token-based, two-person chat application with optional WebRTC vid
 ├── infra/                    # Docker infrastructure
 │   ├── docker-compose.yml    # Development environment
 │   ├── docker-compose.production.yml
+│   ├── docker-compose.test.yml  # E2E testing (local frontend + prod backend)
 │   └── docs/
 │       └── ispconfig-deployment.md
 │
@@ -266,8 +267,14 @@ cd backend && pytest
 # Frontend
 cd frontend && pnpm lint
 
-# E2E WebRTC tests
+# E2E WebRTC tests (against production)
 cd tests/e2e && npm install && npm test
+
+# E2E tests with local frontend changes
+# Terminal 1: Start local frontend via Docker
+cd infra && docker compose -f docker-compose.test.yml up --build
+# Terminal 2: Run tests against localhost:3003
+cd tests/e2e && npm test
 ```
 
 ---
@@ -387,6 +394,26 @@ If connections fail, check:
 1. Signaling state is `stable` before creating offers
 2. ICE candidates are buffered until remote description set
 3. Deferred negotiation flag is cleared after completion
+
+### React State Batching (flushSync Fix)
+**Problem**: When accepting video re-invites, `callState` may get stuck at "connecting".
+
+**Cause**: React batches state updates, so `setCallState("connecting")` may not be processed before `attachLocalMedia()` triggers the `ontrack` event.
+
+**Solution**: Use `flushSync` from `react-dom` to force synchronous state updates:
+```typescript
+import { flushSync } from "react-dom";
+
+flushSync(() => {
+  setCallState("connecting");
+});
+await attachLocalMedia();  // Now safe - state is guaranteed "connecting"
+```
+
+**Locations requiring flushSync** (`frontend/components/session-view.tsx`):
+- Line ~2397: Auto-accept flow
+- Line ~2436: Accept message handler
+- Line ~4055: `handleCallAccept()` function
 
 ---
 

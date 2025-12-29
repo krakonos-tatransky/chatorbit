@@ -1,6 +1,6 @@
 # ChatOrbit Mobile v2 - Project Status
 
-**Last Updated**: December 24, 2024
+**Last Updated**: December 29, 2024
 
 ## Current Status: Field Testing Phase
 
@@ -39,6 +39,18 @@ The mobile app (v2) is feature-complete for basic chat and video functionality. 
 - [x] Message cleanup on session end
 - [x] UTC timezone handling for session timers
 - [x] Graceful video-to-chat transition
+
+### Recent Fixes (December 29, 2024)
+- [x] **Video re-invite race condition**: Fixed `callState` getting stuck at "connecting" when host accepts guest's re-invite after ending previous call
+  - Root cause: React state batching caused `ontrack` to fire before state update processed
+  - Fix: Use `flushSync` from `react-dom` for synchronous state updates
+  - Affected: `frontend/components/session-view.tsx` (3 locations)
+
+### E2E Testing Infrastructure
+- [x] Docker compose for local frontend testing (`infra/docker-compose.test.yml`)
+- [x] E2E test suite with 60 test scenarios
+- [x] Video call re-invite regression test
+- [x] BrowserClient helper methods for callState verification
 
 ---
 

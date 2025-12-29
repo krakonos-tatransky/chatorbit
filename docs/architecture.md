@@ -1535,6 +1535,51 @@ Both platforms implement identical negotiation logic, ensuring reliable cross-pl
 - `21f04f3` - Fix browser-to-mobile video disconnection by adding signaling state checks
 - `18171dd` - Fix critical WebRTC issues in mobile app for browser-mobile compatibility
 
+#### React State Batching Race Condition (flushSync Fix)
+
+**Problem**: When host accepts guest's video re-invite after ending a previous call, `callState` gets stuck at "connecting" instead of transitioning to "active".
+
+**Root Cause**: React's automatic state batching causes `setCallState("connecting")` to not be processed before `attachLocalMedia()` triggers the WebRTC `ontrack` event. The `ontrack` handler only transitions from "connecting" → "active", not from "incoming" → "active".
+
+```
+Timeline (Bug):
+1. Host clicks "Accept" → setCallState("connecting") queued
+2. attachLocalMedia() called immediately
+3. WebRTC ontrack fires BEFORE React processes state update
+4. ontrack handler checks: callState === "incoming" (not "connecting"!)
+5. Transition to "active" skipped → stuck at "connecting"
+```
+
+**Solution**: Use `flushSync` from `react-dom` to force synchronous state updates before calling `attachLocalMedia()`:
+
+```typescript
+// frontend/components/session-view.tsx
+import { flushSync } from "react-dom";
+
+// In handleCallAccept and message handler (action === "accept")
+flushSync(() => {
+  setCallDialogOpen(false);
+  setIncomingCallFrom(null);
+  setCallState("connecting");
+});
+
+// Now safe to call - state is guaranteed to be "connecting"
+await attachLocalMedia();
+```
+
+**Affected Locations** (all require flushSync):
+- Line ~2397: Auto-accept flow (`callState === "requesting"`)
+- Line ~2436: Accept message handler (`action === "accept"`)
+- Line ~4055: `handleCallAccept()` function
+
+**E2E Test**: `tests/e2e/scenarios/video-calls.test.ts`
+- Test: "B2B video re-invite: guest initiates first, host ends, guest re-invites, host accepts"
+- Verifies `callState` transitions to "active" after re-invite acceptance
+
+**Key Commits**:
+- `f7ca403` - Fix video call race condition with flushSync for state batching
+- `0cd78e7` - Add E2E test for B2B video re-invite callState fix
+
 ### Message Encryption Cross-Platform
 
 **AES-GCM Encryption** (identical algorithm on both):
@@ -1606,6 +1651,39 @@ async function encryptText(plaintext: string, key: CryptoKey): Promise<string> {
 ### Development Environment
 
 **Docker Compose** (`infra/docker-compose.yml`):
+
+**E2E Testing Docker** (`infra/docker-compose.test.yml`):
+
+For running E2E tests against local frontend code with production backend:
+
+```yaml
+# Frontend only - uses production backend API
+services:
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: ../infra/docker/frontend.Dockerfile
+    command: pnpm dev --port 3000 --hostname 0.0.0.0
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_BASE_URL=https://endpoints.chatorbit.com
+      - NEXT_PUBLIC_WS_BASE_URL=wss://endpoints.chatorbit.com
+    ports:
+      - "3003:3000"  # Accessible at localhost:3003
+    volumes:
+      - ../frontend:/app  # Hot reload local changes
+```
+
+**Usage**:
+```bash
+# Start test frontend (from infra/ directory)
+docker compose -f docker-compose.test.yml up --build
+
+# Run E2E tests (from tests/e2e/ directory)
+npm test
+```
+
+**Standard Development Docker** (`infra/docker-compose.yml`):
 
 ```yaml
 version: '3.8'
@@ -2067,7 +2145,7 @@ Token (12 chars) → PBKDF2(token, salt="chatOrbitSalt", 100k iter) → 256-bit 
 
 ---
 
-**Document Version**: 1.0  
-**Last Updated**: 2025-12-20  
-**Maintained By**: Documentation Keeper  
+**Document Version**: 1.1
+**Last Updated**: 2025-12-29
+**Maintained By**: Documentation Keeper
 **Status**: ✅ Comprehensive
