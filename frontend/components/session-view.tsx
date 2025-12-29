@@ -2,7 +2,7 @@
 
 import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState, useId } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -2392,8 +2392,12 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
               return;
             }
             if (callState === "requesting") {
-              setCallDialogOpen(false);
-              setCallState("connecting");
+              // Use flushSync to ensure callState is "connecting" before attachLocalMedia
+              // Prevents race condition where ontrack fires before state update is processed
+              flushSync(() => {
+                setCallDialogOpen(false);
+                setCallState("connecting");
+              });
               try {
                 await attachLocalMedia();
                 if (callStateRef.current !== "connecting") {
@@ -2427,9 +2431,13 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
             return;
           }
           if (action === "accept") {
-            setCallDialogOpen(false);
-            setIncomingCallFrom(null);
-            setCallState("connecting");
+            // Use flushSync to ensure callState is "connecting" before attachLocalMedia
+            // Prevents race condition where ontrack fires before state update is processed
+            flushSync(() => {
+              setCallDialogOpen(false);
+              setIncomingCallFrom(null);
+              setCallState("connecting");
+            });
             try {
               await attachLocalMedia();
               if (callStateRef.current !== "connecting") {
@@ -4041,9 +4049,14 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
   }, [handleCallButtonClick]);
 
   const handleCallAccept = useCallback(async () => {
-    setCallDialogOpen(false);
-    setIncomingCallFrom(null);
-    setCallState("connecting");
+    // Use flushSync to ensure callState is "connecting" before attachLocalMedia
+    // This prevents a race condition where ontrack fires while callState is still "incoming"
+    // which would cause callState to stay stuck at "connecting" instead of becoming "active"
+    flushSync(() => {
+      setCallDialogOpen(false);
+      setIncomingCallFrom(null);
+      setCallState("connecting");
+    });
     try {
       await attachLocalMedia();
       if (callStateRef.current !== "connecting") {
