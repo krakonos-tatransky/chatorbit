@@ -68,3 +68,4 @@ tmp/
 
 mobile/.expo/
 mobile/ios/
+tests/e2e/output
