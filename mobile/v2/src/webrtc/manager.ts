@@ -1082,6 +1082,7 @@ export class WebRTCManager {
     // Stop video tracks only (keep data channel open for text chat)
     if (this.peerConnection) {
       this.peerConnection.stopVideoTracks();
+      this.peerConnection.clearRemoteStream();
     }
 
     // Reset video state but keep peer connection and signaling connected
