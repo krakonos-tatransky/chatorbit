@@ -164,15 +164,18 @@ export class PeerConnection {
       console.log('[PeerConnection] Remote track received:', event.track.kind);
       console.log('[PeerConnection] Track event streams:', event.streams?.length, event.streams);
 
+      // For reinvite scenarios: always create fresh stream from the event
+      // This ensures we don't accumulate old ended tracks
       let stream = event.streams?.[0];
 
-      // Handle case where streams array is empty (common in renegotiation scenarios)
       if (!stream) {
-        console.log('[PeerConnection] No stream in track event, creating/reusing MediaStream');
-        stream = this.remoteStream ?? new MediaStream();
-        if (!stream.getTrackById(event.track.id)) {
-          stream.addTrack(event.track);
-        }
+        // No stream in event, create new one with just this track
+        stream = new MediaStream();
+        stream.addTrack(event.track);
+        console.log('[PeerConnection] Created new MediaStream with track:', event.track.kind);
+      } else {
+        console.log('[PeerConnection] Using stream from event, tracks:',
+          stream.getTracks().map((t: any) => `${t.kind}:${t.readyState}`).join(', '));
       }
 
       this.remoteStream = stream;
@@ -673,11 +676,24 @@ export class PeerConnection {
       this.localStream = null;
     }
 
-    // Clear remote stream reference (remote will stop their tracks too)
-    this.remoteStream = null;
-
     // Reset media state only (NOT connection state or data channel)
     useConnectionStore.getState().setLocalMedia(false, false);
+    useConnectionStore.getState().setRemoteMedia(false, false);
+  }
+
+  /**
+   * Clear remote stream (used when remote peer ends video)
+   * This prevents frozen video frames from being displayed
+   */
+  clearRemoteStream(): void {
+    console.log('[PeerConnection] Clearing remote stream');
+    if (this.remoteStream) {
+      // Stop all remote tracks
+      this.remoteStream.getTracks().forEach((track) => {
+        track.stop();
+      });
+      this.remoteStream = null;
+    }
     useConnectionStore.getState().setRemoteMedia(false, false);
   }
 

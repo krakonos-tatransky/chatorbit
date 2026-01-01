@@ -1074,15 +1074,19 @@ export class MobileSimulator {
     if (this.localStream) {
       this.localStream.getTracks().forEach((track: any) => {
         track.stop();
-        // Remove track from peer connection
-        if (this.pc) {
-          const senders = (this.pc as any).getSenders?.();
-          if (senders) {
-            senders.forEach((sender: any) => {
-              if (sender.track === track) {
-                (this.pc as any).removeTrack?.(sender);
-              }
-            });
+        // Remove track from peer connection (only if connection is still open)
+        if (this.pc && (this.pc as any).signalingState !== 'closed') {
+          try {
+            const senders = (this.pc as any).getSenders?.();
+            if (senders) {
+              senders.forEach((sender: any) => {
+                if (sender.track === track) {
+                  (this.pc as any).removeTrack?.(sender);
+                }
+              });
+            }
+          } catch (e) {
+            this.logger.debug('Could not remove track from peer connection', { error: (e as Error).message });
           }
         }
       });

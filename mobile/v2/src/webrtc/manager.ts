@@ -414,9 +414,10 @@ export class WebRTCManager {
   private handleVideoEnd(): void {
     console.log('[WebRTC] Remote peer ended video');
 
-    // Stop video tracks only (keep data channel open for text chat)
+    // Stop local video tracks and clear remote stream (keep data channel for text chat)
     if (this.peerConnection) {
       this.peerConnection.stopVideoTracks();
+      this.peerConnection.clearRemoteStream();  // Clear frozen remote video
     }
 
     // Reset video state but keep peer connection connected

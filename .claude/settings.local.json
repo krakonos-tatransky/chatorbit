@@ -54,7 +54,16 @@
       "Bash(docker compose:*)",
       "Bash(git checkout:*)",
       "Bash(git rev-parse:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(docker-compose:*)",
+      "Bash(mobile/v2/src/webrtc/manager.ts )",
+      "Bash(mobile/v2/src/webrtc/types.ts )",
+      "Bash(tests/e2e/.env.test )",
+      "Bash(tests/e2e/clients/browser-client.ts )",
+      "Bash(tests/e2e/clients/mobile-simulator.ts )",
+      "Bash(tests/e2e/setup/global-setup.ts )",
+      "Bash(tests/e2e/scenarios/session-end.test.ts )",
+      "Bash(tests/e2e/scenarios/video-reinvite.test.ts)"
     ]
   }
 }

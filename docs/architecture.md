@@ -97,28 +97,24 @@ ChatOrbit is a token-based, two-person chat application designed for ephemeral, 
         │                              │
         └──────── BOTH ACTIVE ─────────┘
 
-4. MESSAGE EXCHANGE (WebSocket Relay)
-   ┌─────────┐                    ┌─────────┐
-   │ Client  │                    │ Backend │
-   │    A    │ Encrypt message    │         │
-   │         │ with AES-GCM       │         │
-   │         ├───────────────────►│         │
-   │         │ {type:"message",   │         │
-   │         │  encrypted: "...", │         │
-   │         │  signature: "..."} │         │
-   │         │                    │         │
-   │         │                    │ Relay   │
-   │         │                    │ as-is   │
-   │         │                    │         │
-   │         │                    ▼         │
-   │         │              ┌─────────┐     │
-   │         │              │ Client  │     │
-   │         │              │    B    │     │
-   │         │              │         │     │
-   │         │              │ Decrypt │     │
-   │         │              │ message │     │
-   │         │              └─────────┘     │
+4. MESSAGE EXCHANGE (WebRTC Data Channel - P2P)
+   ┌─────────┐                              ┌─────────┐
+   │ Client  │                              │ Client  │
+   │    A    │                              │    B    │
+   │         │ Encrypt message              │         │
+   │         │ with AES-GCM                 │         │
+   │         │                              │         │
+   │         ├─────── Data Channel ────────►│         │
+   │         │ {type:"message",             │         │
+   │         │  encryptedContent: "..."}    │ Decrypt │
+   │         │                              │ message │
+   │         │◄─────── Data Channel ────────┤         │
+   │         │                              │         │
    └─────────┘                              └─────────┘
+
+   Note: Messages are sent directly between clients via WebRTC
+   data channel (P2P). Backend is NOT involved in message relay.
+   WebSocket is only used for signaling (offers, answers, ICE).
 
 5. VIDEO CHAT (WebRTC P2P via Signaling)
    ┌─────────┐                              ┌─────────┐
@@ -892,8 +888,8 @@ Response:
 1. Client connects: ws://backend/api/ws/ABCD1234WXYZ/host-abc-123
 2. Backend validates: token exists, session active, client is participant
 3. Backend sends: session-status message
-4. Client sends/receives messages
-5. Backend relays messages to other participant
+4. Backend relays WebRTC signaling (offers, answers, ICE candidates)
+5. Messages are sent P2P via WebRTC data channel (not through backend)
 6. On timer expiry: Backend sends session-ended, closes connection
 ```
 
@@ -2025,7 +2021,7 @@ Token (12 chars) → PBKDF2(token, salt="chatOrbitSalt", 100k iter) → 256-bit 
 
 **Changes Required**:
 1. Replace SQLite with PostgreSQL
-2. Use Redis for WebSocket message relay
+2. Use Redis for WebSocket signaling relay (offers, answers, ICE candidates)
 3. Store rate limit buckets in Redis
 4. Load balancer for multiple backend instances
 
