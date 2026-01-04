@@ -187,6 +187,29 @@ export class PeerConnection {
         }
       });
 
+      // Add track lifecycle handler - detect when track ends
+      event.track.addEventListener('ended', () => {
+        console.log('[PeerConnection] Remote track ended:', event.track.kind);
+        // Check if all tracks in stream have ended
+        if (this.remoteStream) {
+          const hasLiveTracks = this.remoteStream.getTracks()
+            .some((t: any) => t.readyState !== 'ended');
+          if (!hasLiveTracks) {
+            console.log('[PeerConnection] All remote tracks ended, clearing stream');
+            this.remoteStream = null;
+            // Notify handlers that stream is gone
+            this.remoteStreamHandlers.forEach((handler) => {
+              try {
+                handler(null as any);
+              } catch (error) {
+                console.error('[PeerConnection] Remote stream handler error on clear:', error);
+              }
+            });
+            useConnectionStore.getState().setRemoteMedia(false, false);
+          }
+        }
+      }, { once: true });
+
       // Update media state
       const hasVideo = stream.getVideoTracks().length > 0;
       const hasAudio = stream.getAudioTracks().length > 0;

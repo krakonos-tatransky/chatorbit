@@ -44,7 +44,8 @@ export type SessionEndedCallback = (reason?: string) => void;
 export class WebRTCManager {
   private signaling: SignalingClient;
   private peerConnection: PeerConnection | null = null;
-  private isInitiator = false;
+  private isInitiator = false;  // Session initiator (host)
+  private isVideoInitiator = false;  // Video call initiator (who sent the invite)
   private token: string | null = null;
   private participantId: string | null = null;
   private videoStarted = false;
@@ -74,6 +75,17 @@ export class WebRTCManager {
    * Callback when remote peer accepts our video invite
    */
   public onVideoAccepted?: VideoAcceptedCallback;
+
+  /**
+   * Callback when remote peer declines our video invite
+   */
+  public onVideoDeclined?: () => void;
+
+  /**
+   * Callback when remote stream is received or cleared
+   * This replaces the polling mechanism for more reliable stream updates
+   */
+  public onRemoteStream?: (stream: MediaStream | null) => void;
 
   constructor(signaling?: SignalingClient) {
     this.signaling = signaling || signalingClient;
@@ -164,6 +176,10 @@ export class WebRTCManager {
    */
   sendVideoInvite(): void {
     console.log('[WebRTC] Sending video invite via DataChannel');
+
+    // Mark ourselves as the video initiator - we're responsible for the renegotiation offer
+    this.isVideoInitiator = true;
+
     if (this.peerConnection) {
       try {
         // Use browser-compatible call protocol
@@ -181,6 +197,33 @@ export class WebRTCManager {
     this.signaling.send({
       type: 'signal',
       signalType: 'video-invite',
+      payload: {},
+    });
+  }
+
+  /**
+   * Decline a video invite from remote peer
+   */
+  declineVideoInvite(): void {
+    console.log('[WebRTC] Declining video invite');
+
+    // Try data channel first for faster delivery
+    if (this.peerConnection) {
+      try {
+        this.peerConnection.sendDataChannelMessage({
+          type: 'video-decline',
+          action: 'decline',
+          from: this.participantId,
+        });
+        return;
+      } catch (error) {
+        console.log('[WebRTC] DataChannel not ready, falling back to signaling');
+      }
+    }
+    // Fallback to signaling
+    this.signaling.send({
+      type: 'signal',
+      signalType: 'video-decline',
       payload: {},
     });
   }
@@ -314,9 +357,12 @@ export class WebRTCManager {
         });
       }
 
-      // Setup remote stream handler
+      // Setup remote stream handler - notify UI when stream arrives
       this.peerConnection.onRemoteStream((stream) => {
-        console.log('[WebRTC] Remote stream received');
+        console.log('[WebRTC] Remote stream received, notifying UI');
+        if (this.onRemoteStream) {
+          this.onRemoteStream(stream);
+        }
       });
 
       this.videoStarted = true;
@@ -423,10 +469,32 @@ export class WebRTCManager {
     // Reset video state but keep peer connection connected
     this.videoStarted = false;
     this.videoAcceptHandled = false;  // Reset for next video call
+    this.isVideoInitiator = false;  // Reset for next video call
+
+    // Notify UI that remote stream is cleared
+    if (this.onRemoteStream) {
+      this.onRemoteStream(null);
+    }
 
     // Notify UI
     if (this.onVideoEnded) {
       this.onVideoEnded();
+    }
+  }
+
+  /**
+   * Handle video decline from remote peer
+   * Called when we sent a video invite and the remote peer declined
+   */
+  private handleVideoDecline(): void {
+    console.log('[WebRTC] Remote peer declined video invite');
+
+    // Reset video initiator state
+    this.isVideoInitiator = false;
+
+    // Notify UI
+    if (this.onVideoDeclined) {
+      this.onVideoDeclined();
     }
   }
 
@@ -540,8 +608,22 @@ export class WebRTCManager {
       });
 
       // Recommendation #1: Register negotiation callback
+      // CRITICAL: Only the video initiator (who sent the invite) should create renegotiation offers.
+      // The video callee must wait for the caller's offer after adding video tracks.
+      // For text-only chat, only the session host creates offers.
       this.peerConnection.onNegotiationNeeded(async () => {
         if (!this.peerConnection) return;
+
+        // Determine if we should create the offer based on context:
+        // - For video renegotiation: only the video initiator creates offers
+        // - For initial text chat: only the session host creates offers
+        // - The video callee's negotiationneeded event should be ignored
+        const shouldCreateOffer = this.videoStarted ? this.isVideoInitiator : this.isInitiator;
+
+        if (!shouldCreateOffer) {
+          console.log('[WebRTC] Negotiation needed but not the appropriate initiator - waiting for peer offer');
+          return;
+        }
 
         // Don't create offer if we're currently processing a remote offer
         // This prevents race conditions during offer collision handling
@@ -559,7 +641,7 @@ export class WebRTCManager {
           return;
         }
 
-        console.log('[WebRTC] Negotiation needed - creating new offer');
+        console.log('[WebRTC] Negotiation needed - creating new offer (video initiator:', this.isVideoInitiator, ')');
         this.negotiationPending = false;
         try {
           const offer = await this.peerConnection.createOffer();
@@ -659,6 +741,10 @@ export class WebRTCManager {
         this.handleVideoEnd();
         break;
 
+      case 'video-decline':
+        this.handleVideoDecline();
+        break;
+
       default:
         console.log('[WebRTC] Unknown signal type:', signalType);
     }
@@ -750,6 +836,12 @@ export class WebRTCManager {
             // Handle video end from remote peer (mobile-to-mobile compatibility)
             console.log('[WebRTC] Received video end via DataChannel');
             this.handleVideoEnd();
+            break;
+
+          case 'video-decline' as any:
+            // Handle video decline from remote peer (mobile-to-mobile compatibility)
+            console.log('[WebRTC] Received video decline via DataChannel');
+            this.handleVideoDecline();
             break;
         }
       } catch (error) {
@@ -844,9 +936,12 @@ export class WebRTCManager {
         this.sendIceCandidate(candidate.toJSON());
       });
 
-      // Setup remote stream handler
+      // Setup remote stream handler - notify UI when stream arrives
       this.peerConnection.onRemoteStream((stream) => {
-        console.log('[WebRTC] Remote stream received');
+        console.log('[WebRTC] Remote stream received, notifying UI');
+        if (this.onRemoteStream) {
+          this.onRemoteStream(stream);
+        }
       });
 
       // Setup data channel handlers
@@ -1088,6 +1183,7 @@ export class WebRTCManager {
     // Reset video state but keep peer connection and signaling connected
     this.videoStarted = false;
     this.videoAcceptHandled = false;  // Reset for next video call (fixes reinvite audio bug)
+    this.isVideoInitiator = false;  // Reset for next video call
   }
 
   /**
@@ -1190,6 +1286,7 @@ export class WebRTCManager {
     this.token = null;
     this.participantId = null;
     this.isInitiator = false;
+    this.isVideoInitiator = false;
     this.videoStarted = false;
     this.signalingInitialized = false;
     this.peerConnectionInitialized = false;
@@ -1201,6 +1298,8 @@ export class WebRTCManager {
     this.onVideoEnded = undefined;
     this.onSessionEnded = undefined;
     this.onVideoAccepted = undefined;
+    this.onVideoDeclined = undefined;
+    this.onRemoteStream = undefined;
   }
 }
 

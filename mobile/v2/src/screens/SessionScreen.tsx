@@ -195,19 +195,46 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
         'Video Call',
         'The other participant wants to start a video call',
         [
-          { text: 'Decline', style: 'cancel', onPress: () => setVideoMode('idle') },
+          { text: 'Decline', style: 'cancel', onPress: () => {
+            webrtcManager.declineVideoInvite();
+            setVideoMode('idle');
+          }},
           { text: 'Accept', onPress: acceptVideoCall },
         ]
       );
     };
 
-    // Listen for remote stream
+    // Listen for remote stream via callback (primary mechanism)
+    webrtcManager.onRemoteStream = (stream) => {
+      console.log('[Session] Remote stream callback:', stream ? 'stream received' : 'stream cleared');
+      setRemoteStream(stream);
+      if (stream) {
+        // Use functional setState to avoid stale closure issues
+        setVideoMode((currentMode) => {
+          if (currentMode === 'inviting' || currentMode === 'invited') {
+            return 'active';
+          }
+          return currentMode;
+        });
+      }
+    };
+
+    // Backup polling in case callback doesn't fire (defensive)
+    let lastStreamUrl: string | null = null;
     const checkRemoteStream = setInterval(() => {
       const remote = webrtcManager.getRemoteStream();
       if (remote) {
-        setRemoteStream(remote);
-        if (videoMode === 'inviting' || videoMode === 'invited') {
-          setVideoMode('active');
+        const newUrl = remote.toURL();
+        if (newUrl !== lastStreamUrl) {
+          console.log('[Session] Polling detected new remote stream');
+          lastStreamUrl = newUrl;
+          setRemoteStream(remote);
+          setVideoMode((currentMode) => {
+            if (currentMode === 'inviting' || currentMode === 'invited') {
+              return 'active';
+            }
+            return currentMode;
+          });
         }
       }
     }, 500);
@@ -232,6 +259,14 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
       setVideoMode('active');
     };
 
+    // Listen for remote peer declining our video invite
+    webrtcManager.onVideoDeclined = () => {
+      console.log('[Session] Remote peer declined video invite');
+      InCallManager.stop();
+      setVideoMode('idle');
+      setLocalStream(null);
+    };
+
     // Listen for remote peer ending the session entirely
     webrtcManager.onSessionEnded = (reason?: string) => {
       console.log('[Session] Remote peer ended session:', reason);
@@ -245,12 +280,14 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
 
     return () => {
       clearInterval(checkRemoteStream);
+      webrtcManager.onRemoteStream = undefined;
       webrtcManager.onVideoInvite = undefined;
       webrtcManager.onVideoEnded = undefined;
       webrtcManager.onVideoAccepted = undefined;
+      webrtcManager.onVideoDeclined = undefined;
       webrtcManager.onSessionEnded = undefined;
     };
-  }, [token, participantId, isHost, navigation, videoMode]);
+  }, [token, participantId, isHost, navigation]);  // Removed videoMode from deps - using functional setState
 
   // Countdown timer
   useEffect(() => {
@@ -541,6 +578,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
               onPress={showFooterTemporarily}
             >
               <RTCView
+                key={remoteStream.toURL()}  // Force re-mount on stream change
                 streamURL={remoteStream.toURL()}
                 style={styles.remoteVideo}
                 objectFit="cover"
