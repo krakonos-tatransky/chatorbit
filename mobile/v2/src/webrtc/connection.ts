@@ -52,7 +52,9 @@ export class PeerConnection {
   private pendingIceCandidates: RTCIceCandidate[] = [];
   private negotiationCallback?: () => Promise<void>;
   private iceConnectionFailedCallback?: () => void;
+  private iceConnectionDisconnectedCallback?: () => void;
   private dataChannelTimeoutRef: ReturnType<typeof setTimeout> | null = null;
+  private disconnectedTimeoutRef: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Initialize peer connection
@@ -140,12 +142,39 @@ export class PeerConnection {
       if (state) {
         useConnectionStore.getState().setIceConnectionState(state as any);
 
-        // Recommendation #5: Improve error recovery parity with browser
+        // Clear disconnected timeout if state changes
+        if (this.disconnectedTimeoutRef && state !== 'disconnected') {
+          clearTimeout(this.disconnectedTimeoutRef);
+          this.disconnectedTimeoutRef = null;
+        }
+
+        // Handle disconnected state with timeout (matches browser behavior)
+        if (state === 'disconnected') {
+          console.log('[PeerConnection] ICE connection disconnected - waiting 3s before recovery');
+          // Wait 3 seconds before triggering recovery (connection may self-heal)
+          // Reduced from 10s for faster recovery on mobile where sleep/wake is common
+          this.disconnectedTimeoutRef = setTimeout(() => {
+            const currentState = this.pc?.iceConnectionState;
+            if (currentState === 'disconnected') {
+              console.log('[PeerConnection] ICE still disconnected after 3s - triggering recovery');
+              if (this.iceConnectionDisconnectedCallback) {
+                this.iceConnectionDisconnectedCallback();
+              }
+            }
+          }, 3000);
+        }
+
+        // Handle failed state immediately
         if (state === 'failed') {
           console.log('[PeerConnection] ICE connection failed - triggering recovery callback');
           if (this.iceConnectionFailedCallback) {
             this.iceConnectionFailedCallback();
           }
+        }
+
+        // Reset state on successful connection
+        if (state === 'connected' || state === 'completed') {
+          console.log('[PeerConnection] ICE connection established successfully');
         }
       }
     });
@@ -362,8 +391,9 @@ export class PeerConnection {
 
   /**
    * Create offer
+   * @param options - Optional settings including iceRestart for connection recovery
    */
-  async createOffer(): Promise<RTCSessionDescriptionInit> {
+  async createOffer(options?: { iceRestart?: boolean }): Promise<RTCSessionDescriptionInit> {
     if (!this.pc) {
       throw new WebRTCError(
         WebRTCErrorCode.INVALID_STATE,
@@ -372,10 +402,11 @@ export class PeerConnection {
     }
 
     try {
-      console.log('[PeerConnection] Creating offer');
+      console.log('[PeerConnection] Creating offer', options?.iceRestart ? '(ICE restart)' : '');
       const offer = await this.pc.createOffer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: true,
+        iceRestart: options?.iceRestart || false,
       });
 
       await this.pc.setLocalDescription(offer);
@@ -599,6 +630,45 @@ export class PeerConnection {
   }
 
   /**
+   * Register ICE connection disconnected callback
+   */
+  onIceConnectionDisconnected(callback: () => void): void {
+    this.iceConnectionDisconnectedCallback = callback;
+  }
+
+  /**
+   * Restart ICE (for connection recovery)
+   * Calls restartIce() if available on the peer connection
+   */
+  restartIce(): boolean {
+    if (!this.pc) {
+      console.log('[PeerConnection] Cannot restart ICE - no peer connection');
+      return false;
+    }
+
+    try {
+      if (typeof (this.pc as any).restartIce === 'function') {
+        (this.pc as any).restartIce();
+        console.log('[PeerConnection] ICE restart requested');
+        return true;
+      } else {
+        console.log('[PeerConnection] restartIce() not available');
+        return false;
+      }
+    } catch (error) {
+      console.error('[PeerConnection] Failed to restart ICE:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get ICE connection state
+   */
+  getIceConnectionState(): string | null {
+    return this.pc?.iceConnectionState || null;
+  }
+
+  /**
    * Get local stream
    */
   getLocalStream(): MediaStream | null {
@@ -727,6 +797,16 @@ export class PeerConnection {
   closeVideoOnly(): void {
     console.log('[PeerConnection] Closing video only (keeping connection state)');
 
+    // Clear timeouts
+    if (this.dataChannelTimeoutRef) {
+      clearTimeout(this.dataChannelTimeoutRef);
+      this.dataChannelTimeoutRef = null;
+    }
+    if (this.disconnectedTimeoutRef) {
+      clearTimeout(this.disconnectedTimeoutRef);
+      this.disconnectedTimeoutRef = null;
+    }
+
     // Close data channel
     if (this.dataChannel) {
       this.dataChannel.close();
@@ -768,6 +848,12 @@ export class PeerConnection {
     if (this.dataChannelTimeoutRef) {
       clearTimeout(this.dataChannelTimeoutRef);
       this.dataChannelTimeoutRef = null;
+    }
+
+    // Clear disconnected timeout
+    if (this.disconnectedTimeoutRef) {
+      clearTimeout(this.disconnectedTimeoutRef);
+      this.disconnectedTimeoutRef = null;
     }
 
     // Close data channel

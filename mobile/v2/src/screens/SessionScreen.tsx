@@ -21,8 +21,10 @@ import {
   Dimensions,
   Modal,
   Keyboard,
+  AppState,
   type GestureResponderEvent,
   type PanResponderGestureState,
+  type AppStateStatus,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RTCView } from 'react-native-webrtc';
@@ -288,6 +290,30 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
       webrtcManager.onSessionEnded = undefined;
     };
   }, [token, participantId, isHost, navigation]);  // Removed videoMode from deps - using functional setState
+
+  // AppState monitoring for connection recovery when app returns from background
+  useEffect(() => {
+    const appStateRef = { current: AppState.currentState };
+
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      // When app comes to foreground from background/inactive
+      if (
+        (appStateRef.current === 'background' || appStateRef.current === 'inactive') &&
+        nextAppState === 'active'
+      ) {
+        console.log('[Session] App returned to foreground - checking connection');
+        // Attempt connection recovery after returning from background
+        webrtcManager.attemptConnectionRecovery();
+      }
+      appStateRef.current = nextAppState;
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+
+    return () => {
+      subscription?.remove();
+    };
+  }, []);
 
   // Countdown timer
   useEffect(() => {

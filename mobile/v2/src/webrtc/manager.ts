@@ -210,7 +210,7 @@ export class WebRTCManager {
     // Try data channel first for faster delivery
     if (this.peerConnection) {
       try {
-        this.peerConnection.sendDataChannelMessage({
+        this.peerConnection.sendRawMessage({
           type: 'video-decline',
           action: 'decline',
           from: this.participantId,
@@ -659,6 +659,13 @@ export class WebRTCManager {
       // Recommendation #5: Register ICE connection failure callback
       this.peerConnection.onIceConnectionFailed(() => {
         console.log('[WebRTC] ICE connection failed - attempting recovery');
+        // Attempt ICE restart
+        this.attemptIceRestart();
+      });
+
+      // Register ICE connection disconnected callback (10s timeout handled in connection.ts)
+      this.peerConnection.onIceConnectionDisconnected(() => {
+        console.log('[WebRTC] ICE connection disconnected for >10s - attempting recovery');
         // Attempt ICE restart
         this.attemptIceRestart();
       });
@@ -1201,18 +1208,67 @@ export class WebRTCManager {
   }
 
   /**
+   * Attempt connection recovery (public method for AppState/network change handling)
+   * Called when app returns from background or network changes
+   */
+  attemptConnectionRecovery(): void {
+    if (!this.peerConnection) {
+      console.log('[WebRTC] No peer connection to recover');
+      return;
+    }
+
+    const iceState = this.peerConnection.getIceConnectionState();
+    console.log('[WebRTC] Checking connection state for recovery:', iceState);
+
+    // If connection is disconnected or failed, attempt ICE restart immediately
+    if (iceState === 'disconnected' || iceState === 'failed') {
+      console.log('[WebRTC] Connection needs recovery, attempting ICE restart');
+      this.attemptIceRestart();
+    } else if (iceState === 'connected' || iceState === 'completed') {
+      console.log('[WebRTC] Connection is healthy, no recovery needed');
+    } else if (iceState === 'checking' || iceState === 'new') {
+      // After waking from sleep, state might be stale - give it a moment then recheck
+      console.log('[WebRTC] Connection state:', iceState, '- rechecking in 1s');
+      setTimeout(() => {
+        const currentState = this.peerConnection?.getIceConnectionState();
+        if (currentState === 'disconnected' || currentState === 'failed') {
+          console.log('[WebRTC] Connection degraded after recheck, attempting recovery');
+          this.attemptIceRestart();
+        } else if (currentState === 'connected' || currentState === 'completed') {
+          console.log('[WebRTC] Connection recovered on its own');
+        }
+      }, 1000);
+    } else {
+      console.log('[WebRTC] Connection state:', iceState, '- monitoring');
+    }
+  }
+
+  /**
    * Recommendation #5: Attempt ICE restart on connection failure
    * Progressive recovery: ICE restart → full reconnection
+   * Matches browser implementation with restartIce() + iceRestart flag
    */
   private async attemptIceRestart(): Promise<void> {
-    if (!this.peerConnection || !this.isInitiator) {
-      console.log('[WebRTC] Cannot restart ICE (no peer connection or not initiator)');
+    if (!this.peerConnection) {
+      console.log('[WebRTC] Cannot restart ICE (no peer connection)');
+      return;
+    }
+
+    // Only initiator (or video initiator during video) should create restart offers
+    const shouldCreateOffer = this.videoStarted ? this.isVideoInitiator : this.isInitiator;
+    if (!shouldCreateOffer) {
+      console.log('[WebRTC] Cannot restart ICE (not the appropriate initiator)');
       return;
     }
 
     try {
       console.log('[WebRTC] Attempting ICE restart...');
-      const offer = await this.peerConnection.createOffer();
+
+      // First, call restartIce() if available (like browser does)
+      this.peerConnection.restartIce();
+
+      // Then create offer with iceRestart: true flag
+      const offer = await this.peerConnection.createOffer({ iceRestart: true });
       this.signaling.send({
         type: 'signal',
         signalType: 'offer',

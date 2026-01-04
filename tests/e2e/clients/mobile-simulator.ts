@@ -367,6 +367,32 @@ export class MobileSimulator {
         else if (message.type === 'call') {
           this.handleCallMessage(message);
         }
+        // Handle video-decline from mobile app format (M2M compatibility)
+        else if (message.type === 'video-decline') {
+          this.logger.info('Received video decline from peer', { from: message.from });
+          this.pendingVideoInvite = false;
+          this.videoCallActive = false;
+        }
+        // Handle video-end from mobile app format (M2M compatibility)
+        else if (message.type === 'video-end') {
+          this.logger.info('Received video end from peer', { from: message.from });
+          this.videoCallActive = false;
+          // Clear remote stream
+          this.remoteStream = null;
+        }
+        // Handle video-invite from mobile app format (M2M compatibility)
+        else if (message.type === 'video-invite') {
+          this.logger.info('Received video invite from peer (mobile format)');
+          this.pendingVideoInvite = true;
+          if (this.onVideoInviteCallback) {
+            this.onVideoInviteCallback();
+          }
+        }
+        // Handle video-accept from mobile app format (M2M compatibility)
+        else if (message.type === 'video-accept') {
+          this.logger.info('Received video accept from peer (mobile format)');
+          this.videoCallActive = true;
+        }
         // Handle capabilities announcement
         else if (message.type === 'capabilities') {
           this.logger.info('Received capabilities from peer', message);
@@ -1032,6 +1058,8 @@ export class MobileSimulator {
 
   /**
    * Decline video invite from remote peer
+   * Uses same format as actual mobile app: { type: 'video-decline', action: 'decline' }
+   * Also supports browser format { type: 'call', action: 'reject' } for B2M compatibility
    */
   declineVideoInvite(): void {
     if (!this.dataChannel || this.dataChannel.readyState !== 'open') {
@@ -1040,9 +1068,10 @@ export class MobileSimulator {
 
     this.logger.info('Declining video invite');
 
+    // Use mobile app format for M2M consistency
     const message = JSON.stringify({
-      type: 'call',
-      action: 'reject',
+      type: 'video-decline',
+      action: 'decline',
       from: this.participantId,
     });
 
