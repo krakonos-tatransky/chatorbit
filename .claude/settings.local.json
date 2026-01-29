@@ -69,7 +69,9 @@
       "Bash(git worktree:*)",
       "Bash(git cherry-pick:*)",
       "Bash(log show:*)",
-      "Bash(/usr/bin/log show:*)"
+      "Bash(/usr/bin/log show:*)",
+      "Bash(git stash:*)",
+      "Bash(git stash pop:*)"
     ]
   }
 }
