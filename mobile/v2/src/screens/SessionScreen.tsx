@@ -111,34 +111,134 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
   // Connection state
   const isConnected = useConnectionStore(selectIsConnected);
 
-  // Pan responder for draggable local video
+  // Physics constants for bouncing effect
+  const FRICTION = 0.97; // How quickly velocity decreases (0.97 = slow decay)
+  const BOUNCE_DAMPING = 0.7; // Energy lost on bounce (0.7 = 30% energy loss)
+  const MIN_VELOCITY = 0.5; // Stop animation when velocity is below this
+  const PHYSICS_INTERVAL = 16; // ~60fps
+
+  // Ref to track velocity for physics simulation
+  const velocityRef = useRef({ vx: 0, vy: 0 });
+  const physicsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Stop any running physics animation
+  const stopPhysics = useCallback(() => {
+    if (physicsIntervalRef.current) {
+      clearInterval(physicsIntervalRef.current);
+      physicsIntervalRef.current = null;
+    }
+  }, []);
+
+  // Run physics simulation for bouncing ball effect
+  const runPhysics = useCallback(() => {
+    stopPhysics();
+
+    physicsIntervalRef.current = setInterval(() => {
+      let { vx, vy } = velocityRef.current;
+      let x = (pan.x as any)._value;
+      let y = (pan.y as any)._value;
+
+      // Apply friction
+      vx *= FRICTION;
+      vy *= FRICTION;
+
+      // Calculate new position
+      x += vx;
+      y += vy;
+
+      // Boundary definitions
+      const minX = SPACING.md;
+      const maxX = SCREEN_WIDTH - LOCAL_VIDEO_WIDTH - SPACING.md;
+      const minY = SPACING.md;
+      const maxY = SCREEN_HEIGHT - LOCAL_VIDEO_HEIGHT - 100; // Account for footer
+
+      // Bounce off left/right edges
+      if (x <= minX) {
+        x = minX;
+        vx = -vx * BOUNCE_DAMPING;
+      } else if (x >= maxX) {
+        x = maxX;
+        vx = -vx * BOUNCE_DAMPING;
+      }
+
+      // Bounce off top/bottom edges
+      if (y <= minY) {
+        y = minY;
+        vy = -vy * BOUNCE_DAMPING;
+      } else if (y >= maxY) {
+        y = maxY;
+        vy = -vy * BOUNCE_DAMPING;
+      }
+
+      // Update velocity ref
+      velocityRef.current = { vx, vy };
+
+      // Update position
+      pan.setValue({ x, y });
+
+      // Stop when velocity is very low
+      if (Math.abs(vx) < MIN_VELOCITY && Math.abs(vy) < MIN_VELOCITY) {
+        stopPhysics();
+      }
+    }, PHYSICS_INTERVAL);
+  }, [pan, stopPhysics]);
+
+  // Pan responder for draggable local video with physics
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: () => true,
       onPanResponderGrant: () => {
+        // Stop any ongoing physics animation when user touches
+        stopPhysics();
         pan.setOffset({
           x: (pan.x as any)._value,
           y: (pan.y as any)._value,
         });
+        pan.setValue({ x: 0, y: 0 });
       },
       onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], {
         useNativeDriver: false,
       }),
-      onPanResponderRelease: () => {
+      onPanResponderRelease: (
+        _evt: GestureResponderEvent,
+        gestureState: PanResponderGestureState
+      ) => {
         pan.flattenOffset();
-        // Clamp to screen bounds
-        const currentX = (pan.x as any)._value;
-        const currentY = (pan.y as any)._value;
-        const clampedX = Math.max(SPACING.md, Math.min(currentX, SCREEN_WIDTH - LOCAL_VIDEO_WIDTH - SPACING.md));
-        const clampedY = Math.max(SPACING.md, Math.min(currentY, SCREEN_HEIGHT - LOCAL_VIDEO_HEIGHT - 200));
-        Animated.spring(pan, {
-          toValue: { x: clampedX, y: clampedY },
-          useNativeDriver: false,
-        }).start();
+
+        // Get velocity from gesture (vx, vy are in pixels per millisecond)
+        // Multiply by factor to convert to pixels per frame at 60fps
+        const velocityMultiplier = 8;
+        const vx = gestureState.vx * velocityMultiplier;
+        const vy = gestureState.vy * velocityMultiplier;
+
+        // If flicked with enough velocity, start physics simulation
+        const flicked = Math.abs(vx) > 2 || Math.abs(vy) > 2;
+
+        if (flicked) {
+          velocityRef.current = { vx, vy };
+          runPhysics();
+        } else {
+          // Just clamp to bounds with a spring if not flicked
+          const currentX = (pan.x as any)._value;
+          const currentY = (pan.y as any)._value;
+          const clampedX = Math.max(SPACING.md, Math.min(currentX, SCREEN_WIDTH - LOCAL_VIDEO_WIDTH - SPACING.md));
+          const clampedY = Math.max(SPACING.md, Math.min(currentY, SCREEN_HEIGHT - LOCAL_VIDEO_HEIGHT - 100));
+          Animated.spring(pan, {
+            toValue: { x: clampedX, y: clampedY },
+            useNativeDriver: false,
+          }).start();
+        }
       },
     })
   ).current;
+
+  // Cleanup physics interval on unmount
+  useEffect(() => {
+    return () => {
+      stopPhysics();
+    };
+  }, [stopPhysics]);
 
   // End session and navigate directly to Main
   const endSessionAndNavigate = useCallback(async () => {
@@ -435,6 +535,9 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
 
   // Toggle fullscreen
   const toggleFullscreen = () => {
+    // Stop any physics animation before moving to new position
+    stopPhysics();
+
     if (videoMode === 'active') {
       setVideoMode('fullscreen');
       // Move local video to bottom-left corner
