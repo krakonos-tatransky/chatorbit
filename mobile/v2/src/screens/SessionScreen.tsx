@@ -983,22 +983,24 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                 />
               </TouchableOpacity>
 
-              {/* Toast message in fullscreen mode */}
-              {videoMode === 'fullscreen' && toastMessage && (
-                <Animated.View
-                  style={[
-                    styles.toastContainer,
-                    { opacity: toastOpacity, bottom: insets.bottom + 100 }
-                  ]}
-                >
-                  <View style={styles.toastBubble}>
-                    <Text style={styles.toastText} numberOfLines={3}>
-                      {toastMessage.content}
-                    </Text>
-                  </View>
-                </Animated.View>
-              )}
             </TouchableOpacity>
+          )}
+
+          {/* Toast message in fullscreen mode - positioned above footer */}
+          {videoMode === 'fullscreen' && toastMessage && (
+            <Animated.View
+              style={[
+                styles.toastContainer,
+                { opacity: toastOpacity, bottom: insets.bottom + 100 }
+              ]}
+              pointerEvents="none"
+            >
+              <View style={styles.toastBubble}>
+                <Text style={styles.toastText} numberOfLines={3}>
+                  {toastMessage.content}
+                </Text>
+              </View>
+            </Animated.View>
           )}
 
           {/* Chat Section (hidden in fullscreen mode) */}
@@ -1602,6 +1604,7 @@ const styles = StyleSheet.create({
     left: SPACING.lg,
     right: SPACING.lg,
     alignItems: 'center',
+    zIndex: 200,
   },
   toastBubble: {
     backgroundColor: 'rgba(0, 0, 0, 0.85)',
