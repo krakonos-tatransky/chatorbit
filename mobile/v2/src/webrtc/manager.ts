@@ -100,9 +100,24 @@ export class WebRTCManager {
     participantId: string,
     isHost: boolean
   ): Promise<void> {
-    // Guard against multiple initializations
-    if (this.signalingInitialized && this.signaling.isConnected()) {
-      console.log('[WebRTC] Signaling already initialized, skipping');
+    // Check actual WebSocket connection state, not just our flag
+    const isActuallyConnected = this.signaling.isConnected();
+
+    // If we think we're initialized but WebSocket is not connected, reset state
+    if (this.signalingInitialized && !isActuallyConnected) {
+      console.log('[WebRTC] Signaling flag was set but WebSocket disconnected, resetting...');
+      this.signalingInitialized = false;
+      this.peerConnectionInitialized = false;
+      // Close stale peer connection if any
+      if (this.peerConnection) {
+        this.peerConnection.close();
+        this.peerConnection = null;
+      }
+    }
+
+    // Guard against multiple initializations (only if actually connected)
+    if (this.signalingInitialized && isActuallyConnected) {
+      console.log('[WebRTC] Signaling already initialized and connected, skipping');
       return;
     }
 
