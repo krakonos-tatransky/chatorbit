@@ -19,10 +19,10 @@ import { COLORS } from './src/constants';
 /**
  * Dynamic Type Support
  * Allow text to scale with iOS accessibility settings.
- * Max multiplier of 1.5 provides good accessibility while
+ * Max multiplier of 1.2 provides basic accessibility while
  * preventing extreme sizes that break layouts.
  */
-const MAX_FONT_SCALE = 1.5;
+const MAX_FONT_SCALE = 1.2;
 
 // Set global defaults for Text - allow Dynamic Type with reasonable max
 const TextComponent = Text as any;
