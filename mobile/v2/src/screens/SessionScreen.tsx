@@ -1206,9 +1206,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.sm,
-    backgroundColor: COLORS.background.secondary,
+    backgroundColor: 'transparent',
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.border.default,
+    borderBottomColor: 'rgba(79, 195, 247, 0.2)',
   },
   headerOverlay: {
     position: 'absolute',
