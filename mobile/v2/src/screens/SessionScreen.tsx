@@ -982,24 +982,32 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
               </ScrollView>
 
               {/* Message Input */}
-              <View style={styles.inputContainer}>
-                <Input
-                  value={messageText}
-                  onChangeText={setMessageText}
-                  placeholder="Type a message..."
-                  onSubmitEditing={handleSendMessage}
-                  returnKeyType="send"
-                  style={styles.messageInput}
-                  containerStyle={styles.messageInputContainer}
+              <View style={styles.inputWrapper}>
+                {/* Tech Background for Input */}
+                <LinearGradient
+                  colors={['#001233', '#002855', '#001845', '#000510']}
+                  locations={[0, 0.3, 0.6, 1]}
+                  style={styles.inputBackground}
                 />
-                <Button
-                  onPress={handleSendMessage}
-                  disabled={!messageText.trim() || isSending}
-                  loading={isSending}
-                  style={styles.sendButton}
-                >
-                  <Ionicons name="send" size={20} color={COLORS.text.onAccent} />
-                </Button>
+                <View style={styles.inputContainer}>
+                  <Input
+                    value={messageText}
+                    onChangeText={setMessageText}
+                    placeholder="Type a message..."
+                    onSubmitEditing={handleSendMessage}
+                    returnKeyType="send"
+                    style={styles.messageInput}
+                    containerStyle={styles.messageInputContainer}
+                  />
+                  <Button
+                    onPress={handleSendMessage}
+                    disabled={!messageText.trim() || isSending}
+                    loading={isSending}
+                    style={styles.sendButton}
+                  >
+                    <Ionicons name="send" size={20} color={COLORS.text.onAccent} />
+                  </Button>
+                </View>
               </View>
             </View>
           )}
@@ -1025,86 +1033,95 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
 
         {/* Controls (auto-hide in fullscreen) */}
         {(footerVisible || videoMode !== 'fullscreen') && (
-          <Animated.View style={[styles.controls, { opacity: footerOpacity }]}>
-            {/* End session button - always on left */}
-            <Button
-              variant="danger"
-              onPress={handleEndSession}
-              style={styles.controlButton}
-            >
-              <Ionicons
-                name="exit-outline"
-                size={24}
-                color={COLORS.text.primary}
-              />
-            </Button>
+          <Animated.View style={[styles.controlsWrapper, { opacity: footerOpacity }]}>
+            {/* Tech Background for Controls */}
+            <LinearGradient
+              colors={['#001233', '#002855', '#001845', '#000510']}
+              locations={[0, 0.3, 0.6, 1]}
+              style={styles.controlsBackground}
+            />
 
-            {/* Video controls - only when video active */}
-            {isVideoActive && (
-              <View style={styles.videoControls}>
-                <Button
-                  variant={speakerEnabled ? 'primary' : 'secondary'}
-                  onPress={handleToggleSpeaker}
-                  style={styles.controlButton}
-                >
-                  <Ionicons
-                    name={speakerEnabled ? 'volume-high' : 'volume-low'}
-                    size={24}
-                    color={speakerEnabled ? COLORS.text.onAccent : COLORS.text.primary}
-                  />
-                </Button>
+            <View style={styles.controls}>
+              {/* End session button - always on left */}
+              <Button
+                variant="danger"
+                onPress={handleEndSession}
+                style={styles.controlButton}
+              >
+                <Ionicons
+                  name="exit-outline"
+                  size={24}
+                  color={COLORS.text.primary}
+                />
+              </Button>
 
-                <Button
-                  variant="secondary"
-                  onPress={handleSwitchCamera}
-                  style={[styles.controlButton, isSwitchingCamera && styles.controlButtonDisabled]}
-                  disabled={isSwitchingCamera}
-                >
-                  <Ionicons
-                    name="camera-reverse"
-                    size={24}
-                    color={COLORS.text.primary}
-                  />
-                </Button>
+              {/* Video controls - only when video active */}
+              {isVideoActive && (
+                <View style={styles.videoControls}>
+                  <Button
+                    variant={speakerEnabled ? 'primary' : 'secondary'}
+                    onPress={handleToggleSpeaker}
+                    style={styles.controlButton}
+                  >
+                    <Ionicons
+                      name={speakerEnabled ? 'volume-high' : 'volume-low'}
+                      size={24}
+                      color={speakerEnabled ? COLORS.text.onAccent : COLORS.text.primary}
+                    />
+                  </Button>
 
-                <Button
-                  variant={audioEnabled ? 'secondary' : 'danger'}
-                  onPress={handleToggleAudio}
-                  style={styles.controlButton}
-                >
-                  <Ionicons
-                    name={audioEnabled ? 'mic' : 'mic-off'}
-                    size={24}
-                    color={COLORS.text.primary}
-                  />
-                </Button>
+                  <Button
+                    variant="secondary"
+                    onPress={handleSwitchCamera}
+                    style={[styles.controlButton, isSwitchingCamera && styles.controlButtonDisabled]}
+                    disabled={isSwitchingCamera}
+                  >
+                    <Ionicons
+                      name="camera-reverse"
+                      size={24}
+                      color={COLORS.text.primary}
+                    />
+                  </Button>
 
-                <Button
-                  variant={videoEnabled ? 'secondary' : 'danger'}
-                  onPress={handleToggleVideo}
-                  style={styles.controlButton}
-                >
-                  <Ionicons
-                    name={videoEnabled ? 'videocam' : 'videocam-off'}
-                    size={24}
-                    color={COLORS.text.primary}
-                  />
-                </Button>
+                  <Button
+                    variant={audioEnabled ? 'secondary' : 'danger'}
+                    onPress={handleToggleAudio}
+                    style={styles.controlButton}
+                  >
+                    <Ionicons
+                      name={audioEnabled ? 'mic' : 'mic-off'}
+                      size={24}
+                      color={COLORS.text.primary}
+                    />
+                  </Button>
 
-                {/* Stop video call (keep text chat) */}
-                <Button
-                  variant="danger"
-                  onPress={handleStopVideo}
-                  style={styles.controlButton}
-                >
-                  <Ionicons
-                    name="call"
-                    size={24}
-                    color={COLORS.text.primary}
-                  />
-                </Button>
-              </View>
-            )}
+                  <Button
+                    variant={videoEnabled ? 'secondary' : 'danger'}
+                    onPress={handleToggleVideo}
+                    style={styles.controlButton}
+                  >
+                    <Ionicons
+                      name={videoEnabled ? 'videocam' : 'videocam-off'}
+                      size={24}
+                      color={COLORS.text.primary}
+                    />
+                  </Button>
+
+                  {/* Stop video call (keep text chat) */}
+                  <Button
+                    variant="danger"
+                    onPress={handleStopVideo}
+                    style={styles.controlButton}
+                  >
+                    <Ionicons
+                      name="call"
+                      size={24}
+                      color={COLORS.text.primary}
+                    />
+                  </Button>
+                </View>
+              )}
+            </View>
           </Animated.View>
         )}
 
@@ -1377,12 +1394,18 @@ const styles = StyleSheet.create({
   otherMessageTime: {
     color: COLORS.text.disabled,
   },
+  inputWrapper: {
+    overflow: 'hidden',
+  },
+  inputBackground: {
+    ...StyleSheet.absoluteFillObject,
+  },
   inputContainer: {
     flexDirection: 'row',
     padding: SPACING.md,
-    backgroundColor: COLORS.background.secondary,
+    backgroundColor: 'transparent',
     borderTopWidth: 1,
-    borderTopColor: COLORS.border.default,
+    borderTopColor: 'rgba(79, 195, 247, 0.2)',
     alignItems: 'flex-end',
   },
   messageInputContainer: {
@@ -1416,13 +1439,19 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  controlsWrapper: {
+    overflow: 'hidden',
+  },
+  controlsBackground: {
+    ...StyleSheet.absoluteFillObject,
+  },
   controls: {
     flexDirection: 'row',
     paddingVertical: SPACING.md,
     paddingHorizontal: SPACING.md,
-    backgroundColor: COLORS.background.secondary,
+    backgroundColor: 'transparent',
     borderTopWidth: 1,
-    borderTopColor: COLORS.border.default,
+    borderTopColor: 'rgba(79, 195, 247, 0.2)',
     justifyContent: 'flex-start',
     alignItems: 'center',
   },
