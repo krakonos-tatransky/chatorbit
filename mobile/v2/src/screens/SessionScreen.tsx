@@ -976,7 +976,7 @@ const styles = StyleSheet.create({
   },
   fullscreenButton: {
     position: 'absolute',
-    top: SPACING.md + SPACING.xl,
+    top: SPACING.md + SPACING.xxl,
     right: SPACING.md,
     width: 44,
     height: 44,
