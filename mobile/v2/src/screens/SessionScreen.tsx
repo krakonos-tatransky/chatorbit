@@ -116,10 +116,15 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
   const BOUNCE_DAMPING = 0.7; // Energy lost on bounce (0.7 = 30% energy loss)
   const MIN_VELOCITY = 0.5; // Stop animation when velocity is below this
   const PHYSICS_INTERVAL = 16; // ~60fps
+  const LONG_PRESS_DURATION = 500; // 500ms for long press to switch camera
 
   // Ref to track velocity for physics simulation
   const velocityRef = useRef({ vx: 0, vy: 0 });
   const physicsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Long press timer ref for camera switching
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTriggeredRef = useRef(false);
 
   // Stop any running physics animation
   const stopPhysics = useCallback(() => {
@@ -183,7 +188,18 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
     }, PHYSICS_INTERVAL);
   }, [pan, stopPhysics]);
 
-  // Pan responder for draggable local video with physics
+  // Cancel long press timer
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+
+  // Ref for the switch camera handler (so PanResponder can access it)
+  const switchCameraRef = useRef<() => void>(() => {});
+
+  // Pan responder for draggable local video with physics and long-press camera switch
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -196,15 +212,48 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
           y: (pan.y as any)._value,
         });
         pan.setValue({ x: 0, y: 0 });
+
+        // Reset long press state and start timer
+        longPressTriggeredRef.current = false;
+        longPressTimerRef.current = setTimeout(() => {
+          longPressTriggeredRef.current = true;
+          // Trigger camera switch via ref
+          switchCameraRef.current();
+        }, LONG_PRESS_DURATION);
       },
-      onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], {
-        useNativeDriver: false,
-      }),
+      onPanResponderMove: (
+        _evt: GestureResponderEvent,
+        gestureState: PanResponderGestureState
+      ) => {
+        // If user moves finger more than a small threshold, cancel long press
+        const moveThreshold = 10;
+        if (Math.abs(gestureState.dx) > moveThreshold || Math.abs(gestureState.dy) > moveThreshold) {
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
+        }
+
+        // Continue with drag animation
+        pan.setValue({ x: gestureState.dx, y: gestureState.dy });
+      },
       onPanResponderRelease: (
         _evt: GestureResponderEvent,
         gestureState: PanResponderGestureState
       ) => {
+        // Cancel any pending long press timer
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+
         pan.flattenOffset();
+
+        // If long press was triggered, don't apply physics - just stay in place
+        if (longPressTriggeredRef.current) {
+          longPressTriggeredRef.current = false;
+          return;
+        }
 
         // Get velocity from gesture (vx, vy are in pixels per millisecond)
         // Multiply by factor to convert to pixels per frame at 60fps
@@ -230,15 +279,23 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
           }).start();
         }
       },
+      onPanResponderTerminate: () => {
+        // Cancel long press if gesture is terminated
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+      },
     })
   ).current;
 
-  // Cleanup physics interval on unmount
+  // Cleanup physics interval and long press timer on unmount
   useEffect(() => {
     return () => {
       stopPhysics();
+      cancelLongPress();
     };
-  }, [stopPhysics]);
+  }, [stopPhysics, cancelLongPress]);
 
   // End session and navigate directly to Main
   const endSessionAndNavigate = useCallback(async () => {
@@ -632,6 +689,11 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
       setIsSwitchingCamera(false);
     }
   }, [isSwitchingCamera]);
+
+  // Update ref so PanResponder can call handleSwitchCamera
+  useEffect(() => {
+    switchCameraRef.current = handleSwitchCamera;
+  }, [handleSwitchCamera]);
 
   // Stop video but keep text chat connected
   const handleStopVideo = () => {
