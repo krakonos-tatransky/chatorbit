@@ -69,11 +69,13 @@ const styles = StyleSheet.create({
     ...TEXT_STYLES.body,
     height: LAYOUT.touchTarget,
     paddingHorizontal: SPACING.md,
+    paddingVertical: 0,
     backgroundColor: COLORS.background.secondary,
     borderWidth: 2,
     borderColor: COLORS.border.default,
     borderRadius: RADIUS.lg,
     color: COLORS.text.primary,
+    textAlignVertical: 'center',
   },
   inputError: {
     borderColor: COLORS.border.error,
