@@ -165,6 +165,12 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
   // End session confirmation modal
   const [showEndConfirmModal, setShowEndConfirmModal] = useState(false);
 
+  // Toast message for fullscreen mode
+  const [toastMessage, setToastMessage] = useState<Message | null>(null);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastMessageCountRef = useRef(0);
+
   // Draggable local video position
   const pan = useRef(new Animated.ValueXY({ x: SPACING.md, y: SPACING.md })).current;
 
@@ -595,6 +601,63 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   }, [messages.length]);
 
+  // Show toast for new incoming messages in fullscreen mode
+  useEffect(() => {
+    // Skip initial render
+    if (lastMessageCountRef.current === 0) {
+      lastMessageCountRef.current = messages.length;
+      return;
+    }
+
+    // Only show toast in fullscreen mode
+    if (videoMode !== 'fullscreen') {
+      lastMessageCountRef.current = messages.length;
+      return;
+    }
+
+    // Check if there's a new message
+    if (messages.length > lastMessageCountRef.current) {
+      const newMessage = messages[messages.length - 1];
+      // Only show toast for received messages (not our own)
+      if (newMessage && newMessage.type === 'received') {
+        // Clear any existing toast timeout
+        if (toastTimeoutRef.current) {
+          clearTimeout(toastTimeoutRef.current);
+        }
+
+        // Show toast
+        setToastMessage(newMessage);
+        Animated.timing(toastOpacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
+
+        // Auto-hide after 4 seconds
+        toastTimeoutRef.current = setTimeout(() => {
+          Animated.timing(toastOpacity, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }).start(() => {
+            setToastMessage(null);
+          });
+        }, 4000);
+      }
+    }
+
+    lastMessageCountRef.current = messages.length;
+  }, [messages.length, videoMode, messages, toastOpacity]);
+
+  // Cleanup toast timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // Auto-hide footer in fullscreen mode
   useEffect(() => {
     if (videoMode === 'fullscreen') {
@@ -919,6 +982,22 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                   color={COLORS.text.primary}
                 />
               </TouchableOpacity>
+
+              {/* Toast message in fullscreen mode */}
+              {videoMode === 'fullscreen' && toastMessage && (
+                <Animated.View
+                  style={[
+                    styles.toastContainer,
+                    { opacity: toastOpacity, bottom: insets.bottom + 100 }
+                  ]}
+                >
+                  <View style={styles.toastBubble}>
+                    <Text style={styles.toastText} numberOfLines={3}>
+                      {toastMessage.content}
+                    </Text>
+                  </View>
+                </Animated.View>
+              )}
             </TouchableOpacity>
           )}
 
@@ -1516,5 +1595,26 @@ const styles = StyleSheet.create({
   },
   modalButtonHalf: {
     flex: 1,
+  },
+  // Toast styles for fullscreen video
+  toastContainer: {
+    position: 'absolute',
+    left: SPACING.lg,
+    right: SPACING.lg,
+    alignItems: 'center',
+  },
+  toastBubble: {
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderRadius: RADIUS.xl,
+    maxWidth: '90%',
+    borderWidth: 1,
+    borderColor: 'rgba(79, 195, 247, 0.3)',
+  },
+  toastText: {
+    ...TEXT_STYLES.body,
+    color: COLORS.text.primary,
+    textAlign: 'center',
   },
 });
