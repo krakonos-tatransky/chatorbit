@@ -860,11 +860,11 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                 status={isConnected ? 'connected' : 'waiting'}
                 style={styles.statusDot}
               />
-              <Text style={styles.headerTitle}>
+              <Text style={styles.headerTitle} allowFontScaling={false}>
                 {isConnected ? 'Connected' : 'Waiting for peer...'}
               </Text>
             </View>
-            <Text style={styles.timer}>{formatTime(displayTime)}</Text>
+            <Text style={styles.timer} allowFontScaling={false}>{formatTime(displayTime)}</Text>
           </View>
         )}
 
@@ -881,11 +881,11 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                   status={isConnected ? 'connected' : 'waiting'}
                   style={styles.statusDot}
                 />
-                <Text style={styles.headerTitleOverlay}>
+                <Text style={styles.headerTitleOverlay} allowFontScaling={false}>
                   {isConnected ? 'Connected' : 'Waiting...'}
                 </Text>
               </View>
-              <Text style={styles.timerOverlay}>{formatTime(displayTime)}</Text>
+              <Text style={styles.timerOverlay} allowFontScaling={false}>{formatTime(displayTime)}</Text>
             </View>
           )}
           {/* Remote Video (top half when active, fullscreen when fullscreen) */}
@@ -1232,23 +1232,27 @@ const styles = StyleSheet.create({
     marginRight: SPACING.sm,
   },
   headerTitle: {
-    ...TEXT_STYLES.bodyMedium,
+    fontSize: 14,
+    fontWeight: '500',
     color: COLORS.text.primary,
   },
   headerTitleOverlay: {
-    ...TEXT_STYLES.bodyMedium,
+    fontSize: 14,
+    fontWeight: '500',
     color: '#FFFFFF',
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
   },
   timer: {
-    ...TEXT_STYLES.caption,
+    fontSize: 14,
+    fontWeight: '500',
     color: COLORS.accent.yellow,
     fontVariant: ['tabular-nums'],
   },
   timerOverlay: {
-    ...TEXT_STYLES.caption,
+    fontSize: 14,
+    fontWeight: '500',
     color: COLORS.accent.yellow,
     fontVariant: ['tabular-nums'],
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
