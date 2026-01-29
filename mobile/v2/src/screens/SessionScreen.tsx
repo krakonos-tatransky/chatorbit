@@ -924,7 +924,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.sm,
     paddingTop: SPACING.md,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
     zIndex: 100,
   },
   headerLeft: {
@@ -976,7 +976,7 @@ const styles = StyleSheet.create({
   },
   fullscreenButton: {
     position: 'absolute',
-    top: SPACING.md,
+    top: SPACING.md + SPACING.xl,
     right: SPACING.md,
     width: 44,
     height: 44,
