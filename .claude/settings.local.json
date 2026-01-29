@@ -63,7 +63,13 @@
       "Bash(tests/e2e/clients/mobile-simulator.ts )",
       "Bash(tests/e2e/setup/global-setup.ts )",
       "Bash(tests/e2e/scenarios/session-end.test.ts )",
-      "Bash(tests/e2e/scenarios/video-reinvite.test.ts)"
+      "Bash(tests/e2e/scenarios/video-reinvite.test.ts)",
+      "Bash(npm run lint:*)",
+      "Bash(npm run:*)",
+      "Bash(git worktree:*)",
+      "Bash(git cherry-pick:*)",
+      "Bash(log show:*)",
+      "Bash(/usr/bin/log show:*)"
     ]
   }
 }
