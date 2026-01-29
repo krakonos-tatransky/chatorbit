@@ -62,29 +62,31 @@ export const AcceptContent: React.FC<AcceptContentProps> = ({
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.contentWrapper}>
-          <Text style={styles.title}>Join with an existing token</Text>
-          <Text style={styles.description}>
-            Paste the token you received. Once two devices join the same token the session starts immediately and no other logins are permitted.
-          </Text>
+        <Text style={styles.pageTitle}>Join Session</Text>
+        <Text style={styles.pageSubtitle}>Enter the token you received</Text>
 
-          <Input
-            placeholder="Paste token here"
-            value={token}
-            onChangeText={handleTokenChange}
-            autoCapitalize="none"
-            autoCorrect={false}
-            maxLength={32}
-            error={error || undefined}
-            style={styles.input}
-          />
+        <Text style={styles.sectionTitle}>Session Token</Text>
+        <Text style={styles.sectionDescription}>
+          Paste the 32-character token shared with you
+        </Text>
 
+        <Input
+          placeholder="Paste token here"
+          value={token}
+          onChangeText={handleTokenChange}
+          autoCapitalize="none"
+          autoCorrect={false}
+          maxLength={32}
+          error={error || undefined}
+          style={styles.input}
+        />
+
+        <View style={styles.buttonContainer}>
           <Button
             onPress={handleJoin}
             loading={isJoining}
             disabled={token.length !== 32}
             fullWidth
-            style={styles.button}
           >
             Join Session
           </Button>
@@ -111,24 +113,29 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: SPACING.lg,
     paddingVertical: SPACING.xl,
-    justifyContent: 'center',
   },
-  contentWrapper: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  title: {
+  pageTitle: {
     ...TEXT_STYLES.h2,
-    color: COLORS.text.primary,
+    color: COLORS.accent.yellow,
     textAlign: 'center',
-    marginBottom: SPACING.md,
   },
-  description: {
-    ...TEXT_STYLES.body,
+  pageSubtitle: {
+    ...TEXT_STYLES.caption,
     color: COLORS.text.secondary,
     textAlign: 'center',
-    marginBottom: SPACING.xl,
-    lineHeight: 22,
+    marginTop: SPACING.xs,
+    marginBottom: SPACING.md,
+  },
+  sectionTitle: {
+    ...TEXT_STYLES.bodyMedium,
+    color: COLORS.text.primary,
+    marginTop: SPACING.md,
+    marginBottom: SPACING.xs,
+  },
+  sectionDescription: {
+    ...TEXT_STYLES.caption,
+    color: COLORS.text.secondary,
+    marginBottom: SPACING.sm,
   },
   input: {
     fontSize: 14,
@@ -136,10 +143,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 1,
   },
-  button: {
-    marginTop: SPACING.lg,
+  buttonContainer: {
+    marginTop: SPACING.xl,
   },
   footer: {
+    flex: 1,
+    justifyContent: 'flex-end',
     alignItems: 'center',
     paddingVertical: SPACING.lg,
   },
