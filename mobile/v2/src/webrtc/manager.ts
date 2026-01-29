@@ -53,6 +53,7 @@ export class WebRTCManager {
   private peerConnectionInitialized = false;
   private pendingIceCandidates: RTCIceCandidateInit[] = [];
   private isProcessingOffer = false;
+  private isCreatingOffer = false;  // Guards against concurrent offer creation
   private negotiationPending = false;
   private videoAcceptHandled = false;
 
@@ -117,6 +118,7 @@ export class WebRTCManager {
       this.isInitiator = isHost;
       this.pendingIceCandidates = [];
       this.isProcessingOffer = false;
+      this.isCreatingOffer = false;
       this.negotiationPending = false;
 
       // Connect to signaling server
@@ -523,13 +525,20 @@ export class WebRTCManager {
     // Create renegotiation offer to include video tracks
     // Data channel already exists from text chat connection
     if (this.peerConnection) {
-      const offer = await this.peerConnection.createOffer();
-      this.signaling.send({
-        type: 'signal',
-        signalType: 'offer',
-        payload: offer,  // Send full RTCSessionDescriptionInit { type, sdp }
-      });
-      console.log('[WebRTC] Renegotiation offer sent after video accept');
+      this.isCreatingOffer = true;
+      try {
+        const offer = await this.peerConnection.createOffer();
+        this.signaling.send({
+          type: 'signal',
+          signalType: 'offer',
+          payload: offer,  // Send full RTCSessionDescriptionInit { type, sdp }
+        });
+        console.log('[WebRTC] Renegotiation offer sent after video accept');
+      } catch (error) {
+        console.error('[WebRTC] Failed to create renegotiation offer after video accept:', error);
+      } finally {
+        this.isCreatingOffer = false;
+      }
     } else {
       console.error('[WebRTC] No peer connection to create offer');
     }
@@ -641,8 +650,16 @@ export class WebRTCManager {
           return;
         }
 
+        // Don't create offer if we're already creating one (race condition guard)
+        if (this.isCreatingOffer) {
+          console.log('[WebRTC] Negotiation needed but already creating offer - deferring');
+          this.negotiationPending = true;
+          return;
+        }
+
         console.log('[WebRTC] Negotiation needed - creating new offer (video initiator:', this.isVideoInitiator, ')');
         this.negotiationPending = false;
+        this.isCreatingOffer = true;
         try {
           const offer = await this.peerConnection.createOffer();
           this.signaling.send({
@@ -653,6 +670,8 @@ export class WebRTCManager {
           console.log('[WebRTC] Renegotiation offer sent (triggered by negotiationneeded)');
         } catch (error) {
           console.error('[WebRTC] Failed to create renegotiation offer:', error);
+        } finally {
+          this.isCreatingOffer = false;
         }
       });
 
@@ -678,13 +697,19 @@ export class WebRTCManager {
         console.log('[WebRTC] Host: Creating data channel and offer');
         this.peerConnection.createDataChannel('chat');
 
-        const offer = await this.peerConnection.createOffer();
-        this.signaling.send({
-          type: 'signal',
-          signalType: 'offer',
-          payload: offer,  // Send full RTCSessionDescriptionInit { type, sdp }
-        });
-        console.log('[WebRTC] Host: Offer sent for text chat');
+        // Set flag before creating offer to prevent negotiationneeded race condition
+        this.isCreatingOffer = true;
+        try {
+          const offer = await this.peerConnection.createOffer();
+          this.signaling.send({
+            type: 'signal',
+            signalType: 'offer',
+            payload: offer,  // Send full RTCSessionDescriptionInit { type, sdp }
+          });
+          console.log('[WebRTC] Host: Offer sent for text chat');
+        } finally {
+          this.isCreatingOffer = false;
+        }
       }
       // Guest: Wait for offer (handled by handleOffer which will create peer connection if needed)
 
@@ -901,7 +926,8 @@ export class WebRTCManager {
       case 'renegotiate':
         // Browser (guest) wants to renegotiate - if we're host, create offer
         console.log('[WebRTC] Received renegotiate request from browser');
-        if (this.isInitiator && this.peerConnection) {
+        if (this.isInitiator && this.peerConnection && !this.isCreatingOffer) {
+          this.isCreatingOffer = true;
           try {
             const offer = await this.peerConnection.createOffer();
             this.signaling.send({
@@ -912,6 +938,8 @@ export class WebRTCManager {
             console.log('[WebRTC] Renegotiation offer sent (triggered by browser request)');
           } catch (error) {
             console.error('[WebRTC] Failed to create renegotiation offer:', error);
+          } finally {
+            this.isCreatingOffer = false;
           }
         }
         break;
@@ -999,11 +1027,12 @@ export class WebRTCManager {
       this.isProcessingOffer = false;
 
       // Process any pending negotiation that was deferred during offer processing
-      if (this.negotiationPending && this.peerConnection) {
+      if (this.negotiationPending && this.peerConnection && !this.isCreatingOffer) {
         const signalingState = this.peerConnection.getSignalingState();
         if (signalingState === 'stable') {
           console.log('[WebRTC] Processing deferred negotiation after offer handling');
           this.negotiationPending = false;
+          this.isCreatingOffer = true;
           try {
             const offer = await this.peerConnection.createOffer();
             this.signaling.send({
@@ -1014,6 +1043,8 @@ export class WebRTCManager {
             console.log('[WebRTC] Deferred renegotiation offer sent');
           } catch (error) {
             console.error('[WebRTC] Failed to create deferred renegotiation offer:', error);
+          } finally {
+            this.isCreatingOffer = false;
           }
         }
       }
@@ -1152,6 +1183,18 @@ export class WebRTCManager {
   }
 
   /**
+   * Switch between front and back camera
+   * @returns true if switch was successful, false otherwise
+   */
+  async switchCamera(): Promise<boolean> {
+    if (!this.peerConnection) {
+      console.log('[WebRTC] No peer connection - cannot switch camera');
+      return false;
+    }
+    return this.peerConnection.switchCamera();
+  }
+
+  /**
    * Stop video chat while keeping text chat connected.
    * Removes video/audio tracks but keeps peer connection and data channel open.
    * Notifies remote peer so they also stop video.
@@ -1261,6 +1304,13 @@ export class WebRTCManager {
       return;
     }
 
+    // Guard against concurrent offer creation
+    if (this.isCreatingOffer) {
+      console.log('[WebRTC] Cannot restart ICE (already creating offer)');
+      return;
+    }
+
+    this.isCreatingOffer = true;
     try {
       console.log('[WebRTC] Attempting ICE restart...');
 
@@ -1280,6 +1330,8 @@ export class WebRTCManager {
       // If ICE restart fails, attempt full peer connection reset
       console.log('[WebRTC] Attempting full peer connection reset...');
       await this.resetPeerConnection();
+    } finally {
+      this.isCreatingOffer = false;
     }
   }
 
@@ -1305,6 +1357,7 @@ export class WebRTCManager {
       this.peerConnectionInitialized = false;
       this.pendingIceCandidates = [];
       this.isProcessingOffer = false;
+      this.isCreatingOffer = false;
 
       // Reinitialize peer connection
       await this.initializePeerConnectionForText();
@@ -1348,6 +1401,7 @@ export class WebRTCManager {
     this.peerConnectionInitialized = false;
     this.pendingIceCandidates = [];
     this.isProcessingOffer = false;
+    this.isCreatingOffer = false;
     this.negotiationPending = false;
     this.videoAcceptHandled = false;
     this.onVideoInvite = undefined;

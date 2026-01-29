@@ -77,6 +77,8 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [speakerEnabled, setSpeakerEnabled] = useState(false);
+  const [isFrontCamera, setIsFrontCamera] = useState(true);
+  const [isSwitchingCamera, setIsSwitchingCamera] = useState(false);
 
   // Footer visibility for fullscreen mode
   const [footerVisible, setFooterVisible] = useState(true);
@@ -498,6 +500,22 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
     InCallManager.setForceSpeakerphoneOn(newState);
   };
 
+  const handleSwitchCamera = useCallback(async () => {
+    if (isSwitchingCamera) return;
+
+    setIsSwitchingCamera(true);
+    try {
+      const success = await webrtcManager.switchCamera();
+      if (success) {
+        setIsFrontCamera(prev => !prev);
+      }
+    } catch (error) {
+      console.error('Failed to switch camera:', error);
+    } finally {
+      setIsSwitchingCamera(false);
+    }
+  }, [isSwitchingCamera]);
+
   // Stop video but keep text chat connected
   const handleStopVideo = () => {
     InCallManager.stop();
@@ -508,6 +526,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
     setVideoEnabled(true);
     setAudioEnabled(true);
     setSpeakerEnabled(false);
+    setIsFrontCamera(true);  // Reset to front camera for next video call
   };
 
   const formatTime = (seconds: number | null): string => {
@@ -701,7 +720,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                 streamURL={localStream.toURL()}
                 style={styles.localVideo}
                 objectFit="cover"
-                mirror={true}
+                mirror={isFrontCamera}
               />
             </Animated.View>
           )}
@@ -735,6 +754,19 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                     name={speakerEnabled ? 'volume-high' : 'volume-low'}
                     size={24}
                     color={speakerEnabled ? COLORS.text.onAccent : COLORS.text.primary}
+                  />
+                </Button>
+
+                <Button
+                  variant="secondary"
+                  onPress={handleSwitchCamera}
+                  style={[styles.controlButton, isSwitchingCamera && styles.controlButtonDisabled]}
+                  disabled={isSwitchingCamera}
+                >
+                  <Ionicons
+                    name="camera-reverse"
+                    size={24}
+                    color={COLORS.text.primary}
                   />
                 </Button>
 
@@ -1061,6 +1093,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 0,
+  },
+  controlButtonDisabled: {
+    opacity: 0.5,
   },
   videoControls: {
     flexDirection: 'row',

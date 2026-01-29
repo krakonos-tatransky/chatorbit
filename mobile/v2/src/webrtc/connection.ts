@@ -746,6 +746,39 @@ export class PeerConnection {
   }
 
   /**
+   * Switch between front and back camera using _switchCamera() API
+   * This is a react-native-webrtc specific API that toggles cameras without renegotiation
+   * @returns true if switch was successful, false otherwise
+   */
+  async switchCamera(): Promise<boolean> {
+    if (!this.localStream) {
+      console.log('[PeerConnection] No local stream to switch camera');
+      return false;
+    }
+
+    const videoTracks = this.localStream.getVideoTracks();
+    if (videoTracks.length === 0) {
+      console.log('[PeerConnection] No video tracks to switch');
+      return false;
+    }
+
+    try {
+      const videoTrack = videoTracks[0] as any;
+      if (typeof videoTrack._switchCamera === 'function') {
+        videoTrack._switchCamera();
+        console.log('[PeerConnection] Camera switched successfully');
+        return true;
+      } else {
+        console.log('[PeerConnection] _switchCamera not available on track');
+        return false;
+      }
+    } catch (error) {
+      console.error('[PeerConnection] Failed to switch camera:', error);
+      return false;
+    }
+  }
+
+  /**
    * Stop video/audio tracks only (keep data channel open for text chat)
    * Used when stopping video call but keeping text chat active
    */
