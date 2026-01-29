@@ -437,8 +437,21 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
   const toggleFullscreen = () => {
     if (videoMode === 'active') {
       setVideoMode('fullscreen');
+      // Move local video to bottom-left corner
+      Animated.spring(pan, {
+        toValue: {
+          x: SPACING.md,
+          y: SCREEN_HEIGHT - LOCAL_VIDEO_HEIGHT - insets.bottom - SPACING.md - 80, // 80 for footer
+        },
+        useNativeDriver: false,
+      }).start();
     } else if (videoMode === 'fullscreen') {
       setVideoMode('active');
+      // Move local video back to top-right corner
+      Animated.spring(pan, {
+        toValue: { x: SPACING.md, y: SPACING.md },
+        useNativeDriver: false,
+      }).start();
     }
   };
 
@@ -657,7 +670,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
               <TouchableOpacity
                 style={[
                   styles.fullscreenButton,
-                  videoMode === 'fullscreen' && { top: insets.top + SPACING.xxxl }
+                  videoMode === 'fullscreen' && { top: insets.top + SPACING.xxxl + SPACING.xl }
                 ]}
                 onPress={toggleFullscreen}
               >
