@@ -184,8 +184,8 @@ export const LandingContent: React.FC<LandingContentProps> = ({
                 </View>
               </View>
 
-              <Text style={styles.actionTitle}>Generate Token</Text>
-              <Text style={styles.actionSubtitle}>Create New Room</Text>
+              <Text style={styles.actionTitle}>Get Token</Text>
+              <Text style={styles.actionSubtitle}>Create Room</Text>
             </TouchableOpacity>
           </Animated.View>
 
@@ -231,8 +231,8 @@ export const LandingContent: React.FC<LandingContentProps> = ({
                 </View>
               </View>
 
-              <Text style={styles.actionTitle}>Enter Room</Text>
-              <Text style={styles.actionSubtitle}>Join with Token</Text>
+              <Text style={styles.actionTitle}>Has Token</Text>
+              <Text style={styles.actionSubtitle}>Join Room</Text>
             </TouchableOpacity>
           </Animated.View>
         </View>
@@ -282,7 +282,7 @@ const styles = StyleSheet.create({
   actionsContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: 40,
+    gap: 24,
     marginBottom: 40,
   },
   actionItem: {
@@ -441,14 +441,14 @@ const styles = StyleSheet.create({
   },
 
   actionTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
     color: COLORS.text.primary,
-    marginBottom: 4,
+    marginBottom: 2,
     textAlign: 'center',
   },
   actionSubtitle: {
-    fontSize: 12,
+    fontSize: 11,
     color: 'rgba(255, 255, 255, 0.5)',
     textAlign: 'center',
   },
