@@ -1152,6 +1152,18 @@ export class WebRTCManager {
   }
 
   /**
+   * Switch between front and back camera
+   * @returns true if switch was successful, false otherwise
+   */
+  async switchCamera(): Promise<boolean> {
+    if (!this.peerConnection) {
+      console.log('[WebRTC] No peer connection - cannot switch camera');
+      return false;
+    }
+    return this.peerConnection.switchCamera();
+  }
+
+  /**
    * Stop video chat while keeping text chat connected.
    * Removes video/audio tracks but keeps peer connection and data channel open.
    * Notifies remote peer so they also stop video.

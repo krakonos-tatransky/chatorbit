@@ -26,7 +26,7 @@ import {
   type PanResponderGestureState,
   type AppStateStatus,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RTCView } from 'react-native-webrtc';
 import InCallManager from 'react-native-incall-manager';
 import { Ionicons } from '@expo/vector-icons';
@@ -67,6 +67,7 @@ interface SessionScreenProps {
 }
 
 export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
   const [messageText, setMessageText] = useState('');
   const [displayTime, setDisplayTime] = useState<number | null>(null);
 
@@ -589,8 +590,8 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
   const isVideoActive = videoMode === 'active' || videoMode === 'fullscreen';
   const showRemoteVideo = isVideoActive && remoteStream;
 
-  // In fullscreen mode, don't respect bottom safe area to use full screen
-  const safeAreaEdges = videoMode === 'fullscreen' ? ['top'] : ['top', 'bottom'];
+  // In fullscreen mode, don't respect any safe area to use entire screen (including behind notch)
+  const safeAreaEdges = videoMode === 'fullscreen' ? [] : ['top', 'bottom'];
 
   return (
     <SafeAreaView style={styles.container} edges={safeAreaEdges as any}>
@@ -619,7 +620,10 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
         <View style={styles.mainContent}>
           {/* Transparent header overlay for video mode */}
           {isVideoActive && (
-            <View style={styles.headerOverlay}>
+            <View style={[
+              styles.headerOverlay,
+              videoMode === 'fullscreen' && { paddingTop: insets.top + SPACING.sm }
+            ]}>
               <View style={styles.headerLeft}>
                 <StatusDot
                   status={isConnected ? 'connected' : 'waiting'}
@@ -651,7 +655,10 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
 
               {/* Fullscreen toggle button */}
               <TouchableOpacity
-                style={styles.fullscreenButton}
+                style={[
+                  styles.fullscreenButton,
+                  videoMode === 'fullscreen' && { top: insets.top + SPACING.xxxl }
+                ]}
                 onPress={toggleFullscreen}
               >
                 <Ionicons
