@@ -589,8 +589,11 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
   const isVideoActive = videoMode === 'active' || videoMode === 'fullscreen';
   const showRemoteVideo = isVideoActive && remoteStream;
 
+  // In fullscreen mode, don't respect bottom safe area to use full screen
+  const safeAreaEdges = videoMode === 'fullscreen' ? ['top'] : ['top', 'bottom'];
+
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+    <SafeAreaView style={styles.container} edges={safeAreaEdges as any}>
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
