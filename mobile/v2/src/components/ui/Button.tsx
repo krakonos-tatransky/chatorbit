@@ -75,7 +75,7 @@ export const Button: React.FC<ButtonProps> = ({
           color={variant === 'primary' ? COLORS.text.onAccent : COLORS.accent.yellow}
         />
       ) : typeof children === 'string' ? (
-        <Text style={textStyles}>{children}</Text>
+        <Text style={textStyles} maxFontSizeMultiplier={1}>{children}</Text>
       ) : (
         children
       )}

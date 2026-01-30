@@ -152,10 +152,14 @@ export class WebRTCManager {
    * Start video/audio capture and add to existing peer connection
    * Called when user taps camera button or accepts video invite
    * Requires peer connection to be already initialized (via text chat connection)
+   * @param config Optional WebRTC configuration
+   * @param mediaConstraints Optional media constraints
+   * @param asInitiator If true, marks this device as the video call initiator (responsible for creating renegotiation offers)
    */
   async startVideo(
     config?: WebRTCConfig,
-    mediaConstraints?: MediaConstraints
+    mediaConstraints?: MediaConstraints,
+    asInitiator: boolean = false
   ): Promise<MediaStream> {
     if (this.videoStarted) {
       console.log('[WebRTC] Video already started');
@@ -170,9 +174,16 @@ export class WebRTCManager {
     }
 
     try {
-      console.log('[WebRTC] Starting video on existing peer connection');
+      console.log('[WebRTC] Starting video on existing peer connection, asInitiator:', asInitiator);
+
+      // IMPORTANT: Set video initiator flag BEFORE adding tracks
+      // This ensures that when negotiationneeded fires, we know we should create the offer
+      if (asInitiator) {
+        this.isVideoInitiator = true;
+      }
 
       // Add local media stream to existing peer connection
+      // This triggers negotiationneeded event
       const localStream = await this.peerConnection.addLocalStream(mediaConstraints);
 
       this.videoStarted = true;
@@ -463,9 +474,14 @@ export class WebRTCManager {
    * Handle video invite from remote peer
    */
   private handleVideoInvite(): void {
-    console.log('[WebRTC] Received video invite');
+    console.log('[WebRTC] Received video invite - triggering callback');
+    console.log('[WebRTC] onVideoInvite callback exists:', !!this.onVideoInvite);
     if (this.onVideoInvite) {
+      console.log('[WebRTC] Calling onVideoInvite callback now');
       this.onVideoInvite();
+      console.log('[WebRTC] onVideoInvite callback completed');
+    } else {
+      console.warn('[WebRTC] No onVideoInvite callback registered!');
     }
   }
 
@@ -570,6 +586,47 @@ export class WebRTCManager {
     // Update connection state based on session status and participant count
     if (isSessionActive && participantCount >= 2) {
       console.log('[WebRTC] Session is active with 2 participants');
+
+      // Check if peer connection needs recovery
+      // This handles the case where one peer killed and restarted the app
+      if (this.peerConnectionInitialized && this.peerConnection) {
+        const iceState = this.peerConnection.getIceConnectionState();
+        const dataChannelReady = this.peerConnection.isDataChannelOpen();
+
+        console.log('[WebRTC] Checking peer connection health:', { iceState, dataChannelReady });
+
+        // If ICE is failed/disconnected/closed OR data channel is dead, we need to reinitialize
+        if (iceState === 'failed' || iceState === 'disconnected' || iceState === 'closed' || !dataChannelReady) {
+          console.log('[WebRTC] Peer connection is stale (ICE:', iceState, ', dataChannel:', dataChannelReady, ') - reinitializing');
+
+          // If we were in video mode, notify UI to exit video mode
+          // This prevents frozen video on the screen
+          const wasInVideoMode = this.videoStarted;
+          if (wasInVideoMode) {
+            console.log('[WebRTC] Was in video mode - notifying UI to exit video');
+            // Clear remote stream first to remove frozen video
+            if (this.onRemoteStream) {
+              this.onRemoteStream(null);
+            }
+            // Notify UI that video has ended due to connection loss
+            if (this.onVideoEnded) {
+              this.onVideoEnded();
+            }
+          }
+
+          // Close the stale peer connection
+          this.peerConnection.close();
+          this.peerConnection = null;
+          this.peerConnectionInitialized = false;
+          this.videoStarted = false;
+          this.videoAcceptHandled = false;
+          this.isVideoInitiator = false;
+          this.pendingIceCandidates = [];
+
+          // Reset connection state in store
+          connectionStore.setConnectionState('connecting');
+        }
+      }
 
       // Initialize peer connection for text chat when both participants are connected
       if (!this.peerConnectionInitialized) {
@@ -785,6 +842,7 @@ export class WebRTCManager {
     });
 
     this.peerConnection.onDataChannelMessage(async (message: DataChannelMessage) => {
+      console.log('[WebRTC] DataChannel message received, type:', message.type, 'full message:', JSON.stringify(message).substring(0, 200));
       try {
         switch (message.type) {
           case 'message':
@@ -877,7 +935,8 @@ export class WebRTCManager {
    */
   private async handleCallMessage(message: { type: 'call'; action: string; from?: string }): Promise<void> {
     const action = message.action;
-    console.log('[WebRTC] Received call message:', action);
+    console.log('[WebRTC] Received call message:', action, 'from:', message.from);
+    console.log('[WebRTC] onVideoInvite callback registered:', !!this.onVideoInvite);
 
     switch (action) {
       case 'request':
@@ -1168,14 +1227,21 @@ export class WebRTCManager {
 
   /**
    * Switch between front and back camera
-   * @returns true if switch was successful, false otherwise
+   * @returns The new local stream if successful, null otherwise
    */
-  async switchCamera(): Promise<boolean> {
+  async switchCamera(): Promise<MediaStream | null> {
     if (!this.peerConnection) {
       console.log('[WebRTC] No peer connection - cannot switch camera');
-      return false;
+      return null;
     }
     return this.peerConnection.switchCamera();
+  }
+
+  /**
+   * Get current camera facing mode
+   */
+  getCurrentFacingMode(): 'user' | 'environment' {
+    return this.peerConnection?.getCurrentFacingMode() || 'user';
   }
 
   /**

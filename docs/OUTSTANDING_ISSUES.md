@@ -402,6 +402,59 @@ The status pane automatically collapses when:
 
 ---
 
+## Pending Features
+
+### AdMob Rewarded Ads (Package Removed - Re-install When Ready)
+**Status**: Package uninstalled to prevent crash. Re-install when App Store linked.
+**Priority**: HIGH (monetization)
+
+**What Was Implemented** (code preserved but inactive):
+- `src/services/admob.ts` - Full rewarded ad service (file exists, imports commented)
+- `MintContent.tsx` - Ad integration hooks (imports commented)
+- `App.tsx` - AdMob initialization (imports commented)
+- `settingsStore.ts` - `isPaidVersion` feature flag (working)
+
+**What's Needed to Enable AdMob**:
+1. Link app to App Store in Google AdMob console (REQUIRED - ads crash without this)
+2. Re-install the package: `npm install react-native-google-mobile-ads`
+3. Add plugin config to `app.json`:
+   ```json
+   "plugins": [
+     [
+       "react-native-google-mobile-ads",
+       {
+         "androidAppId": "ca-app-pub-2071726038718700~2099540252",
+         "iosAppId": "ca-app-pub-2071726038718700~2099540252",
+         "userTrackingUsageDescription": "This identifier will be used to deliver personalized ads to you."
+       }
+     ]
+   ]
+   ```
+4. Run `npx expo prebuild --platform ios` and `pod install`
+5. Set `isPaidVersion` to `false` in `settingsStore.ts` (line ~71)
+6. Uncomment AdMob import in `App.tsx`
+7. Uncomment AdMob initialization useEffect in `App.tsx`
+8. Uncomment AdMob imports in `MintContent.tsx`
+
+**How the Feature Flag Works**:
+- `isPaidVersion = true` → Paid version, no ads shown (current default)
+- `isPaidVersion = false` → Free version, show ads before token minting
+- Flag is persisted in AsyncStorage
+- Selector `selectShouldShowAds` returns the inverse (true = show ads)
+
+**Ad Flow (when enabled)**:
+1. User taps "Generate Token"
+2. If free version: Show rewarded ad
+3. If user completes ad: Mint token
+4. If user cancels ad: Show message asking to watch full ad
+5. If paid version: Mint token directly (no ad)
+
+**Ad Unit IDs** (preserved for re-implementation):
+- App ID: `ca-app-pub-2071726038718700~2099540252`
+- Rewarded Ad Unit: `ca-app-pub-2071726038718700/1971547745`
+
+---
+
 ## Notes
 
 - Previous WebRTC fixes (signaling state checks, connection management) have been implemented

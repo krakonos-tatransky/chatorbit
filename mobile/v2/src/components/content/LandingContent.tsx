@@ -10,6 +10,7 @@ import {
 import Svg, { Path } from 'react-native-svg';
 import { COLORS } from '../../constants/colors';
 import { SPACING } from '../../constants/spacing';
+import { useTranslation } from '../../i18n';
 
 interface LandingContentProps {
   onNeedToken: () => void;
@@ -60,6 +61,8 @@ export const LandingContent: React.FC<LandingContentProps> = ({
   onNeedToken,
   onHaveToken,
 }) => {
+  const t = useTranslation();
+
   // Animation values
   const ringRotation = useRef(new Animated.Value(0)).current;
   const dashedRingRotation = useRef(new Animated.Value(0)).current;
@@ -180,12 +183,12 @@ export const LandingContent: React.FC<LandingContentProps> = ({
 
                 {/* Plus badge */}
                 <View style={styles.plusBadge}>
-                  <Text style={styles.plusText}>+</Text>
+                  <Text style={styles.plusText} maxFontSizeMultiplier={1}>+</Text>
                 </View>
               </View>
 
-              <Text style={styles.actionTitle}>Get Token</Text>
-              <Text style={styles.actionSubtitle}>Create Room</Text>
+              <Text style={styles.actionTitle} maxFontSizeMultiplier={1.2}>{t.landing.getToken}</Text>
+              <Text style={styles.actionSubtitle} maxFontSizeMultiplier={1.2}>{t.landing.createRoom}</Text>
             </TouchableOpacity>
           </Animated.View>
 
@@ -231,8 +234,8 @@ export const LandingContent: React.FC<LandingContentProps> = ({
                 </View>
               </View>
 
-              <Text style={styles.actionTitle}>Has Token</Text>
-              <Text style={styles.actionSubtitle}>Join Room</Text>
+              <Text style={styles.actionTitle} maxFontSizeMultiplier={1.2}>{t.landing.hasToken}</Text>
+              <Text style={styles.actionSubtitle} maxFontSizeMultiplier={1.2}>{t.landing.joinRoom}</Text>
             </TouchableOpacity>
           </Animated.View>
         </View>
@@ -241,9 +244,8 @@ export const LandingContent: React.FC<LandingContentProps> = ({
         <Animated.View
           style={[styles.descriptionSection, { opacity: fadeInAnim3 }]}
         >
-          <Text style={styles.descriptionText}>
-            Generate a shareable access token, send it to your contact, and meet
-            in an ephemeral chat room. Once connected, a secure countdown begins.
+          <Text style={styles.descriptionText} maxFontSizeMultiplier={1.2}>
+            {t.landing.description}
           </Text>
         </Animated.View>
       </View>
@@ -253,15 +255,15 @@ export const LandingContent: React.FC<LandingContentProps> = ({
         <View style={styles.footerBadges}>
           <View style={styles.footerBadge}>
             <ShieldIcon />
-            <Text style={styles.footerBadgeText}>Private</Text>
+            <Text style={styles.footerBadgeText} maxFontSizeMultiplier={1.1}>{t.landing.badgePrivate}</Text>
           </View>
           <View style={styles.footerBadge}>
             <LockIcon />
-            <Text style={styles.footerBadgeText}>Encrypted</Text>
+            <Text style={styles.footerBadgeText} maxFontSizeMultiplier={1.1}>{t.landing.badgeEncrypted}</Text>
           </View>
           <View style={styles.footerBadge}>
             <ClockIcon />
-            <Text style={styles.footerBadgeText}>Ephemeral</Text>
+            <Text style={styles.footerBadgeText} maxFontSizeMultiplier={1.1}>{t.landing.badgeEphemeral}</Text>
           </View>
         </View>
       </View>
@@ -281,8 +283,7 @@ const styles = StyleSheet.create({
   },
   actionsContainer: {
     flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 24,
+    justifyContent: 'space-evenly',
     marginBottom: 40,
   },
   actionItem: {

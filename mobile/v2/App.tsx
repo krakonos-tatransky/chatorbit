@@ -4,7 +4,7 @@
  * Main entry point with navigation setup.
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Text, TextInput, View, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
@@ -14,7 +14,15 @@ import { SplashScreen } from './src/screens/SplashScreen';
 import { MainScreen } from './src/screens/MainScreen';
 import { SessionScreen } from './src/screens/SessionScreen';
 import { PatternPreviewScreen } from './src/screens/PatternPreviewScreen';
+import { HelpScreen } from './src/screens/HelpScreen';
+import { TermsScreen } from './src/screens/TermsScreen';
+import { PrivacyScreen } from './src/screens/PrivacyScreen';
+import { SettingsScreen } from './src/screens/SettingsScreen';
 import { COLORS } from './src/constants';
+import { LanguageProvider } from './src/i18n';
+import { useSettingsStore, selectShouldShowAds } from './src/state';
+// TODO: Re-install react-native-google-mobile-ads when app is linked to App Store
+// import { initializeAdMob } from './src/services/admob';
 
 /**
  * Dynamic Type Support
@@ -45,6 +53,10 @@ export type RootStackParamList = {
   Main: undefined;
   Session: undefined;
   PatternPreview: undefined;
+  Help: undefined;
+  Terms: undefined;
+  Privacy: undefined;
+  Settings: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -53,6 +65,27 @@ export default function App() {
   const [fontsLoaded] = useFonts({
     JetBrainsMono: JetBrainsMono_400Regular,
   });
+  const shouldShowAds = useSettingsStore(selectShouldShowAds);
+
+  // AdMob initialization - only for free version (when shouldShowAds is true)
+  // Currently disabled because AdMob requires app to be linked to App Store
+  // TODO: When ready to enable ads:
+  // 1. Set isPaidVersion to false in settingsStore.ts
+  // 2. Uncomment the useEffect below
+  // useEffect(() => {
+  //   // Only initialize AdMob for free version
+  //   if (!shouldShowAds) {
+  //     console.log('[App] Paid version - skipping AdMob initialization');
+  //     return;
+  //   }
+  //
+  //   const timer = setTimeout(() => {
+  //     initializeAdMob().catch((error) => {
+  //       console.error('[App] Failed to initialize AdMob:', error);
+  //     });
+  //   }, 3000);
+  //   return () => clearTimeout(timer);
+  // }, [shouldShowAds]);
 
   if (!fontsLoaded) {
     return (
@@ -63,9 +96,10 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
-      <StatusBar style="light" />
-      <Stack.Navigator
+    <LanguageProvider>
+      <NavigationContainer>
+        <StatusBar style="light" />
+        <Stack.Navigator
         initialRouteName="Splash"
         screenOptions={{
           headerStyle: {
@@ -113,7 +147,40 @@ export default function App() {
             headerShown: false,
           }}
         />
-      </Stack.Navigator>
-    </NavigationContainer>
+        <Stack.Screen
+          name="Help"
+          component={HelpScreen}
+          options={{
+            title: 'Help',
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="Terms"
+          component={TermsScreen}
+          options={{
+            title: 'Terms of Service',
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="Privacy"
+          component={PrivacyScreen}
+          options={{
+            title: 'Privacy Policy',
+            headerShown: false,
+          }}
+        />
+        <Stack.Screen
+          name="Settings"
+          component={SettingsScreen}
+          options={{
+            title: 'Settings',
+            headerShown: false,
+          }}
+        />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </LanguageProvider>
   );
 }

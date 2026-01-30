@@ -1,6 +1,6 @@
 # ChatOrbit Mobile v2 - Project Status
 
-**Last Updated**: December 29, 2024
+**Last Updated**: January 30, 2026
 
 ## Current Status: Field Testing Phase
 
@@ -45,6 +45,25 @@ The mobile app (v2) is feature-complete for basic chat and video functionality. 
   - Root cause: React state batching caused `ontrack` to fire before state update processed
   - Fix: Use `flushSync` from `react-dom` for synchronous state updates
   - Affected: `frontend/components/session-view.tsx` (3 locations)
+
+### Recent Updates (January 30, 2026)
+- [x] **AdMob Integration (code prepared, package removed)**
+  - Service: `src/services/admob.ts` - rewarded ad service code exists (imports commented)
+  - **Status**: Package uninstalled to prevent crash - Google requires App Store linking before ads work
+  - Ad Unit ID preserved: `ca-app-pub-2071726038718700/1971547745`
+  - See `docs/OUTSTANDING_ISSUES.md` for re-installation steps
+- [x] **Paid/Free Version Feature Flag**
+  - Added `isPaidVersion` boolean to settings store (`settingsStore.ts`)
+  - Selector: `selectShouldShowAds` - returns true for free version
+  - When `isPaidVersion = true`: No ads (paid version)
+  - When `isPaidVersion = false`: Show ads (free version, requires App Store linking)
+  - **Current setting**: `true` (paid mode, ads disabled)
+  - Persisted in AsyncStorage
+- [x] **Settings & Accessibility Improvements**
+  - Settings screen with background pattern selection
+  - Background pattern applied to Help, Terms, Privacy screens
+  - `maxFontSizeMultiplier` applied to all text for accessibility
+  - Email subject added to token sharing
 
 ### E2E Testing Infrastructure
 - [x] Docker compose for local frontend testing (`infra/docker-compose.test.yml`)
@@ -198,6 +217,8 @@ xcrun devicectl list devices
 | 2024-12-22 | Separate video-end from session-end | Allow text chat to continue after video |
 | 2024-12-24 | UTC date parsing utility | Backend returns naive UTC datetimes |
 | 2024-12-24 | Auto-resolve stuck messages | Better UX after device sleep/wake |
+| 2026-01-30 | Paid version feature flag | Enables easy toggling between free (ads) and paid (no ads) versions |
+| 2026-01-30 | AdMob disabled by default | Requires App Store linking before ads can be shown |
 
 ---
 

@@ -10,6 +10,7 @@ import {
   Share,
 } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
+import Svg, { Path } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/colors';
 import { TEXT_STYLES } from '../../constants/typography';
@@ -17,42 +18,48 @@ import { SPACING } from '../../constants/spacing';
 import { Button } from '../ui/Button';
 import { mintToken, getDefaultTokenParams, validateTokenParams } from '../../services/api/tokens';
 import { useSessionStore } from '../../state/stores/sessionStore';
+import { useSettingsStore, selectShouldShowAds } from '../../state/stores/settingsStore';
 import { getDeviceId } from '../../utils/deviceId';
+import { useTranslation } from '../../i18n';
+// TODO: Re-enable AdMob after app is linked to App Store
+// import { showRewardedAd, isRewardedAdReady, preloadRewardedAd } from '../../services/admob';
 import type { ValidityPeriod } from '../../services/api/types';
+
+// Footer badge icons (matching LandingContent)
+const NEON_BLUE = '#4FC3F7';
+
+const ShieldIcon: React.FC = () => (
+  <Svg width={12} height={12} viewBox="0 0 24 24" fill="#4CAF50">
+    <Path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" />
+  </Svg>
+);
+
+const LockIcon: React.FC = () => (
+  <Svg width={12} height={12} viewBox="0 0 24 24" fill={NEON_BLUE}>
+    <Path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z" />
+  </Svg>
+);
+
+const ClockIcon: React.FC = () => (
+  <Svg width={12} height={12} viewBox="0 0 24 24" fill="#FF9800">
+    <Path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z" />
+  </Svg>
+);
 
 interface MintContentProps {
   onSessionStart: () => void;
 }
 
-const VALIDITY_OPTIONS: { label: string; value: ValidityPeriod }[] = [
-  { label: '1 Day', value: '1_day' },
-  { label: '1 Week', value: '1_week' },
-  { label: '1 Month', value: '1_month' },
-  { label: '1 Year', value: '1_year' },
-];
-
-const DURATION_OPTIONS: { label: string; value: number }[] = [
-  { label: '5 minutes', value: 5 },
-  { label: '15 minutes', value: 15 },
-  { label: '30 minutes', value: 30 },
-  { label: '1 hour', value: 60 },
-  { label: '3 hours', value: 180 },
-  { label: '1 day', value: 1440 },
-];
-
-const MESSAGE_LIMIT_OPTIONS: { label: string; value: number }[] = [
-  { label: '200 characters', value: 200 },
-  { label: '500 characters', value: 500 },
-  { label: '1,000 characters', value: 1000 },
-  { label: '2,000 characters', value: 2000 },
-  { label: '5,000 characters', value: 5000 },
-  { label: '10,000 characters', value: 10000 },
-  { label: '16,000 characters', value: 16000 },
-];
+// Option values - labels come from translations
+const VALIDITY_VALUES: ValidityPeriod[] = ['1_day', '1_week', '1_month', '1_year'];
+const DURATION_VALUES: number[] = [5, 15, 30, 60, 180, 1440];
+const MESSAGE_LIMIT_VALUES: number[] = [200, 500, 1000, 2000, 5000, 10000, 16000];
 
 export const MintContent: React.FC<MintContentProps> = ({
   onSessionStart,
 }) => {
+  const t = useTranslation();
+  const shouldShowAds = useSettingsStore(selectShouldShowAds);
   const defaults = getDefaultTokenParams();
   const [validityPeriod, setValidityPeriod] = useState<ValidityPeriod>(defaults.validity_period);
   const [sessionTtl, setSessionTtl] = useState<number>(defaults.session_ttl_minutes);
@@ -63,22 +70,53 @@ export const MintContent: React.FC<MintContentProps> = ({
   const [showValidityPicker, setShowValidityPicker] = useState(false);
   const [showDurationPicker, setShowDurationPicker] = useState(false);
   const [showMessageLimitPicker, setShowMessageLimitPicker] = useState(false);
+  // TODO: Re-enable AdMob after app is linked to App Store
+  // const [adReady, setAdReady] = useState(false);
+  // const [isShowingAd, setIsShowingAd] = useState(false);
+
+  // Map values to translated labels
+  const validityLabels: Record<ValidityPeriod, string> = {
+    '1_day': t.mint.validityOptions.oneDay,
+    '1_week': t.mint.validityOptions.oneWeek,
+    '1_month': t.mint.validityOptions.oneMonth,
+    '1_year': t.mint.validityOptions.oneYear,
+  };
+
+  const durationLabels: Record<number, string> = {
+    5: t.mint.durationOptions.fiveMin,
+    15: t.mint.durationOptions.fifteenMin,
+    30: t.mint.durationOptions.thirtyMin,
+    60: t.mint.durationOptions.oneHour,
+    180: t.mint.durationOptions.threeHours,
+    1440: t.mint.durationOptions.oneDay,
+  };
+
+  const messageLimitLabels: Record<number, string> = {
+    200: t.mint.messageLimitOptions.chars200,
+    500: t.mint.messageLimitOptions.chars500,
+    1000: t.mint.messageLimitOptions.chars1000,
+    2000: t.mint.messageLimitOptions.chars2000,
+    5000: t.mint.messageLimitOptions.chars5000,
+    10000: t.mint.messageLimitOptions.chars10000,
+    16000: t.mint.messageLimitOptions.chars16000,
+  };
 
   const getValidityLabel = (value: ValidityPeriod) => {
-    return VALIDITY_OPTIONS.find(opt => opt.value === value)?.label || value;
+    return validityLabels[value] || value;
   };
 
   const getDurationLabel = (value: number) => {
-    return DURATION_OPTIONS.find(opt => opt.value === value)?.label || `${value} minutes`;
+    return durationLabels[value] || `${value} minutes`;
   };
 
   const getMessageLimitLabel = (value: number) => {
-    return MESSAGE_LIMIT_OPTIONS.find(opt => opt.value === value)?.label || `${value} characters`;
+    return messageLimitLabels[value] || `${value} characters`;
   };
 
   const { joinSession } = useSessionStore();
 
-  const handleMintToken = async () => {
+  // Actually mint the token (called after ad is shown)
+  const performMinting = async () => {
     const params = {
       validity_period: validityPeriod,
       session_ttl_minutes: sessionTtl,
@@ -87,7 +125,7 @@ export const MintContent: React.FC<MintContentProps> = ({
 
     const validationError = validateTokenParams(params);
     if (validationError) {
-      Alert.alert('Invalid Parameters', validationError);
+      Alert.alert(t.mint.invalidParams, validationError);
       return;
     }
 
@@ -98,27 +136,50 @@ export const MintContent: React.FC<MintContentProps> = ({
     } catch (error: any) {
       console.error('Minting error:', JSON.stringify(error, null, 2));
       // API errors have 'detail', regular errors have 'message'
-      const errorMessage = error.detail || error.message || 'Failed to create token';
-      Alert.alert('Error', errorMessage);
+      const errorMessage = error.detail || error.message || t.mint.errorTitle;
+      Alert.alert(t.mint.errorTitle, errorMessage);
     } finally {
       setIsMinting(false);
     }
   };
 
+  const handleMintToken = async () => {
+    // Check if this is the paid version (no ads)
+    if (!shouldShowAds) {
+      // Paid version - mint directly without ad
+      await performMinting();
+      return;
+    }
+
+    // TODO: Re-enable AdMob after app is linked to App Store
+    // Free version with ads - show ad before minting
+    // For now, just mint the token directly since AdMob is not linked yet
+    // When ready to enable ads:
+    // 1. Uncomment the AdMob imports at the top
+    // 2. Uncomment the ad state variables
+    // 3. Replace the line below with the ad logic
+    await performMinting();
+  };
+
   const handleCopyToken = async () => {
     if (mintedToken) {
       await Clipboard.setStringAsync(mintedToken);
-      Alert.alert('Copied!', 'Token copied to clipboard');
+      Alert.alert(t.mint.copied, t.mint.copiedMessage);
     }
   };
 
   const handleShareToken = async () => {
     if (mintedToken) {
       try {
-        await Share.share({
-          message: `Join my ChatOrbit session!\n\nToken: ${mintedToken}\n\nOpen the ChatOrbit app, tap "Have token", and paste this token to connect.`,
-          title: 'ChatOrbit Session Token',
-        });
+        await Share.share(
+          {
+            message: t.mint.shareMessage.replace('{token}', mintedToken),
+            title: t.mint.shareTitle,
+          },
+          {
+            subject: t.mint.shareTitle, // Used as email subject on iOS
+          }
+        );
       } catch (error) {
         console.error('Share error:', error);
       }
@@ -127,7 +188,7 @@ export const MintContent: React.FC<MintContentProps> = ({
 
   const handleStartSession = async () => {
     if (!mintedToken) {
-      Alert.alert('Error', 'No token available');
+      Alert.alert(t.mint.errorTitle, t.mint.noTokenError);
       return;
     }
 
@@ -138,7 +199,7 @@ export const MintContent: React.FC<MintContentProps> = ({
       onSessionStart();
     } catch (error: any) {
       console.error('Join error:', error);
-      Alert.alert('Error', error.message || 'Failed to join session');
+      Alert.alert(t.mint.errorTitle, error.message || t.mint.errorTitle);
     } finally {
       setIsJoining(false);
     }
@@ -151,24 +212,24 @@ export const MintContent: React.FC<MintContentProps> = ({
         <View style={styles.tokenSuccessIcon}>
           <Ionicons name="checkmark-circle" size={64} color={COLORS.accent.yellow} />
         </View>
-        <Text style={styles.tokenSuccessTitle}>Token Created!</Text>
-        <Text style={styles.tokenSuccessSubtitle}>
-          Share this token with the other participant
+        <Text style={styles.tokenSuccessTitle} maxFontSizeMultiplier={1.2}>{t.mint.successTitle}</Text>
+        <Text style={styles.tokenSuccessSubtitle} maxFontSizeMultiplier={1.2}>
+          {t.mint.successSubtitle}
         </Text>
 
         <View style={styles.tokenDisplayBox}>
-          <Text style={styles.tokenDisplayBoxLabel}>Your Token</Text>
-          <Text style={styles.tokenDisplayBoxValue} selectable>{mintedToken}</Text>
+          <Text style={styles.tokenDisplayBoxLabel} maxFontSizeMultiplier={1.2}>{t.mint.yourToken}</Text>
+          <Text style={styles.tokenDisplayBoxValue} maxFontSizeMultiplier={1.2} selectable>{mintedToken}</Text>
         </View>
 
         <View style={styles.tokenActionButtons}>
           <TouchableOpacity style={styles.tokenActionButton} onPress={handleCopyToken}>
             <Ionicons name="copy-outline" size={24} color={COLORS.accent.yellow} />
-            <Text style={styles.tokenActionButtonText}>Copy</Text>
+            <Text style={styles.tokenActionButtonText} maxFontSizeMultiplier={1.2}>{t.mint.copyButton}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.tokenActionButton} onPress={handleShareToken}>
             <Ionicons name="share-outline" size={24} color={COLORS.accent.yellow} />
-            <Text style={styles.tokenActionButtonText}>Share</Text>
+            <Text style={styles.tokenActionButtonText} maxFontSizeMultiplier={1.2}>{t.mint.shareButton}</Text>
           </TouchableOpacity>
         </View>
 
@@ -179,7 +240,7 @@ export const MintContent: React.FC<MintContentProps> = ({
             fullWidth
             disabled={isJoining}
           >
-            {isJoining ? 'Joining...' : 'Start Session'}
+            {isJoining ? t.mint.joiningButton : t.mint.startSessionButton}
           </Button>
         </View>
 
@@ -187,7 +248,7 @@ export const MintContent: React.FC<MintContentProps> = ({
           style={styles.createAnotherButton}
           onPress={() => setMintedToken(null)}
         >
-          <Text style={styles.createAnotherText}>Create Another Token</Text>
+          <Text style={styles.createAnotherText} maxFontSizeMultiplier={1.2}>{t.mint.createAnotherButton}</Text>
         </TouchableOpacity>
       </ScrollView>
     );
@@ -195,18 +256,18 @@ export const MintContent: React.FC<MintContentProps> = ({
 
   return (
     <ScrollView style={styles.scrollView} contentContainerStyle={styles.contentContainer}>
-      <Text style={styles.pageTitle}>Create New Session</Text>
-      <Text style={styles.pageSubtitle}>Configure your session parameters</Text>
+      <Text style={styles.pageTitle} maxFontSizeMultiplier={1.2}>{t.mint.pageTitle}</Text>
+      <Text style={styles.pageSubtitle} maxFontSizeMultiplier={1.2}>{t.mint.pageSubtitle}</Text>
 
-      <Text style={styles.sectionTitle}>Token Validity</Text>
-      <Text style={styles.sectionDescription}>
-        How long the token can be used to join
+      <Text style={styles.sectionTitle} maxFontSizeMultiplier={1.2}>{t.mint.validityTitle}</Text>
+      <Text style={styles.sectionDescription} maxFontSizeMultiplier={1.2}>
+        {t.mint.validityDescription}
       </Text>
       <TouchableOpacity
         style={styles.selectButton}
         onPress={() => setShowValidityPicker(true)}
       >
-        <Text style={styles.selectButtonText}>{getValidityLabel(validityPeriod)}</Text>
+        <Text style={styles.selectButtonText} maxFontSizeMultiplier={1.2}>{getValidityLabel(validityPeriod)}</Text>
         <Ionicons name="chevron-down" size={20} color={COLORS.text.secondary} />
       </TouchableOpacity>
 
@@ -224,32 +285,33 @@ export const MintContent: React.FC<MintContentProps> = ({
         >
           <View style={styles.pickerContent}>
             <View style={styles.pickerHeader}>
-              <Text style={styles.pickerTitle}>Token Validity</Text>
+              <Text style={styles.pickerTitle} maxFontSizeMultiplier={1.2}>{t.mint.validityTitle}</Text>
               <TouchableOpacity onPress={() => setShowValidityPicker(false)}>
                 <Ionicons name="close" size={24} color={COLORS.text.primary} />
               </TouchableOpacity>
             </View>
-            {VALIDITY_OPTIONS.map((option) => (
+            {VALIDITY_VALUES.map((value) => (
               <TouchableOpacity
-                key={option.value}
+                key={value}
                 style={[
                   styles.pickerOption,
-                  validityPeriod === option.value && styles.pickerOptionActive,
+                  validityPeriod === value && styles.pickerOptionActive,
                 ]}
                 onPress={() => {
-                  setValidityPeriod(option.value);
+                  setValidityPeriod(value);
                   setShowValidityPicker(false);
                 }}
               >
                 <Text
                   style={[
                     styles.pickerOptionText,
-                    validityPeriod === option.value && styles.pickerOptionTextActive,
+                    validityPeriod === value && styles.pickerOptionTextActive,
                   ]}
+                  maxFontSizeMultiplier={1.2}
                 >
-                  {option.label}
+                  {getValidityLabel(value)}
                 </Text>
-                {validityPeriod === option.value && (
+                {validityPeriod === value && (
                   <Ionicons name="checkmark" size={20} color={COLORS.accent.yellow} />
                 )}
               </TouchableOpacity>
@@ -258,15 +320,15 @@ export const MintContent: React.FC<MintContentProps> = ({
         </TouchableOpacity>
       </Modal>
 
-      <Text style={styles.sectionTitle}>Session Duration</Text>
-      <Text style={styles.sectionDescription}>
-        How long the session stays active
+      <Text style={styles.sectionTitle} maxFontSizeMultiplier={1.2}>{t.mint.durationTitle}</Text>
+      <Text style={styles.sectionDescription} maxFontSizeMultiplier={1.2}>
+        {t.mint.durationDescription}
       </Text>
       <TouchableOpacity
         style={styles.selectButton}
         onPress={() => setShowDurationPicker(true)}
       >
-        <Text style={styles.selectButtonText}>{getDurationLabel(sessionTtl)}</Text>
+        <Text style={styles.selectButtonText} maxFontSizeMultiplier={1.2}>{getDurationLabel(sessionTtl)}</Text>
         <Ionicons name="chevron-down" size={20} color={COLORS.text.secondary} />
       </TouchableOpacity>
 
@@ -284,32 +346,33 @@ export const MintContent: React.FC<MintContentProps> = ({
         >
           <View style={styles.pickerContent}>
             <View style={styles.pickerHeader}>
-              <Text style={styles.pickerTitle}>Session Duration</Text>
+              <Text style={styles.pickerTitle} maxFontSizeMultiplier={1.2}>{t.mint.durationTitle}</Text>
               <TouchableOpacity onPress={() => setShowDurationPicker(false)}>
                 <Ionicons name="close" size={24} color={COLORS.text.primary} />
               </TouchableOpacity>
             </View>
-            {DURATION_OPTIONS.map((option) => (
+            {DURATION_VALUES.map((value) => (
               <TouchableOpacity
-                key={option.value}
+                key={value}
                 style={[
                   styles.pickerOption,
-                  sessionTtl === option.value && styles.pickerOptionActive,
+                  sessionTtl === value && styles.pickerOptionActive,
                 ]}
                 onPress={() => {
-                  setSessionTtl(option.value);
+                  setSessionTtl(value);
                   setShowDurationPicker(false);
                 }}
               >
                 <Text
                   style={[
                     styles.pickerOptionText,
-                    sessionTtl === option.value && styles.pickerOptionTextActive,
+                    sessionTtl === value && styles.pickerOptionTextActive,
                   ]}
+                  maxFontSizeMultiplier={1.2}
                 >
-                  {option.label}
+                  {getDurationLabel(value)}
                 </Text>
-                {sessionTtl === option.value && (
+                {sessionTtl === value && (
                   <Ionicons name="checkmark" size={20} color={COLORS.accent.yellow} />
                 )}
               </TouchableOpacity>
@@ -318,15 +381,15 @@ export const MintContent: React.FC<MintContentProps> = ({
         </TouchableOpacity>
       </Modal>
 
-      <Text style={styles.sectionTitle}>Message Character Limit</Text>
-      <Text style={styles.sectionDescription}>
-        Maximum characters per message
+      <Text style={styles.sectionTitle} maxFontSizeMultiplier={1.2}>{t.mint.messageLimitTitle}</Text>
+      <Text style={styles.sectionDescription} maxFontSizeMultiplier={1.2}>
+        {t.mint.messageLimitDescription}
       </Text>
       <TouchableOpacity
         style={styles.selectButton}
         onPress={() => setShowMessageLimitPicker(true)}
       >
-        <Text style={styles.selectButtonText}>{getMessageLimitLabel(messageLimit)}</Text>
+        <Text style={styles.selectButtonText} maxFontSizeMultiplier={1.2}>{getMessageLimitLabel(messageLimit)}</Text>
         <Ionicons name="chevron-down" size={20} color={COLORS.text.secondary} />
       </TouchableOpacity>
 
@@ -344,32 +407,33 @@ export const MintContent: React.FC<MintContentProps> = ({
         >
           <View style={styles.pickerContent}>
             <View style={styles.pickerHeader}>
-              <Text style={styles.pickerTitle}>Message Limit</Text>
+              <Text style={styles.pickerTitle} maxFontSizeMultiplier={1.2}>{t.mint.messageLimitTitle}</Text>
               <TouchableOpacity onPress={() => setShowMessageLimitPicker(false)}>
                 <Ionicons name="close" size={24} color={COLORS.text.primary} />
               </TouchableOpacity>
             </View>
-            {MESSAGE_LIMIT_OPTIONS.map((option) => (
+            {MESSAGE_LIMIT_VALUES.map((value) => (
               <TouchableOpacity
-                key={option.value}
+                key={value}
                 style={[
                   styles.pickerOption,
-                  messageLimit === option.value && styles.pickerOptionActive,
+                  messageLimit === value && styles.pickerOptionActive,
                 ]}
                 onPress={() => {
-                  setMessageLimit(option.value);
+                  setMessageLimit(value);
                   setShowMessageLimitPicker(false);
                 }}
               >
                 <Text
                   style={[
                     styles.pickerOptionText,
-                    messageLimit === option.value && styles.pickerOptionTextActive,
+                    messageLimit === value && styles.pickerOptionTextActive,
                   ]}
+                  maxFontSizeMultiplier={1.2}
                 >
-                  {option.label}
+                  {getMessageLimitLabel(value)}
                 </Text>
-                {messageLimit === option.value && (
+                {messageLimit === value && (
                   <Ionicons name="checkmark" size={20} color={COLORS.accent.yellow} />
                 )}
               </TouchableOpacity>
@@ -385,8 +449,25 @@ export const MintContent: React.FC<MintContentProps> = ({
           fullWidth
           disabled={isMinting}
         >
-          {isMinting ? 'Creating Token...' : 'Create Token'}
+          {isMinting ? t.mint.creatingButton : t.mint.createButton}
         </Button>
+      </View>
+
+      <View style={styles.footer}>
+        <View style={styles.footerBadges}>
+          <View style={styles.footerBadge}>
+            <ShieldIcon />
+            <Text style={styles.footerBadgeText} maxFontSizeMultiplier={1.1}>{t.landing.badgePrivate}</Text>
+          </View>
+          <View style={styles.footerBadge}>
+            <LockIcon />
+            <Text style={styles.footerBadgeText} maxFontSizeMultiplier={1.1}>{t.landing.badgeEncrypted}</Text>
+          </View>
+          <View style={styles.footerBadge}>
+            <ClockIcon />
+            <Text style={styles.footerBadgeText} maxFontSizeMultiplier={1.1}>{t.landing.badgeEphemeral}</Text>
+          </View>
+        </View>
       </View>
     </ScrollView>
   );
@@ -560,6 +641,25 @@ const styles = StyleSheet.create({
   },
   buttonContainer: {
     marginTop: SPACING.xl,
+  },
+  footer: {
+    alignItems: 'center',
+    paddingVertical: SPACING.lg,
+    marginTop: SPACING.md,
+  },
+  footerBadges: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 20,
+  },
+  footerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  footerBadgeText: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.4)',
   },
   buttonSpacer: {
     height: SPACING.md,

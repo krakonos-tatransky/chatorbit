@@ -690,6 +690,13 @@ export class PeerConnection {
   }
 
   /**
+   * Check if data channel is open and ready for communication
+   */
+  isDataChannelOpen(): boolean {
+    return this.dataChannel !== null && this.dataChannel.readyState === 'open';
+  }
+
+  /**
    * Rollback local description (for handling offer collisions)
    * Used when we have a local offer but receive a remote offer
    */
@@ -746,36 +753,121 @@ export class PeerConnection {
   }
 
   /**
-   * Switch between front and back camera using _switchCamera() API
-   * This is a react-native-webrtc specific API that toggles cameras without renegotiation
-   * @returns true if switch was successful, false otherwise
+   * Track current camera facing mode
    */
-  async switchCamera(): Promise<boolean> {
-    if (!this.localStream) {
-      console.log('[PeerConnection] No local stream to switch camera');
-      return false;
+  private currentFacingMode: 'user' | 'environment' = 'user';
+
+  /**
+   * Switch between front and back camera by re-requesting media
+   * This properly initializes the camera with correct auto-focus settings
+   * @returns The new local stream if successful, null otherwise
+   */
+  async switchCamera(): Promise<MediaStream | null> {
+    if (!this.localStream || !this.pc) {
+      console.log('[PeerConnection] No local stream or peer connection to switch camera');
+      return null;
     }
 
     const videoTracks = this.localStream.getVideoTracks();
     if (videoTracks.length === 0) {
       console.log('[PeerConnection] No video tracks to switch');
-      return false;
+      return null;
     }
 
     try {
-      const videoTrack = videoTracks[0] as any;
-      if (typeof videoTrack._switchCamera === 'function') {
-        videoTrack._switchCamera();
-        console.log('[PeerConnection] Camera switched successfully');
-        return true;
-      } else {
-        console.log('[PeerConnection] _switchCamera not available on track');
-        return false;
+      // Determine new facing mode
+      const newFacingMode = this.currentFacingMode === 'user' ? 'environment' : 'user';
+      console.log('[PeerConnection] Switching camera from', this.currentFacingMode, 'to', newFacingMode);
+
+      // Get the current video track's sender
+      const senders = (this.pc as any).getSenders?.() || [];
+      const videoSender = senders.find((sender: any) => sender.track?.kind === 'video');
+
+      if (!videoSender) {
+        console.log('[PeerConnection] No video sender found, falling back to _switchCamera');
+        // Fallback to _switchCamera if no sender found
+        const videoTrack = videoTracks[0] as any;
+        if (typeof videoTrack._switchCamera === 'function') {
+          videoTrack._switchCamera();
+          this.currentFacingMode = newFacingMode;
+          return this.localStream;
+        }
+        return null;
       }
+
+      // Request new video track with the new facing mode
+      const newStream = await mediaDevices.getUserMedia({
+        video: {
+          facingMode: newFacingMode,
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30 },
+        },
+        audio: false, // Don't request audio again
+      });
+
+      const newVideoTrack = newStream.getVideoTracks()[0];
+      if (!newVideoTrack) {
+        console.error('[PeerConnection] Failed to get new video track');
+        return null;
+      }
+
+      // Get audio tracks from the old stream to preserve them
+      const audioTracks = this.localStream.getAudioTracks();
+      const oldVideoTrack = videoTracks[0];
+
+      // Create a NEW MediaStream with the new video track and existing audio IMMEDIATELY
+      // This is necessary because RTCView caches the stream URL and won't update
+      // if we just modify the existing stream's tracks
+      const newLocalStream = new MediaStream();
+      newLocalStream.addTrack(newVideoTrack);
+      audioTracks.forEach(track => newLocalStream.addTrack(track));
+
+      // Update the internal reference and facing mode IMMEDIATELY
+      // so the UI can show the new camera feed right away
+      this.localStream = newLocalStream;
+      this.currentFacingMode = newFacingMode;
+      console.log('[PeerConnection] New local stream created, updating UI immediately');
+
+      // Replace the track in the sender (for remote peer) - do this AFTER updating local stream
+      // This operation can take time but shouldn't block the local preview
+      videoSender.replaceTrack(newVideoTrack).then(() => {
+        console.log('[PeerConnection] Video track replaced in sender successfully');
+      }).catch((err: Error) => {
+        console.error('[PeerConnection] Failed to replace track in sender:', err);
+      });
+
+      // Stop the old video track after we've set up the new one
+      oldVideoTrack.stop();
+
+      console.log('[PeerConnection] Camera switched to', newFacingMode, 'successfully');
+
+      return this.localStream;
     } catch (error) {
       console.error('[PeerConnection] Failed to switch camera:', error);
-      return false;
+
+      // Fallback to _switchCamera API if the new method fails
+      try {
+        const videoTrack = videoTracks[0] as any;
+        if (typeof videoTrack._switchCamera === 'function') {
+          videoTrack._switchCamera();
+          this.currentFacingMode = this.currentFacingMode === 'user' ? 'environment' : 'user';
+          console.log('[PeerConnection] Fallback _switchCamera succeeded');
+          return this.localStream;
+        }
+      } catch (fallbackError) {
+        console.error('[PeerConnection] Fallback _switchCamera also failed:', fallbackError);
+      }
+
+      return null;
     }
+  }
+
+  /**
+   * Get current camera facing mode
+   */
+  getCurrentFacingMode(): 'user' | 'environment' {
+    return this.currentFacingMode;
   }
 
   /**

@@ -43,3 +43,14 @@ export type {
   PeerConnectionState,
   NetworkQuality,
 } from './connectionStore';
+
+// Settings store
+export {
+  useSettingsStore,
+  selectBackgroundPattern,
+  selectPatternSize,
+  selectIsHydrated,
+  selectBackgroundSettings,
+  selectIsPaidVersion,
+  selectShouldShowAds,
+} from './settingsStore';
