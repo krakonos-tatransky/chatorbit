@@ -34,6 +34,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Button, Input, StatusDot } from '@/components/ui';
+import { PlaceholderAdBanner } from '@/components/ads';
 import { COLORS, SPACING, TEXT_STYLES, RADIUS } from '@/constants';
 import {
   useSessionStore,
@@ -980,6 +981,9 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                   messages.map(renderMessage)
                 )}
               </ScrollView>
+
+              {/* Placeholder Ad Banner */}
+              <PlaceholderAdBanner />
 
               {/* Message Input */}
               <View style={styles.inputWrapper}>
