@@ -3358,3 +3358,52 @@ main {
     transform: translate3d(0, 0, 0);
   }
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Sidebar Advertisements
+   Desktop only (>= 1400px) - positioned on both sides of content
+   ───────────────────────────────────────────────────────────── */
+
+.sidebar-ad {
+  display: none;
+}
+
+@media (min-width: 1400px) {
+  .sidebar-ad {
+    display: block;
+    position: fixed;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 10;
+    width: 160px;
+    min-height: 600px;
+  }
+
+  .sidebar-ad--left {
+    left: calc((100vw - 1100px) / 2 - 160px - 24px);
+  }
+
+  .sidebar-ad--right {
+    right: calc((100vw - 1100px) / 2 - 160px - 24px);
+  }
+
+  /* Hide sidebar ads when there's not enough space */
+  @media (max-width: 1560px) {
+    .sidebar-ad--left {
+      left: 12px;
+    }
+
+    .sidebar-ad--right {
+      right: 12px;
+    }
+  }
+}
+
+/* AdSense placeholder styling for empty/loading state */
+.sidebar-ad .adsbygoogle:empty {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px dashed rgba(148, 163, 184, 0.3);
+  border-radius: 8px;
+  min-height: 600px;
+  width: 160px;
+}
