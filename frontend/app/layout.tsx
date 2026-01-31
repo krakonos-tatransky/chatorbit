@@ -10,6 +10,8 @@ import { SiteHeader } from "@/components/site-header";
 import { SidebarAds } from "@/components/ads";
 
 const CHAT_ORBIT_LOGO_URL = "/brand/chat-orbit-logo.svg";
+// Master switch for AdSense - must be explicitly set to "true" to enable
+const ADSENSE_ENABLED = process.env.NEXT_PUBLIC_ENABLE_ADSENSE === "true";
 const ADSENSE_PUBLISHER_ID = process.env.NEXT_PUBLIC_ADSENSE_PUBLISHER_ID || "";
 
 export const metadata: Metadata = {
@@ -27,7 +29,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head>
-        {ADSENSE_PUBLISHER_ID && (
+        {/* Only load AdSense if explicitly enabled via NEXT_PUBLIC_ENABLE_ADSENSE=true */}
+        {ADSENSE_ENABLED && ADSENSE_PUBLISHER_ID && (
           <>
             <meta name="google-adsense-account" content={ADSENSE_PUBLISHER_ID} />
             <Script
