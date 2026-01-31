@@ -6,49 +6,33 @@ import {
   Image,
   TouchableOpacity,
   Modal,
+  Linking,
   Platform,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/colors';
 import { TEXT_STYLES } from '../../constants/typography';
 import { SPACING } from '../../constants/spacing';
-import { LanguageSelector } from '../LanguageSelector';
-import { useTranslation } from '../../i18n';
 
 const LogoImage = require('../../../assets/splash-icon.png');
 
-type RootStackParamList = {
-  Main: undefined;
-  Help: undefined;
-  Terms: undefined;
-  Privacy: undefined;
-  Settings: undefined;
-};
-
-type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+const MENU_LINKS = [
+  { label: 'Help & FAQ', url: 'https://chatorbit.com/help' },
+  { label: 'Privacy Policy', url: 'https://chatorbit.com/privacy-policy' },
+  { label: 'Terms of Service', url: 'https://chatorbit.com/terms-of-service' },
+];
 
 interface HeaderProps {
   onBack?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({ onBack }) => {
-  const t = useTranslation();
-  const navigation = useNavigation<NavigationProp>();
   const [menuVisible, setMenuVisible] = useState(false);
 
-  const handleNavigate = (screen: keyof RootStackParamList) => {
+  const handleMenuLink = (url: string) => {
     setMenuVisible(false);
-    navigation.navigate(screen);
+    Linking.openURL(url);
   };
-
-  const menuItems: { labelKey: 'help' | 'terms' | 'privacy' | 'settings'; screen: keyof RootStackParamList; icon: string }[] = [
-    { labelKey: 'settings', screen: 'Settings', icon: 'settings-outline' },
-    { labelKey: 'help', screen: 'Help', icon: 'help-circle-outline' },
-    { labelKey: 'terms', screen: 'Terms', icon: 'document-text-outline' },
-    { labelKey: 'privacy', screen: 'Privacy', icon: 'shield-checkmark-outline' },
-  ];
 
   return (
     <>
@@ -67,16 +51,13 @@ export const Header: React.FC<HeaderProps> = ({ onBack }) => {
           )}
           <Text style={styles.headerTitle} maxFontSizeMultiplier={1}>CHATORBIT</Text>
         </View>
-        <View style={styles.headerRight}>
-          <LanguageSelector />
-          <TouchableOpacity
-            style={styles.menuButton}
-            onPress={() => setMenuVisible(true)}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons name="menu" size={28} color={COLORS.text.primary} />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={styles.menuButton}
+          onPress={() => setMenuVisible(true)}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="menu" size={28} color={COLORS.text.primary} />
+        </TouchableOpacity>
       </View>
 
       <Modal
@@ -92,21 +73,18 @@ export const Header: React.FC<HeaderProps> = ({ onBack }) => {
         >
           <View style={styles.menuContainer}>
             <View style={styles.menuHeader}>
-              <Text style={styles.menuTitle} maxFontSizeMultiplier={1.2}>Menu</Text>
+              <Text style={styles.menuTitle}>Menu</Text>
               <TouchableOpacity onPress={() => setMenuVisible(false)}>
                 <Ionicons name="close" size={24} color={COLORS.text.primary} />
               </TouchableOpacity>
             </View>
-            {menuItems.map((item) => (
+            {MENU_LINKS.map((link) => (
               <TouchableOpacity
-                key={item.screen}
+                key={link.label}
                 style={styles.menuItem}
-                onPress={() => handleNavigate(item.screen)}
+                onPress={() => handleMenuLink(link.url)}
               >
-                <View style={styles.menuItemLeft}>
-                  <Ionicons name={item.icon as any} size={20} color={COLORS.text.secondary} style={styles.menuItemIcon} />
-                  <Text style={styles.menuItemText} maxFontSizeMultiplier={1.2}>{t.navigation[item.labelKey]}</Text>
-                </View>
+                <Text style={styles.menuItemText}>{link.label}</Text>
                 <Ionicons name="chevron-forward" size={20} color={COLORS.text.secondary} />
               </TouchableOpacity>
             ))}
@@ -155,11 +133,6 @@ const styles = StyleSheet.create({
     }),
     letterSpacing: 1,
   },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
   menuButton: {
     padding: SPACING.xs,
   },
@@ -174,7 +147,7 @@ const styles = StyleSheet.create({
     marginTop: 60,
     marginRight: SPACING.md,
     borderRadius: 12,
-    minWidth: 220,
+    minWidth: 200,
     overflow: 'hidden',
     ...Platform.select({
       ios: {
@@ -209,13 +182,6 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.md,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border.default,
-  },
-  menuItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  menuItemIcon: {
-    marginRight: SPACING.sm,
   },
   menuItemText: {
     ...TEXT_STYLES.body,
