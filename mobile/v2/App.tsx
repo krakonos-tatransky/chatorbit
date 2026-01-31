@@ -13,7 +13,6 @@ import { useFonts, JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains
 import { SplashScreen } from './src/screens/SplashScreen';
 import { MainScreen } from './src/screens/MainScreen';
 import { SessionScreen } from './src/screens/SessionScreen';
-import { PatternPreviewScreen } from './src/screens/PatternPreviewScreen';
 import { COLORS } from './src/constants';
 
 /**
@@ -44,7 +43,6 @@ export type RootStackParamList = {
   Splash: undefined;
   Main: undefined;
   Session: undefined;
-  PatternPreview: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -103,14 +101,6 @@ export default function App() {
             title: 'Video Session',
             headerShown: false,
             gestureEnabled: false,
-          }}
-        />
-        <Stack.Screen
-          name="PatternPreview"
-          component={PatternPreviewScreen}
-          options={{
-            title: 'Pattern Preview',
-            headerShown: false,
           }}
         />
       </Stack.Navigator>

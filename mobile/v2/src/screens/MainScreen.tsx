@@ -4,8 +4,6 @@ import {
   StyleSheet,
   Animated,
   Dimensions,
-  TouchableOpacity,
-  Text,
   Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,7 +18,6 @@ type RootStackParamList = {
   Splash: undefined;
   Main: undefined;
   Session: undefined;
-  PatternPreview: undefined;
 };
 
 type MainScreenProps = NativeStackScreenProps<RootStackParamList, 'Main'>;
@@ -227,15 +224,6 @@ export const MainScreen: React.FC<MainScreenProps> = ({ navigation }) => {
           {renderContent()}
         </Animated.View>
 
-        {/* DEV: Pattern preview button - remove after selection */}
-        {__DEV__ && (
-          <TouchableOpacity
-            style={styles.devButton}
-            onPress={() => navigation.navigate('PatternPreview')}
-          >
-            <Text style={styles.devButtonText}>BG</Text>
-          </TouchableOpacity>
-        )}
       </SafeAreaView>
     </View>
   );
@@ -290,21 +278,5 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     flex: 1,
-  },
-  devButton: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 202, 40, 0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  devButtonText: {
-    color: '#000',
-    fontSize: 12,
-    fontWeight: '700',
   },
 });
