@@ -13,6 +13,7 @@ import { Header } from '../components/layout/Header';
 import { LandingContent } from '../components/content/LandingContent';
 import { MintContent } from '../components/content/MintContent';
 import { AcceptContent } from '../components/content/AcceptContent';
+import { PlaceholderAdBanner } from '../components/ads';
 
 type RootStackParamList = {
   Splash: undefined;
@@ -225,6 +226,9 @@ export const MainScreen: React.FC<MainScreenProps> = ({ navigation }) => {
         </Animated.View>
 
       </SafeAreaView>
+
+      {/* Placeholder Ad Banner at bottom */}
+      <PlaceholderAdBanner style={styles.adBanner} />
     </View>
   );
 };
@@ -278,5 +282,11 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     flex: 1,
+  },
+  adBanner: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
   },
 });

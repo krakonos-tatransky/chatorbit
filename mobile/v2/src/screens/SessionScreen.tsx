@@ -34,7 +34,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Button, Input, StatusDot } from '@/components/ui';
-import { ReportAbuseModal, type ReportAbuseFormValues } from '@/components/ReportAbuseModal';
+import { PlaceholderAdBanner } from '@/components/ads';
 import { COLORS, SPACING, TEXT_STYLES, RADIUS } from '@/constants';
 import {
   useSessionStore,
@@ -46,9 +46,7 @@ import {
   selectIsSending,
 } from '@/state';
 import { webrtcManager } from '@/webrtc';
-import { reportAbuse } from '@/services/api';
 import type { Message } from '@/state';
-import { useTranslation } from '../i18n';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const LOCAL_VIDEO_WIDTH = 100;
@@ -144,7 +142,6 @@ interface SessionScreenProps {
 }
 
 export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
-  const t = useTranslation();
   const insets = useSafeAreaInsets();
   const [messageText, setMessageText] = useState('');
   const [displayTime, setDisplayTime] = useState<number | null>(null);
@@ -168,16 +165,6 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
 
   // End session confirmation modal
   const [showEndConfirmModal, setShowEndConfirmModal] = useState(false);
-
-  // Report abuse modal
-  const [showReportAbuseModal, setShowReportAbuseModal] = useState(false);
-
-  // Toast message for fullscreen mode
-  const [toastMessage, setToastMessage] = useState<Message | null>(null);
-  const toastOpacity = useRef(new Animated.Value(0)).current;
-  const toastTranslateY = useRef(new Animated.Value(50)).current; // Start 50px below
-  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastMessageCountRef = useRef(0);
 
   // Draggable local video position
   const pan = useRef(new Animated.ValueXY({ x: SPACING.md, y: SPACING.md })).current;
@@ -427,49 +414,6 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
     setShowEndConfirmModal(false);
   }, []);
 
-  // Report abuse handlers
-  const [sessionEndedByAbuseReport, setSessionEndedByAbuseReport] = useState(false);
-
-  const handleOpenReportAbuse = useCallback(() => {
-    setShowReportAbuseModal(true);
-  }, []);
-
-  const handleCloseReportAbuse = useCallback(() => {
-    setShowReportAbuseModal(false);
-    // If session was ended by abuse report, navigate away after user closes the success screen
-    if (sessionEndedByAbuseReport) {
-      endSessionAndNavigate();
-    }
-  }, [sessionEndedByAbuseReport, endSessionAndNavigate]);
-
-  const handleReportAbuseSubmit = useCallback(async (values: ReportAbuseFormValues) => {
-    if (!token) {
-      throw new Error('No active session');
-    }
-
-    try {
-      const response = await reportAbuse(token, {
-        participant_id: participantId,
-        reporter_email: values.reporterEmail,
-        summary: values.summary,
-        questionnaire: {
-          immediate_threat: values.immediateThreat,
-          involves_criminal_activity: values.involvesCriminalActivity,
-          requires_follow_up: values.requiresFollowUp,
-          additional_details: values.additionalDetails || undefined,
-        },
-      });
-
-      // If session was deleted, mark it so we navigate when user closes the success screen
-      if (response.session_status === 'deleted') {
-        setSessionEndedByAbuseReport(true);
-      }
-    } catch (error) {
-      console.error('Failed to submit abuse report:', error);
-      throw error;
-    }
-  }, [token, participantId]);
-
   // Initialize signaling connection (no video yet)
   useEffect(() => {
     if (!token || !participantId) {
@@ -483,17 +427,16 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
 
     // Listen for video invite from remote peer
     const handleVideoInvite = () => {
-      console.log('[Session] handleVideoInvite CALLED - showing alert');
       setVideoMode('invited');
       Alert.alert(
-        t.session.videoCall,
-        t.session.incomingCall,
+        'Video Call',
+        'The other participant wants to start a video call',
         [
-          { text: t.session.decline, style: 'cancel', onPress: () => {
+          { text: 'Decline', style: 'cancel', onPress: () => {
             webrtcManager.declineVideoInvite();
             setVideoMode('idle');
           }},
-          { text: t.session.accept, onPress: acceptVideoCall },
+          { text: 'Accept', onPress: acceptVideoCall },
         ]
       );
     };
@@ -653,87 +596,6 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   }, [messages.length]);
 
-  // Show toast for new incoming messages in fullscreen mode
-  useEffect(() => {
-    const msgCount = messages.length;
-    const lastCount = lastMessageCountRef.current;
-
-    console.log('[Toast] Effect triggered - messages:', msgCount, 'lastCount:', lastCount, 'videoMode:', videoMode);
-
-    // Always update lastMessageCountRef first
-    lastMessageCountRef.current = msgCount;
-
-    // Skip if no new messages
-    if (msgCount <= lastCount) {
-      console.log('[Toast] No new messages, skipping');
-      return;
-    }
-
-    // Only show toast in fullscreen mode
-    if (videoMode !== 'fullscreen') {
-      console.log('[Toast] Not in fullscreen mode, skipping');
-      return;
-    }
-
-    // Get the newest message
-    const newMessage = messages[msgCount - 1];
-    console.log('[Toast] New message detected:', newMessage?.type, newMessage?.content?.substring(0, 20));
-
-    // Only show toast for received messages (not our own)
-    if (newMessage && newMessage.type === 'received') {
-      console.log('[Toast] Showing toast for received message');
-      // Clear any existing toast timeout
-      if (toastTimeoutRef.current) {
-        clearTimeout(toastTimeoutRef.current);
-      }
-
-      // Reset position before showing
-      toastTranslateY.setValue(50);
-
-      // Show toast with slide-up animation
-      setToastMessage(newMessage);
-      Animated.parallel([
-        Animated.timing(toastOpacity, {
-          toValue: 1,
-          duration: 250,
-          useNativeDriver: true,
-        }),
-        Animated.timing(toastTranslateY, {
-          toValue: 0,
-          duration: 250,
-          useNativeDriver: true,
-        }),
-      ]).start();
-
-      // Auto-hide after 4 seconds
-      toastTimeoutRef.current = setTimeout(() => {
-        Animated.parallel([
-          Animated.timing(toastOpacity, {
-            toValue: 0,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-          Animated.timing(toastTranslateY, {
-            toValue: 50,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-        ]).start(() => {
-          setToastMessage(null);
-        });
-      }, 4000);
-    }
-  }, [messages, videoMode, toastOpacity, toastTranslateY]);
-
-  // Cleanup toast timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (toastTimeoutRef.current) {
-        clearTimeout(toastTimeoutRef.current);
-      }
-    };
-  }, []);
-
   // Auto-hide footer in fullscreen mode
   useEffect(() => {
     if (videoMode === 'fullscreen') {
@@ -773,16 +635,14 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
       InCallManager.start({ media: 'video', auto: false });
       InCallManager.setForceSpeakerphoneOn(false); // Force earpiece mode
       setSpeakerEnabled(false);
-      // Pass asInitiator=true since WE are initiating the video call
-      // This ensures we create the renegotiation offer when tracks are added
-      const stream = await webrtcManager.startVideo(undefined, undefined, true);
+      const stream = await webrtcManager.startVideo();
       setLocalStream(stream);
       webrtcManager.sendVideoInvite();
     } catch (error) {
       console.error('Failed to start video:', error);
       InCallManager.stop();
       setVideoMode('idle');
-      Alert.alert(t.common.error, t.session.cameraError);
+      Alert.alert('Error', 'Failed to start camera');
     }
   };
 
@@ -801,7 +661,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
       console.error('Failed to accept video:', error);
       InCallManager.stop();
       setVideoMode('idle');
-      Alert.alert(t.common.error, t.session.cameraError);
+      Alert.alert('Error', 'Failed to start camera');
     }
   };
 
@@ -865,7 +725,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
       setMessageText('');
     } catch (error) {
       console.error('Failed to send message:', error);
-      Alert.alert(t.session.sendFailed, t.session.sendFailedMessage);
+      Alert.alert('Send Failed', 'Failed to send message');
     }
   };
 
@@ -894,11 +754,8 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
 
     setIsSwitchingCamera(true);
     try {
-      const newStream = await webrtcManager.switchCamera();
-      if (newStream) {
-        // Update the local stream with the new camera feed
-        // This ensures the RTCView displays the correct camera with proper focus
-        setLocalStream(newStream);
+      const success = await webrtcManager.switchCamera();
+      if (success) {
         setIsFrontCamera(prev => !prev);
       }
     } catch (error) {
@@ -1005,7 +862,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                 style={styles.statusDot}
               />
               <Text style={styles.headerTitle} allowFontScaling={false}>
-                {isConnected ? t.session.statusConnected : t.session.statusWaiting}
+                {isConnected ? 'Connected' : 'Waiting for peer...'}
               </Text>
             </View>
             <Text style={styles.timer} allowFontScaling={false}>{formatTime(displayTime)}</Text>
@@ -1026,7 +883,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                   style={styles.statusDot}
                 />
                 <Text style={styles.headerTitleOverlay} allowFontScaling={false}>
-                  {isConnected ? t.session.statusConnected : t.session.connecting}
+                  {isConnected ? 'Connected' : 'Waiting...'}
                 </Text>
               </View>
               <Text style={styles.timerOverlay} allowFontScaling={false}>{formatTime(displayTime)}</Text>
@@ -1063,30 +920,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                   color={COLORS.text.primary}
                 />
               </TouchableOpacity>
-
             </TouchableOpacity>
-          )}
-
-          {/* Toast message in fullscreen mode - positioned above footer */}
-          {videoMode === 'fullscreen' && toastMessage && console.log('[Toast] Rendering toast:', toastMessage.content?.substring(0, 20))}
-          {videoMode === 'fullscreen' && toastMessage && (
-            <Animated.View
-              style={[
-                styles.toastContainer,
-                {
-                  opacity: toastOpacity,
-                  bottom: insets.bottom + 100,
-                  transform: [{ translateY: toastTranslateY }],
-                }
-              ]}
-              pointerEvents="none"
-            >
-              <View style={styles.toastBubble}>
-                <Text style={styles.toastText} numberOfLines={3}>
-                  {toastMessage.content}
-                </Text>
-              </View>
-            </Animated.View>
           )}
 
           {/* Chat Section (hidden in fullscreen mode) */}
@@ -1127,7 +961,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
               {videoMode === 'inviting' && (
                 <View style={styles.invitingBadge}>
                   <Ionicons name="videocam" size={16} color={COLORS.accent.yellow} />
-                  <Text style={styles.invitingText}>{t.session.connecting}</Text>
+                  <Text style={styles.invitingText}>Calling...</Text>
                 </View>
               )}
 
@@ -1140,13 +974,16 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                 {messages.length === 0 ? (
                   <Text style={styles.emptyText}>
                     {isConnected
-                      ? t.session.startTyping
-                      : t.session.waitingForParticipant}
+                      ? 'Start typing to chat...'
+                      : 'Waiting for the other participant to join...'}
                   </Text>
                 ) : (
                   messages.map(renderMessage)
                 )}
               </ScrollView>
+
+              {/* Placeholder Ad Banner */}
+              <PlaceholderAdBanner />
 
               {/* Message Input */}
               <View style={styles.inputWrapper}>
@@ -1160,7 +997,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                   <Input
                     value={messageText}
                     onChangeText={setMessageText}
-                    placeholder={t.session.messagePlaceholder}
+                    placeholder="Type a message..."
                     onSubmitEditing={handleSendMessage}
                     returnKeyType="send"
                     style={styles.messageInput}
@@ -1221,21 +1058,6 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                   color={COLORS.text.primary}
                 />
               </Button>
-
-              {/* Report abuse button - only when not in video call */}
-              {!isVideoActive && (
-                <TouchableOpacity
-                  style={styles.reportAbuseButton}
-                  onPress={handleOpenReportAbuse}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <Ionicons
-                    name="flag-outline"
-                    size={20}
-                    color={COLORS.text.secondary}
-                  />
-                </TouchableOpacity>
-              )}
 
               {/* Video controls - only when video active */}
               {isVideoActive && (
@@ -1319,9 +1141,9 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
               <View style={styles.modalIconContainer}>
                 <Ionicons name="warning" size={64} color={COLORS.status.error} />
               </View>
-              <Text style={styles.modalTitle}>{t.session.endSession}</Text>
+              <Text style={styles.modalTitle}>End Session?</Text>
               <Text style={styles.modalMessage}>
-                {t.session.endSessionConfirm}
+                Are you sure you want to end this session? The token will be decommissioned and cannot be reused.
               </Text>
               <View style={styles.modalButtonRow}>
                 <Button
@@ -1329,14 +1151,14 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                   variant="secondary"
                   style={styles.modalButtonHalf}
                 >
-                  {t.session.endSessionCancel}
+                  Cancel
                 </Button>
                 <Button
                   onPress={handleConfirmEndSession}
                   variant="danger"
                   style={styles.modalButtonHalf}
                 >
-                  {t.common.confirm}
+                  Confirm
                 </Button>
               </View>
             </View>
@@ -1355,27 +1177,20 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
               <View style={styles.modalIconContainer}>
                 <Ionicons name="checkmark-circle" size={64} color={COLORS.accent.yellow} />
               </View>
-              <Text style={styles.modalTitle}>{t.session.statusEnded}</Text>
+              <Text style={styles.modalTitle}>Session Ended</Text>
               <Text style={styles.modalMessage}>
-                {t.session.sessionEndedByOther}
+                The other participant has ended the session.
               </Text>
               <Button
                 onPress={handleSessionEndedDismiss}
                 fullWidth
                 style={styles.modalButton}
               >
-                {t.session.returnToHome}
+                Return to Home
               </Button>
             </View>
           </View>
         </Modal>
-
-        {/* Report Abuse Modal */}
-        <ReportAbuseModal
-          visible={showReportAbuseModal}
-          onClose={handleCloseReportAbuse}
-          onSubmit={handleReportAbuseSubmit}
-        />
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1436,13 +1251,13 @@ const styles = StyleSheet.create({
   timer: {
     fontSize: 14,
     fontWeight: '500',
-    color: COLORS.text.primary,
+    color: COLORS.accent.yellow,
     fontVariant: ['tabular-nums'],
   },
   timerOverlay: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#FFFFFF',
+    color: COLORS.accent.yellow,
     fontVariant: ['tabular-nums'],
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
     textShadowOffset: { width: 0, height: 1 },
@@ -1659,15 +1474,6 @@ const styles = StyleSheet.create({
   controlButtonDisabled: {
     opacity: 0.5,
   },
-  reportAbuseButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(239, 71, 111, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 'auto',
-  },
   videoControls: {
     flexDirection: 'row',
     marginLeft: 'auto',
@@ -1714,27 +1520,5 @@ const styles = StyleSheet.create({
   },
   modalButtonHalf: {
     flex: 1,
-  },
-  // Toast styles for fullscreen video
-  toastContainer: {
-    position: 'absolute',
-    left: SPACING.lg,
-    right: SPACING.lg,
-    alignItems: 'center',
-    zIndex: 200,
-  },
-  toastBubble: {
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.md,
-    borderRadius: RADIUS.xl,
-    maxWidth: '90%',
-    borderWidth: 1,
-    borderColor: 'rgba(79, 195, 247, 0.3)',
-  },
-  toastText: {
-    ...TEXT_STYLES.body,
-    color: COLORS.text.primary,
-    textAlign: 'center',
   },
 });
