@@ -1,13 +1,16 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import Script from "next/script";
 
 import { LegalOverlayProvider } from "@/components/legal/legal-overlay-provider";
 import { LanguageProvider } from "@/components/language/language-provider";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
+import { SidebarAds } from "@/components/ads";
 
 const CHAT_ORBIT_LOGO_URL = "/brand/chat-orbit-logo.svg";
+const ADSENSE_PUBLISHER_ID = process.env.NEXT_PUBLIC_ADSENSE_PUBLISHER_ID || "";
 
 export const metadata: Metadata = {
   title: "ChatOrbit",
@@ -23,6 +26,16 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        {ADSENSE_PUBLISHER_ID && (
+          <Script
+            async
+            src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_PUBLISHER_ID}`}
+            crossOrigin="anonymous"
+            strategy="beforeInteractive"
+          />
+        )}
+      </head>
       <body>
         <LanguageProvider>
           <LegalOverlayProvider>
@@ -31,6 +44,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
               <div className="site-content">{children}</div>
               <SiteFooter />
             </div>
+            <SidebarAds />
           </LegalOverlayProvider>
         </LanguageProvider>
       </body>
