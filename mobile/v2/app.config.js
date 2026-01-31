@@ -23,6 +23,33 @@ module.exports = {
           'ChatOrbit uses the microphone for secure, real-time audio conversations between participants.',
         NSCameraUsageDescription:
           'ChatOrbit uses the camera for secure, real-time video conversations between participants.',
+        ITSAppUsesNonExemptEncryption: false,
+      },
+      privacyManifests: {
+        NSPrivacyAccessedAPITypes: [
+          {
+            // AsyncStorage, SecureStore, and other libraries use UserDefaults
+            NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryUserDefaults',
+            NSPrivacyAccessedAPITypeReasons: ['CA92.1'],
+          },
+          {
+            // File operations may access timestamps
+            NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryFileTimestamp',
+            NSPrivacyAccessedAPITypeReasons: ['0A2A.1', '3B52.1', 'C617.1'],
+          },
+          {
+            // Some libraries check available disk space
+            NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategoryDiskSpace',
+            NSPrivacyAccessedAPITypeReasons: ['E174.1', '85F4.1'],
+          },
+          {
+            // Performance monitoring may access boot time
+            NSPrivacyAccessedAPIType: 'NSPrivacyAccessedAPICategorySystemBootTime',
+            NSPrivacyAccessedAPITypeReasons: ['35F9.1'],
+          },
+        ],
+        NSPrivacyCollectedDataTypes: [],
+        NSPrivacyTracking: false,
       },
     },
     android: {
