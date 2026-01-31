@@ -1,7 +1,6 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import Script from "next/script";
 
 import { LegalOverlayProvider } from "@/components/legal/legal-overlay-provider";
 import { LanguageProvider } from "@/components/language/language-provider";
@@ -29,17 +28,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head>
-        {/* Only load AdSense if explicitly enabled via NEXT_PUBLIC_ENABLE_ADSENSE=true */}
+        {/* Only include AdSense meta tag if explicitly enabled via NEXT_PUBLIC_ENABLE_ADSENSE=true */}
         {ADSENSE_ENABLED && ADSENSE_PUBLISHER_ID && (
-          <>
-            <meta name="google-adsense-account" content={ADSENSE_PUBLISHER_ID} />
-            <Script
-              async
-              src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_PUBLISHER_ID}`}
-              crossOrigin="anonymous"
-              strategy="beforeInteractive"
-            />
-          </>
+          <meta name="google-adsense-account" content={ADSENSE_PUBLISHER_ID} />
         )}
       </head>
       <body>
