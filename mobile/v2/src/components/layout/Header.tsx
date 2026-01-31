@@ -17,9 +17,9 @@ import { SPACING } from '../../constants/spacing';
 const LogoImage = require('../../../assets/splash-icon.png');
 
 const MENU_LINKS = [
-  { label: 'About', url: 'https://chatorbit.com/about' },
-  { label: 'FAQ', url: 'https://chatorbit.com/faq' },
-  { label: 'Support', url: 'https://chatorbit.com/support' },
+  { label: 'Help & FAQ', url: 'https://chatorbit.com/help' },
+  { label: 'Privacy Policy', url: 'https://chatorbit.com/privacy-policy' },
+  { label: 'Terms of Service', url: 'https://chatorbit.com/terms-of-service' },
 ];
 
 interface HeaderProps {
