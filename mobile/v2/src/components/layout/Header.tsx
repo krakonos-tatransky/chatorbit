@@ -6,9 +6,10 @@ import {
   Image,
   TouchableOpacity,
   Modal,
-  Linking,
   Platform,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/colors';
 import { TEXT_STYLES } from '../../constants/typography';
@@ -16,10 +17,23 @@ import { SPACING } from '../../constants/spacing';
 
 const LogoImage = require('../../../assets/splash-icon.png');
 
-const MENU_LINKS = [
-  { label: 'Help & FAQ', url: 'https://chatorbit.com/help' },
-  { label: 'Privacy Policy', url: 'https://chatorbit.com/privacy-policy' },
-  { label: 'Terms of Service', url: 'https://chatorbit.com/terms-of-service' },
+type RootStackParamList = {
+  Splash: undefined;
+  Main: undefined;
+  Session: undefined;
+  Help: undefined;
+  Privacy: undefined;
+  Terms: undefined;
+  Settings: undefined;
+};
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+const MENU_ITEMS = [
+  { label: 'Help & FAQ', screen: 'Help' as const },
+  { label: 'Privacy Policy', screen: 'Privacy' as const },
+  { label: 'Terms of Service', screen: 'Terms' as const },
+  { label: 'Settings', screen: 'Settings' as const },
 ];
 
 interface HeaderProps {
@@ -27,11 +41,12 @@ interface HeaderProps {
 }
 
 export const Header: React.FC<HeaderProps> = ({ onBack }) => {
+  const navigation = useNavigation<NavigationProp>();
   const [menuVisible, setMenuVisible] = useState(false);
 
-  const handleMenuLink = (url: string) => {
+  const handleMenuItemPress = (screen: keyof RootStackParamList) => {
     setMenuVisible(false);
-    Linking.openURL(url);
+    navigation.navigate(screen);
   };
 
   return (
@@ -78,13 +93,13 @@ export const Header: React.FC<HeaderProps> = ({ onBack }) => {
                 <Ionicons name="close" size={24} color={COLORS.text.primary} />
               </TouchableOpacity>
             </View>
-            {MENU_LINKS.map((link) => (
+            {MENU_ITEMS.map((item) => (
               <TouchableOpacity
-                key={link.label}
+                key={item.label}
                 style={styles.menuItem}
-                onPress={() => handleMenuLink(link.url)}
+                onPress={() => handleMenuItemPress(item.screen)}
               >
-                <Text style={styles.menuItemText}>{link.label}</Text>
+                <Text style={styles.menuItemText}>{item.label}</Text>
                 <Ionicons name="chevron-forward" size={20} color={COLORS.text.secondary} />
               </TouchableOpacity>
             ))}

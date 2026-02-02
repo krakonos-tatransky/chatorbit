@@ -27,8 +27,8 @@ type PrivacyScreenProps = NativeStackScreenProps<RootStackParamList, 'Privacy'>;
 
 export const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ navigation }) => {
   const t = useTranslation();
-  const backgroundPattern = useSettingsStore(selectBackgroundPattern);
-  const patternSize = useSettingsStore(selectPatternSize);
+  const currentPattern = useSettingsStore(selectBackgroundPattern);
+  const currentSize = useSettingsStore(selectPatternSize);
 
   const handleBack = () => {
     navigation.goBack();
@@ -36,7 +36,7 @@ export const PrivacyScreen: React.FC<PrivacyScreenProps> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <BackgroundPattern variant={backgroundPattern} patternSize={patternSize} />
+      <BackgroundPattern variant={currentPattern} patternSize={currentSize} />
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
         <Header onBack={handleBack} />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>

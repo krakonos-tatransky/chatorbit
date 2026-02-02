@@ -519,8 +519,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   checkboxChecked: {
-    backgroundColor: COLORS.accent.blue,
-    borderColor: COLORS.accent.blue,
+    backgroundColor: COLORS.status.info,
+    borderColor: COLORS.status.info,
   },
   checkboxLabel: {
     ...TEXT_STYLES.body,

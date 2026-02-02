@@ -1,10 +1,11 @@
 import React, { useEffect } from 'react';
 import { View, Text, Image, StyleSheet } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { COLORS } from '../constants/colors';
 import { TEXT_STYLES } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
+import { BackgroundPattern } from '../components/ui';
+import { useSettingsStore, selectBackgroundPattern, selectPatternSize } from '../state';
 
 type RootStackParamList = {
   Splash: undefined;
@@ -18,6 +19,9 @@ type SplashScreenProps = NativeStackScreenProps<RootStackParamList, 'Splash'>;
 const LogoImage = require('../../assets/splash-icon.png');
 
 export const SplashScreen: React.FC<SplashScreenProps> = ({ navigation }) => {
+  const currentPattern = useSettingsStore(selectBackgroundPattern);
+  const currentSize = useSettingsStore(selectPatternSize);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       navigation.replace('Main');
@@ -27,11 +31,8 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ navigation }) => {
   }, [navigation]);
 
   return (
-    <LinearGradient
-      colors={['#0a1628', '#122a4d', '#1a3a5c', '#0d2137']}
-      locations={[0, 0.3, 0.7, 1]}
-      style={styles.gradient}
-    >
+    <View style={styles.container}>
+      <BackgroundPattern variant={currentPattern} patternSize={currentSize} />
       <View style={styles.logoContainer}>
         <Image
           source={LogoImage}
@@ -41,15 +42,16 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ navigation }) => {
         <Text style={styles.tagline}>Mobile-to-Mobile</Text>
         <Text style={styles.versionText}>v2</Text>
       </View>
-    </LinearGradient>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  gradient: {
+  container: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: COLORS.background.primary,
   },
   logoContainer: {
     alignItems: 'center',

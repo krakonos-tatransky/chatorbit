@@ -22,7 +22,6 @@ import {
   Modal,
   Keyboard,
   AppState,
-  Easing,
   type GestureResponderEvent,
   type PanResponderGestureState,
   type AppStateStatus,
@@ -33,17 +32,20 @@ import InCallManager from 'react-native-incall-manager';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Button, Input, StatusDot } from '@/components/ui';
-import { PlaceholderAdBanner } from '@/components/ads';
+import { Button, Input, StatusDot, BackgroundPattern } from '@/components/ui';
+
 import { COLORS, SPACING, TEXT_STYLES, RADIUS } from '@/constants';
 import {
   useSessionStore,
   useMessagesStore,
   useConnectionStore,
+  useSettingsStore,
   selectIsConnected,
   selectMessages,
   selectIsHost,
   selectIsSending,
+  selectBackgroundPattern,
+  selectPatternSize,
 } from '@/state';
 import { webrtcManager } from '@/webrtc';
 import type { Message } from '@/state';
@@ -51,78 +53,6 @@ import type { Message } from '@/state';
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const LOCAL_VIDEO_WIDTH = 100;
 const LOCAL_VIDEO_HEIGHT = 140;
-
-// Floating particle component for chat background
-const FloatingParticle: React.FC<{
-  delay: number;
-  startX: number;
-  startY: number;
-  size: number;
-}> = ({ delay, startX, startY, size }) => {
-  const translateY = useRef(new Animated.Value(0)).current;
-  const opacity = useRef(new Animated.Value(0.4)).current;
-  const scale = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.delay(delay),
-        Animated.parallel([
-          Animated.timing(translateY, {
-            toValue: -20,
-            duration: 6000,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(opacity, {
-            toValue: 0.8,
-            duration: 3000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(scale, {
-            toValue: 1.2,
-            duration: 6000,
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.parallel([
-          Animated.timing(translateY, {
-            toValue: 0,
-            duration: 6000,
-            easing: Easing.inOut(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(opacity, {
-            toValue: 0.4,
-            duration: 3000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(scale, {
-            toValue: 1,
-            duration: 6000,
-            useNativeDriver: true,
-          }),
-        ]),
-      ])
-    ).start();
-  }, [delay, translateY, opacity, scale]);
-
-  return (
-    <Animated.View
-      style={{
-        position: 'absolute',
-        left: `${startX}%`,
-        top: `${startY}%`,
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        backgroundColor: '#4FC3F7',
-        transform: [{ translateY }, { scale }],
-        opacity,
-      }}
-    />
-  );
-};
 
 type VideoMode = 'idle' | 'inviting' | 'invited' | 'active' | 'fullscreen';
 
@@ -185,6 +115,10 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
 
   // Connection state
   const isConnected = useConnectionStore(selectIsConnected);
+
+  // Settings state for background pattern
+  const currentPattern = useSettingsStore(selectBackgroundPattern);
+  const currentSize = useSettingsStore(selectPatternSize);
 
   // Physics constants for bouncing effect
   const FRICTION = 0.97; // How quickly velocity decreases (0.97 = slow decay)
@@ -847,8 +781,10 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
   const safeAreaEdges = videoMode === 'fullscreen' ? [] : ['top', 'bottom'];
 
   return (
-    <SafeAreaView style={styles.container} edges={safeAreaEdges as any}>
-      <KeyboardAvoidingView
+    <View style={styles.container}>
+      <BackgroundPattern variant={currentPattern} patternSize={currentSize} />
+      <SafeAreaView style={styles.safeArea} edges={safeAreaEdges as any}>
+        <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
@@ -929,23 +865,6 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
               styles.chatSection,
               !showRemoteVideo && styles.chatSectionFull,
             ]}>
-              {/* Tech Background for Chat */}
-              <LinearGradient
-                colors={['#000510', '#001233', '#002855', '#001845', '#000510']}
-                locations={[0, 0.3, 0.5, 0.7, 1]}
-                style={styles.chatBackground}
-              >
-                {/* Subtle central glow */}
-                <View style={styles.chatCentralGlow} />
-
-                {/* Floating particles */}
-                <FloatingParticle delay={0} startX={10} startY={20} size={3} />
-                <FloatingParticle delay={2000} startX={85} startY={40} size={4} />
-                <FloatingParticle delay={4000} startX={25} startY={70} size={3} />
-                <FloatingParticle delay={1000} startX={70} startY={15} size={5} />
-                <FloatingParticle delay={3000} startX={50} startY={85} size={4} />
-                <FloatingParticle delay={5000} startX={90} startY={60} size={3} />
-              </LinearGradient>
 
               {/* Video invite button (when idle and connected) */}
               {videoMode === 'idle' && isConnected && (
@@ -983,7 +902,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
               </ScrollView>
 
               {/* Placeholder Ad Banner */}
-              <PlaceholderAdBanner />
+              
 
               {/* Message Input */}
               <View style={styles.inputWrapper}>
@@ -1077,7 +996,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                   <Button
                     variant="secondary"
                     onPress={handleSwitchCamera}
-                    style={[styles.controlButton, isSwitchingCamera && styles.controlButtonDisabled]}
+                    style={[styles.controlButton, isSwitchingCamera ? styles.controlButtonDisabled : undefined]}
                     disabled={isSwitchingCamera}
                   >
                     <Ionicons
@@ -1191,8 +1110,9 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
             </View>
           </View>
         </Modal>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </View>
   );
 };
 
@@ -1200,6 +1120,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.background.primary,
+  },
+  safeArea: {
+    flex: 1,
   },
   keyboardView: {
     flex: 1,
@@ -1298,19 +1221,6 @@ const styles = StyleSheet.create({
   },
   chatSectionFull: {
     height: '100%',
-  },
-  chatBackground: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  chatCentralGlow: {
-    position: 'absolute',
-    top: '20%',
-    left: '5%',
-    right: '5%',
-    height: '60%',
-    borderRadius: 150,
-    backgroundColor: 'rgba(50, 130, 255, 0.12)',
-    transform: [{ scaleX: 1.3 }],
   },
   videoInviteButton: {
     position: 'absolute',

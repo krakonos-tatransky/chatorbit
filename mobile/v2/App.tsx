@@ -13,7 +13,12 @@ import { useFonts, JetBrainsMono_400Regular } from '@expo-google-fonts/jetbrains
 import { SplashScreen } from './src/screens/SplashScreen';
 import { MainScreen } from './src/screens/MainScreen';
 import { SessionScreen } from './src/screens/SessionScreen';
+import { HelpScreen } from './src/screens/HelpScreen';
+import { PrivacyScreen } from './src/screens/PrivacyScreen';
+import { TermsScreen } from './src/screens/TermsScreen';
+import { SettingsScreen } from './src/screens/SettingsScreen';
 import { COLORS } from './src/constants';
+import { LanguageProvider } from './src/i18n';
 
 /**
  * Dynamic Type Support
@@ -43,6 +48,10 @@ export type RootStackParamList = {
   Splash: undefined;
   Main: undefined;
   Session: undefined;
+  Help: undefined;
+  Privacy: undefined;
+  Terms: undefined;
+  Settings: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -61,49 +70,83 @@ export default function App() {
   }
 
   return (
-    <NavigationContainer>
-      <StatusBar style="light" />
-      <Stack.Navigator
-        initialRouteName="Splash"
-        screenOptions={{
-          headerStyle: {
-            backgroundColor: COLORS.background.secondary,
-          },
-          headerTintColor: COLORS.text.primary,
-          headerTitleStyle: {
-            fontWeight: '600',
-          },
-          contentStyle: {
-            backgroundColor: COLORS.background.primary,
-          },
-        }}
-      >
-        <Stack.Screen
-          name="Splash"
-          component={SplashScreen}
-          options={{
-            title: 'ChatOrbit',
-            headerShown: false,
+    <LanguageProvider>
+      <NavigationContainer>
+        <StatusBar style="light" />
+        <Stack.Navigator
+          initialRouteName="Splash"
+          screenOptions={{
+            headerStyle: {
+              backgroundColor: COLORS.background.secondary,
+            },
+            headerTintColor: COLORS.text.primary,
+            headerTitleStyle: {
+              fontWeight: '600',
+            },
+            contentStyle: {
+              backgroundColor: COLORS.background.primary,
+            },
           }}
-        />
-        <Stack.Screen
-          name="Main"
-          component={MainScreen}
-          options={{
-            title: 'ChatOrbit',
-            headerShown: false,
-          }}
-        />
-        <Stack.Screen
-          name="Session"
-          component={SessionScreen}
-          options={{
-            title: 'Video Session',
-            headerShown: false,
-            gestureEnabled: false,
-          }}
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
+        >
+          <Stack.Screen
+            name="Splash"
+            component={SplashScreen}
+            options={{
+              title: 'ChatOrbit',
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="Main"
+            component={MainScreen}
+            options={{
+              title: 'ChatOrbit',
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="Session"
+            component={SessionScreen}
+            options={{
+              title: 'Video Session',
+              headerShown: false,
+              gestureEnabled: false,
+            }}
+          />
+          <Stack.Screen
+            name="Help"
+            component={HelpScreen}
+            options={{
+              title: 'Help & FAQ',
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="Privacy"
+            component={PrivacyScreen}
+            options={{
+              title: 'Privacy Policy',
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="Terms"
+            component={TermsScreen}
+            options={{
+              title: 'Terms of Service',
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="Settings"
+            component={SettingsScreen}
+            options={{
+              title: 'Settings',
+              headerShown: false,
+            }}
+          />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </LanguageProvider>
   );
 }

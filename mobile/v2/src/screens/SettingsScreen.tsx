@@ -34,6 +34,15 @@ const PATTERNS: { variant: PatternVariant; icon: string }[] = [
   { variant: 'orbits', icon: 'planet' },
   { variant: 'hexagons', icon: 'grid' },
   { variant: 'waves', icon: 'water' },
+  { variant: 'constellation', icon: 'star' },
+  { variant: 'mesh', icon: 'git-network' },
+  { variant: 'diamonds', icon: 'diamond' },
+  { variant: 'shields', icon: 'shield' },
+  { variant: 'circuits', icon: 'hardware-chip' },
+  { variant: 'hologram', icon: 'scan' },
+  { variant: 'panels', icon: 'apps' },
+  { variant: 'scanlines', icon: 'barcode' },
+  { variant: 'reactor', icon: 'nuclear' },
 ];
 
 const PATTERN_SIZES = [60, 80, 100, 120, 150];

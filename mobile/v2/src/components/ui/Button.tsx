@@ -14,6 +14,7 @@ import {
   type TouchableOpacityProps,
   type ViewStyle,
   type TextStyle,
+  type StyleProp,
 } from 'react-native';
 import { COLORS, TEXT_STYLES, SPACING, RADIUS, LAYOUT } from '../../constants';
 
@@ -31,7 +32,7 @@ export interface ButtonProps extends Omit<TouchableOpacityProps, 'style'> {
   /** Full width button */
   fullWidth?: boolean;
   /** Custom container style */
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
   /** Custom text style */
   textStyle?: TextStyle;
 }

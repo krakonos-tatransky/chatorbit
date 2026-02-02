@@ -18,11 +18,8 @@ import { SPACING } from '../../constants/spacing';
 import { Button } from '../ui/Button';
 import { mintToken, getDefaultTokenParams, validateTokenParams } from '../../services/api/tokens';
 import { useSessionStore } from '../../state/stores/sessionStore';
-import { useSettingsStore, selectShouldShowAds } from '../../state/stores/settingsStore';
 import { getDeviceId } from '../../utils/deviceId';
 import { useTranslation } from '../../i18n';
-// TODO: Re-enable AdMob after app is linked to App Store
-// import { showRewardedAd, isRewardedAdReady, preloadRewardedAd } from '../../services/admob';
 import type { ValidityPeriod } from '../../services/api/types';
 
 // Footer badge icons (matching LandingContent)
@@ -59,7 +56,6 @@ export const MintContent: React.FC<MintContentProps> = ({
   onSessionStart,
 }) => {
   const t = useTranslation();
-  const shouldShowAds = useSettingsStore(selectShouldShowAds);
   const defaults = getDefaultTokenParams();
   const [validityPeriod, setValidityPeriod] = useState<ValidityPeriod>(defaults.validity_period);
   const [sessionTtl, setSessionTtl] = useState<number>(defaults.session_ttl_minutes);
@@ -70,9 +66,6 @@ export const MintContent: React.FC<MintContentProps> = ({
   const [showValidityPicker, setShowValidityPicker] = useState(false);
   const [showDurationPicker, setShowDurationPicker] = useState(false);
   const [showMessageLimitPicker, setShowMessageLimitPicker] = useState(false);
-  // TODO: Re-enable AdMob after app is linked to App Store
-  // const [adReady, setAdReady] = useState(false);
-  // const [isShowingAd, setIsShowingAd] = useState(false);
 
   // Map values to translated labels
   const validityLabels: Record<ValidityPeriod, string> = {
@@ -115,8 +108,7 @@ export const MintContent: React.FC<MintContentProps> = ({
 
   const { joinSession } = useSessionStore();
 
-  // Actually mint the token (called after ad is shown)
-  const performMinting = async () => {
+  const handleMintToken = async () => {
     const params = {
       validity_period: validityPeriod,
       session_ttl_minutes: sessionTtl,
@@ -141,24 +133,6 @@ export const MintContent: React.FC<MintContentProps> = ({
     } finally {
       setIsMinting(false);
     }
-  };
-
-  const handleMintToken = async () => {
-    // Check if this is the paid version (no ads)
-    if (!shouldShowAds) {
-      // Paid version - mint directly without ad
-      await performMinting();
-      return;
-    }
-
-    // TODO: Re-enable AdMob after app is linked to App Store
-    // Free version with ads - show ad before minting
-    // For now, just mint the token directly since AdMob is not linked yet
-    // When ready to enable ads:
-    // 1. Uncomment the AdMob imports at the top
-    // 2. Uncomment the ad state variables
-    // 3. Replace the line below with the ad logic
-    await performMinting();
   };
 
   const handleCopyToken = async () => {

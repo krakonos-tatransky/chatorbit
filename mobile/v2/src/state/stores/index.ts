@@ -51,6 +51,4 @@ export {
   selectPatternSize,
   selectIsHydrated,
   selectBackgroundSettings,
-  selectIsPaidVersion,
-  selectShouldShowAds,
 } from './settingsStore';

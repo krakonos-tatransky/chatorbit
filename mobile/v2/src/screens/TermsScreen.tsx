@@ -27,8 +27,8 @@ type TermsScreenProps = NativeStackScreenProps<RootStackParamList, 'Terms'>;
 
 export const TermsScreen: React.FC<TermsScreenProps> = ({ navigation }) => {
   const t = useTranslation();
-  const backgroundPattern = useSettingsStore(selectBackgroundPattern);
-  const patternSize = useSettingsStore(selectPatternSize);
+  const currentPattern = useSettingsStore(selectBackgroundPattern);
+  const currentSize = useSettingsStore(selectPatternSize);
 
   const handleBack = () => {
     navigation.goBack();
@@ -36,7 +36,7 @@ export const TermsScreen: React.FC<TermsScreenProps> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <BackgroundPattern variant={backgroundPattern} patternSize={patternSize} />
+      <BackgroundPattern variant={currentPattern} patternSize={currentSize} />
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
         <Header onBack={handleBack} />
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>

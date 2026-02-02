@@ -18,11 +18,6 @@ interface SettingsState {
   backgroundPattern: PatternVariant;
   patternSize: number;
 
-  // App version / monetization
-  // When true: paid version with no ads
-  // When false: free version with ads (when AdMob is enabled)
-  isPaidVersion: boolean;
-
   // Loading state (for initial hydration)
   isHydrated: boolean;
 }
@@ -42,13 +37,6 @@ interface SettingsActions {
   setPatternSize: (size: number) => void;
 
   /**
-   * Set the paid version flag
-   * When true: no ads (paid version)
-   * When false: show ads (free version)
-   */
-  setIsPaidVersion: (isPaid: boolean) => void;
-
-  /**
    * Mark store as hydrated (called after AsyncStorage loads)
    */
   setHydrated: (hydrated: boolean) => void;
@@ -65,10 +53,6 @@ type SettingsStore = SettingsState & SettingsActions;
 const defaultSettings: SettingsState = {
   backgroundPattern: 'bubbles',
   patternSize: 100,
-  // Default to false (free version with ads)
-  // Set to true for paid version (no ads)
-  // TODO: When AdMob is linked to App Store, set this to false to enable ads
-  isPaidVersion: true, // Currently true to disable ads until App Store linking
   isHydrated: false,
 };
 
@@ -88,10 +72,6 @@ export const useSettingsStore = create<SettingsStore>()(
         set({ patternSize: size });
       },
 
-      setIsPaidVersion: (isPaid) => {
-        set({ isPaidVersion: isPaid });
-      },
-
       setHydrated: (hydrated) => {
         set({ isHydrated: hydrated });
       },
@@ -105,7 +85,6 @@ export const useSettingsStore = create<SettingsStore>()(
       partialize: (state) => ({
         backgroundPattern: state.backgroundPattern,
         patternSize: state.patternSize,
-        isPaidVersion: state.isPaidVersion,
       }),
     }
   )
@@ -125,14 +104,3 @@ export const selectBackgroundSettings = (state: SettingsStore) => ({
   pattern: state.backgroundPattern,
   size: state.patternSize,
 });
-
-export const selectIsPaidVersion = (state: SettingsStore) =>
-  state.isPaidVersion;
-
-/**
- * Helper to check if ads should be shown
- * Returns true if ads should be shown (free version)
- * Returns false if ads should NOT be shown (paid version)
- */
-export const selectShouldShowAds = (state: SettingsStore) =>
-  !state.isPaidVersion;
