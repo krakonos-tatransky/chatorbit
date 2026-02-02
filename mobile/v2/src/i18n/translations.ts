@@ -230,6 +230,8 @@ const baseTranslation = {
     backgroundPatternDescription: 'Choose a pattern for the app background',
     patternSize: 'Pattern Size',
     patternSizeDescription: 'Adjust the size of the pattern elements',
+    patternDimmer: 'Pattern Brightness',
+    patternDimmerDescription: 'Adjust the visibility of the background pattern',
     patterns: {
       logo: 'Logo',
       bubbles: 'Bubbles',
@@ -589,6 +591,8 @@ export const TRANSLATIONS: Record<LanguageCode, AppTranslation> = {
       backgroundPatternDescription: 'Vyberte vzor pre pozadie aplikácie',
       patternSize: 'Veľkosť vzoru',
       patternSizeDescription: 'Upravte veľkosť prvkov vzoru',
+      patternDimmer: 'Jas vzoru',
+      patternDimmerDescription: 'Upravte viditeľnosť vzoru pozadia',
       patterns: {
         logo: 'Logo',
         bubbles: 'Bubliny',
@@ -933,6 +937,8 @@ export const TRANSLATIONS: Record<LanguageCode, AppTranslation> = {
       backgroundPatternDescription: 'Válasszon mintát az alkalmazás hátteréhez',
       patternSize: 'Minta mérete',
       patternSizeDescription: 'Állítsa be a mintaelemek méretét',
+      patternDimmer: 'Minta fényereje',
+      patternDimmerDescription: 'Állítsa be a háttérminta láthatóságát',
       patterns: {
         logo: 'Logó',
         bubbles: 'Buborékok',

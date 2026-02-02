@@ -49,6 +49,7 @@ export {
   useSettingsStore,
   selectBackgroundPattern,
   selectPatternSize,
+  selectPatternOpacity,
   selectIsHydrated,
   selectBackgroundSettings,
 } from './settingsStore';

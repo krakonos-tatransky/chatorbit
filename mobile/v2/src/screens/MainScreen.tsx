@@ -12,7 +12,7 @@ import { LandingContent } from '../components/content/LandingContent';
 import { MintContent } from '../components/content/MintContent';
 import { AcceptContent } from '../components/content/AcceptContent';
 import { BackgroundPattern } from '../components/ui';
-import { useSettingsStore, selectBackgroundPattern, selectPatternSize } from '../state';
+import { useSettingsStore, selectBackgroundPattern, selectPatternSize, selectPatternOpacity } from '../state';
 
 type RootStackParamList = {
   Splash: undefined;
@@ -34,6 +34,7 @@ export const MainScreen: React.FC<MainScreenProps> = ({ navigation }) => {
 
   const currentPattern = useSettingsStore(selectBackgroundPattern);
   const currentSize = useSettingsStore(selectPatternSize);
+  const currentOpacity = useSettingsStore(selectPatternOpacity);
 
   const animateToView = (nextView: ContentView, direction: 'left' | 'right') => {
     const toValue = direction === 'left' ? -SCREEN_WIDTH : SCREEN_WIDTH;
@@ -115,7 +116,7 @@ export const MainScreen: React.FC<MainScreenProps> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <BackgroundPattern variant={currentPattern} patternSize={currentSize} />
+      <BackgroundPattern variant={currentPattern} patternSize={currentSize} opacity={currentOpacity} />
 
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <Header onBack={currentView !== 'landing' ? handleBack : undefined} />

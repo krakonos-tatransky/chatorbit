@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Header } from '../components/layout/Header';
 import { BackgroundPattern, PatternVariant } from '../components/ui';
-import { useSettingsStore, selectBackgroundPattern, selectPatternSize } from '../state';
+import { useSettingsStore, selectBackgroundPattern, selectPatternSize, selectPatternOpacity } from '../state';
 import { useTranslation } from '../i18n';
 import { COLORS, SPACING, TEXT_STYLES, RADIUS } from '../constants';
 
@@ -47,12 +47,21 @@ const PATTERNS: { variant: PatternVariant; icon: string }[] = [
 
 const PATTERN_SIZES = [60, 80, 100, 120, 150];
 
+const OPACITY_LEVELS = [
+  { value: 0.25, label: '25%' },
+  { value: 0.50, label: '50%' },
+  { value: 0.75, label: '75%' },
+  { value: 1.00, label: '100%' },
+];
+
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) => {
   const t = useTranslation();
   const currentPattern = useSettingsStore(selectBackgroundPattern);
   const currentSize = useSettingsStore(selectPatternSize);
+  const currentOpacity = useSettingsStore(selectPatternOpacity);
   const setBackgroundPattern = useSettingsStore((state) => state.setBackgroundPattern);
   const setPatternSize = useSettingsStore((state) => state.setPatternSize);
+  const setPatternOpacity = useSettingsStore((state) => state.setPatternOpacity);
 
   const handleBack = () => {
     navigation.goBack();
@@ -61,7 +70,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
   return (
     <View style={styles.container}>
       {/* Background pattern preview */}
-      <BackgroundPattern variant={currentPattern} patternSize={currentSize} />
+      <BackgroundPattern variant={currentPattern} patternSize={currentSize} opacity={currentOpacity} />
 
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <Header onBack={handleBack} />
@@ -149,6 +158,38 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ navigation }) =>
                     maxFontSizeMultiplier={1.1}
                   >
                     {size}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Pattern Dimmer Section */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle} maxFontSizeMultiplier={1.2}>{t.settings.patternDimmer}</Text>
+            <Text style={styles.sectionDescription} maxFontSizeMultiplier={1.2}>
+              {t.settings.patternDimmerDescription}
+            </Text>
+
+            <View style={styles.sizeContainer}>
+              {OPACITY_LEVELS.map((level) => (
+                <TouchableOpacity
+                  key={level.value}
+                  style={[
+                    styles.sizeOption,
+                    currentOpacity === level.value && styles.sizeOptionSelected,
+                  ]}
+                  onPress={() => setPatternOpacity(level.value)}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.sizeLabel,
+                      currentOpacity === level.value && styles.sizeLabelSelected,
+                    ]}
+                    maxFontSizeMultiplier={1.1}
+                  >
+                    {level.label}
                   </Text>
                 </TouchableOpacity>
               ))}

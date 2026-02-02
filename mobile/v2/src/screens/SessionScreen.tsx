@@ -46,6 +46,7 @@ import {
   selectIsSending,
   selectBackgroundPattern,
   selectPatternSize,
+  selectPatternOpacity,
 } from '@/state';
 import { webrtcManager } from '@/webrtc';
 import type { Message } from '@/state';
@@ -119,6 +120,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
   // Settings state for background pattern
   const currentPattern = useSettingsStore(selectBackgroundPattern);
   const currentSize = useSettingsStore(selectPatternSize);
+  const currentOpacity = useSettingsStore(selectPatternOpacity);
 
   // Physics constants for bouncing effect
   const FRICTION = 0.97; // How quickly velocity decreases (0.97 = slow decay)
@@ -782,7 +784,7 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <BackgroundPattern variant={currentPattern} patternSize={currentSize} />
+      <BackgroundPattern variant={currentPattern} patternSize={currentSize} opacity={currentOpacity} />
       <SafeAreaView style={styles.safeArea} edges={safeAreaEdges as any}>
         <KeyboardAvoidingView
         style={styles.keyboardView}

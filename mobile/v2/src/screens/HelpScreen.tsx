@@ -14,7 +14,7 @@ import { TEXT_STYLES } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 import { Header } from '../components/layout/Header';
 import { BackgroundPattern } from '../components/ui';
-import { useSettingsStore, selectBackgroundPattern, selectPatternSize } from '../state';
+import { useSettingsStore, selectBackgroundPattern, selectPatternSize, selectPatternOpacity } from '../state';
 import { useTranslation } from '../i18n';
 
 type RootStackParamList = {
@@ -30,6 +30,7 @@ export const HelpScreen: React.FC<HelpScreenProps> = ({ navigation }) => {
   const t = useTranslation();
   const currentPattern = useSettingsStore(selectBackgroundPattern);
   const currentSize = useSettingsStore(selectPatternSize);
+  const currentOpacity = useSettingsStore(selectPatternOpacity);
 
   const handleBack = () => {
     navigation.goBack();
@@ -62,7 +63,7 @@ export const HelpScreen: React.FC<HelpScreenProps> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <BackgroundPattern variant={currentPattern} patternSize={currentSize} />
+      <BackgroundPattern variant={currentPattern} patternSize={currentSize} opacity={currentOpacity} />
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
         <Header onBack={handleBack} />
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.content}>

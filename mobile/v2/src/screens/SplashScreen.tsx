@@ -5,7 +5,7 @@ import { COLORS } from '../constants/colors';
 import { TEXT_STYLES } from '../constants/typography';
 import { SPACING } from '../constants/spacing';
 import { BackgroundPattern } from '../components/ui';
-import { useSettingsStore, selectBackgroundPattern, selectPatternSize } from '../state';
+import { useSettingsStore, selectBackgroundPattern, selectPatternSize, selectPatternOpacity } from '../state';
 
 type RootStackParamList = {
   Splash: undefined;
@@ -21,6 +21,7 @@ const LogoImage = require('../../assets/splash-icon.png');
 export const SplashScreen: React.FC<SplashScreenProps> = ({ navigation }) => {
   const currentPattern = useSettingsStore(selectBackgroundPattern);
   const currentSize = useSettingsStore(selectPatternSize);
+  const currentOpacity = useSettingsStore(selectPatternOpacity);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -32,7 +33,7 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <BackgroundPattern variant={currentPattern} patternSize={currentSize} />
+      <BackgroundPattern variant={currentPattern} patternSize={currentSize} opacity={currentOpacity} />
       <View style={styles.logoContainer}>
         <Image
           source={LogoImage}
