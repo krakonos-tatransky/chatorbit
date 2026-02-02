@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../../constants/colors';
 import { TEXT_STYLES } from '../../constants/typography';
 import { SPACING } from '../../constants/spacing';
+import { LanguageSelector } from '../LanguageSelector';
 
 const LogoImage = require('../../../assets/splash-icon.png');
 
@@ -66,13 +67,16 @@ export const Header: React.FC<HeaderProps> = ({ onBack }) => {
           )}
           <Text style={styles.headerTitle} maxFontSizeMultiplier={1}>CHATORBIT</Text>
         </View>
-        <TouchableOpacity
-          style={styles.menuButton}
-          onPress={() => setMenuVisible(true)}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Ionicons name="menu" size={28} color={COLORS.text.primary} />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <LanguageSelector />
+          <TouchableOpacity
+            style={styles.menuButton}
+            onPress={() => setMenuVisible(true)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="menu" size={28} color={COLORS.text.primary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <Modal
@@ -124,6 +128,11 @@ const styles = StyleSheet.create({
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
   },
   headerLogo: {
     width: 56,
