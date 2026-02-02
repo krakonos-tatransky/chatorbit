@@ -3,7 +3,7 @@ require('dotenv').config();
 
 module.exports = {
   expo: {
-    name: 'ChatOrbit v2',
+    name: 'ChatOrbit',
     slug: 'chatorbit-v2',
     version: '2.0.0',
     orientation: 'portrait',
