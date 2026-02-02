@@ -1,10 +1,10 @@
 /**
  * Translations for ChatOrbit Mobile
  *
- * Supports English and Slovak languages with flag emojis for selector.
+ * Supports English, Slovak, and Hungarian languages with flag emojis for selector.
  */
 
-export type LanguageCode = 'en' | 'sk';
+export type LanguageCode = 'en' | 'sk' | 'hu';
 
 export type LanguageDefinition = {
   code: LanguageCode;
@@ -16,6 +16,7 @@ export type LanguageDefinition = {
 export const LANGUAGE_DEFINITIONS: Record<LanguageCode, LanguageDefinition> = {
   en: { code: 'en', label: 'English', nativeLabel: 'English', flagEmoji: '🇺🇸' },
   sk: { code: 'sk', label: 'Slovak', nativeLabel: 'Slovenčina', flagEmoji: '🇸🇰' },
+  hu: { code: 'hu', label: 'Hungarian', nativeLabel: 'Magyar', flagEmoji: '🇭🇺' },
 };
 
 const baseTranslation = {
@@ -740,6 +741,350 @@ export const TRANSLATIONS: Record<LanguageCode, AppTranslation> = {
         {
           title: '8. Vaše možnosti',
           body: 'Reláciu môžete kedykoľvek odmietnuť vytvoriť alebo sa k nej pripojiť. Lokálne údaje o relácii môžete z prehliadača vymazať alebo používať režim súkromného prehliadania, aby sa tokeny neukladali. Ak máte otázky o svojich údajoch, kontaktujte nás na privacy@chatorbit.com.',
+        },
+      ],
+    },
+  },
+  hu: {
+    languageSwitcher: {
+      buttonLabel: 'Nyelv váltása',
+      dialogTitle: 'Válasszon nyelvet',
+    },
+
+    landing: {
+      getToken: 'Token kérése',
+      createRoom: 'Szoba létrehozása',
+      hasToken: 'Van tokenom',
+      joinRoom: 'Belépés',
+      description:
+        'Generáljon megosztható hozzáférési tokent, küldje el a kapcsolattartójának, és találkozzon egy ideiglenes csevegőszobában. Csatlakozás után biztonságos visszaszámlálás indul.',
+      badgePrivate: 'Privát',
+      badgeEncrypted: 'Titkosított',
+      badgeEphemeral: 'Ideiglenes',
+    },
+
+    mint: {
+      pageTitle: 'Új munkamenet létrehozása',
+      pageSubtitle: 'Állítsa be a munkamenet paramétereit',
+
+      validityTitle: 'Token érvényessége',
+      validityDescription: 'Meddig használható a token a csatlakozáshoz',
+      validityOptions: {
+        oneDay: '1 nap',
+        oneWeek: '1 hét',
+        oneMonth: '1 hónap',
+        oneYear: '1 év',
+      },
+
+      durationTitle: 'Munkamenet időtartama',
+      durationDescription: 'Meddig marad aktív a munkamenet',
+      durationOptions: {
+        fiveMin: '5 perc',
+        fifteenMin: '15 perc',
+        thirtyMin: '30 perc',
+        oneHour: '1 óra',
+        threeHours: '3 óra',
+        oneDay: '1 nap',
+      },
+
+      messageLimitTitle: 'Üzenet karakterkorlát',
+      messageLimitDescription: 'Maximum karakterszám üzenetenként',
+      messageLimitOptions: {
+        chars200: '200 karakter',
+        chars500: '500 karakter',
+        chars1000: '1 000 karakter',
+        chars2000: '2 000 karakter',
+        chars5000: '5 000 karakter',
+        chars10000: '10 000 karakter',
+        chars16000: '16 000 karakter',
+      },
+
+      createButton: 'Token létrehozása',
+      creatingButton: 'Token létrehozása...',
+
+      successTitle: 'Token létrehozva!',
+      successSubtitle: 'Ossza meg ezt a tokent a másik résztvevővel',
+      yourToken: 'Az Ön tokenje',
+      copyButton: 'Másolás',
+      shareButton: 'Megosztás',
+      startSessionButton: 'Munkamenet indítása',
+      joiningButton: 'Csatlakozás...',
+      createAnotherButton: 'Másik token létrehozása',
+
+      invalidParams: 'Érvénytelen paraméterek',
+      errorTitle: 'Hiba',
+      copied: 'Másolva!',
+      copiedMessage: 'Token másolva a vágólapra',
+      noTokenError: 'Nincs elérhető token',
+
+      shareMessage: 'Csatlakozz a ChatOrbit munkamenetemhez!\n\nToken: {token}\n\nNyisd meg a ChatOrbit alkalmazást, érintsd meg a „Van tokenom" gombot, és illeszd be ezt a tokent a csatlakozáshoz.',
+      shareTitle: 'ChatOrbit munkamenet token',
+
+      adRequiredTitle: 'Nézzen meg egy hirdetést',
+      adRequiredMessage: 'Nézze meg a teljes hirdetést az ingyenes token generálásához.',
+      adLoadingButton: 'Hirdetés betöltése...',
+      watchAdButton: 'Hirdetés megtekintése és generálás',
+    },
+
+    accept: {
+      pageTitle: 'Csatlakozás munkamenethez',
+      pageSubtitle: 'Adja meg a kapott tokent',
+
+      tokenTitle: 'Munkamenet token',
+      tokenDescription: 'Illessze be a megosztott 32 karakteres tokent',
+      tokenPlaceholder: 'Illessze be ide a tokent',
+
+      joinButton: 'Csatlakozás',
+
+      footer: 'Mobil-mobil • Végponttól végpontig titkosított',
+
+      invalidToken: 'Érvénytelen token',
+      invalidTokenMessage: 'Kérjük, illesszen be egy érvényes 32 karakteres tokent',
+      joinFailed: 'Csatlakozás sikertelen',
+      failedMessage: 'Nem sikerült csatlakozni a munkamenethez',
+    },
+
+    session: {
+      statusWaiting: 'Várakozás a partnerre...',
+      statusConnected: 'Csatlakozva',
+      statusEnded: 'Munkamenet véget ért',
+      roleHost: 'Házigazda',
+      roleGuest: 'Vendég',
+      messagePlaceholder: 'Írjon üzenetet...',
+      sendButton: 'Küldés',
+      endSession: 'Munkamenet befejezése',
+      endSessionConfirm: 'Biztosan be szeretné fejezni ezt a munkamenetet? A token érvénytelenítésre kerül és nem használható újra.',
+      endSessionCancel: 'Mégse',
+      endSessionConfirmButton: 'Munkamenet befejezése',
+      videoCall: 'Videohívás',
+      endVideo: 'Videó befejezése',
+      incomingCall: 'A másik résztvevő videohívást szeretne indítani',
+      accept: 'Elfogadás',
+      decline: 'Elutasítás',
+      connecting: 'Csatlakozás...',
+      noMessages: 'Még nincsenek üzenetek',
+      reorderMessages: 'Átrendezés',
+      startTyping: 'Kezdjen el gépelni...',
+      waitingForParticipant: 'Várakozás a másik résztvevő csatlakozására...',
+      sendFailed: 'Küldés sikertelen',
+      sendFailedMessage: 'Az üzenet küldése sikertelen',
+      cameraError: 'Nem sikerült elindítani a kamerát',
+      sessionEndedByOther: 'A másik résztvevő befejezte a munkamenetet.',
+      returnToHome: 'Vissza a kezdőlapra',
+    },
+
+    common: {
+      back: 'Vissza',
+      cancel: 'Mégse',
+      confirm: 'Megerősítés',
+      error: 'Hiba',
+      retry: 'Újra',
+      loading: 'Betöltés...',
+      close: 'Bezárás',
+    },
+
+    reportAbuse: {
+      title: 'Visszaélés jelentése',
+      helper: 'Fejezze be a munkamenetet és értesítse a ChatOrbit-ot a jogellenes viselkedésről.',
+      warningTitle: 'Visszaélő vagy illegális viselkedés jelentése',
+      warningDescription: 'A visszaélési jelentéseket rendkívül komolyan vesszük. A hamis vagy rosszindulatú jelentéseket megoszthatjuk a bűnüldöző szervekkel, és büntetéshez vezethetnek. Ha folytatja, a jelenlegi munkamenet megszűnik, és csapatunk kivizsgálja az esetet. Csak akkor folytassa, ha úgy véli, hogy a tevékenység sértheti a törvényt vagy felhasználási feltételeinket.',
+      warningNote: 'Ha valaki közvetlen veszélyben van, először hívja a helyi segélyhívó szolgálatokat.',
+      continueButton: 'Folytatás',
+      formTitle: 'Visszaélési jelentés beküldése',
+      formDescription: 'Adja meg az alábbi adatokat, hogy incidenskezelő csapatunk kivizsgálhassa az esetet. A jelentés rögzítése után e-mailben kapja meg a megerősítést.',
+      emailLabel: 'Kapcsolattartási e-mail',
+      emailPlaceholder: 'on@email.com',
+      summaryLabel: 'Az incidens összefoglalása',
+      summaryPlaceholder: 'Írja le, mi történt és miért visszaélő.',
+      questionnaireTitle: 'Kérdőív',
+      immediateThreat: 'Valaki közvetlen veszélyben lehet.',
+      criminalActivity: 'A viselkedés bűncselekményt foglalhat magában.',
+      followUp: 'Hajlandó vagyok együttműködni az utólagos vizsgálatban.',
+      additionalDetailsLabel: 'További kontextus (opcionális)',
+      additionalDetailsPlaceholder: 'Bármilyen további megjegyzés, bizonyíték vagy azonosító, amely segíthet csapatunknak.',
+      submitButton: 'Jelentés beküldése',
+      submitting: 'Beküldés...',
+      successTitle: 'Jelentés megérkezett',
+      successDescription: 'Köszönjük. Rögzítettük az incidenst és befejeztük a jelenlegi munkamenetet. Megerősítő e-mailt küldtünk Önnek – kérjük, őrizze meg a nyilvántartásához. Csapatunk felveszi Önnel a kapcsolatot, ha további információra van szükségünk.',
+      submitError: 'Nem sikerült elküldeni a jelentést. Kérjük, próbálja újra.',
+    },
+
+    termsConsent: {
+      title: 'Tekintse át és fogadja el a Felhasználási feltételeket',
+      description: 'Az alkalmazás csak azután indul el, miután megerősíti, hogy elolvasta és elfogadja a Felhasználási feltételeket. Utolsó frissítés: {date}.',
+      helper: 'Görgessen végig az egész dokumentumon az ELFOGADOM gomb aktiválásához.',
+      agree: 'ELFOGADOM',
+      cancel: 'Mégse',
+    },
+
+    navigation: {
+      help: 'Súgó és GYIK',
+      terms: 'Felhasználási feltételek',
+      privacy: 'Adatvédelmi irányelvek',
+      settings: 'Beállítások',
+      about: 'Névjegy',
+      support: 'Támogatás',
+    },
+
+    settings: {
+      title: 'Beállítások',
+      subtitle: 'Szabja személyre ChatOrbit élményét',
+      backgroundPattern: 'Háttérminta',
+      backgroundPatternDescription: 'Válasszon mintát az alkalmazás hátteréhez',
+      patternSize: 'Minta mérete',
+      patternSizeDescription: 'Állítsa be a mintaelemek méretét',
+      patterns: {
+        logo: 'Logó',
+        bubbles: 'Buborékok',
+        orbits: 'Pályák',
+        hexagons: 'Hatszögek',
+        waves: 'Hullámok',
+        constellation: 'Csillagkép',
+        mesh: 'Háló',
+        diamonds: 'Gyémántok',
+        shields: 'Pajzsok',
+        circuits: 'Áramkörök',
+        hologram: 'Hologram',
+        panels: 'Panelek',
+        scanlines: 'Pásztázó vonalak',
+        reactor: 'Reaktor',
+      },
+      infoText: 'A beállítások helyben, ezen az eszközön mentődnek és megmaradnak az alkalmazás újraindításai között.',
+    },
+
+    help: {
+      heading: 'Súgó és GYIK',
+      intro: 'Problémái vannak a videochat indításával? Kövesse az alábbi lépéseket az eszközéhez, hogy visszaállítsa a kamera és mikrofon hozzáférést, és visszatérhessen a munkamenetéhez.',
+      troubleshootingTitle: 'A videohívás sikertelen vagy a kamera nem indul el',
+      troubleshootingDescription: 'A ChatOrbit-nak engedélyre van szüksége a kamera és a mikrofon használatához a hívás megkezdése előtt. Ha bármelyik engedély blokkolva van, a hívási kérelem hibával leáll. Az alábbi tippek segítségével engedélyezze újra a hozzáférést a platformján.',
+      sections: {
+        iphone: {
+          title: 'iPhone és iPad (Safari vagy Firefox)',
+          steps: [
+            'Nyissa meg a Beállítások → Adatvédelem és biztonság → Kamera/Mikrofon menüpontot, és győződjön meg róla, hogy a Firefox vagy Safari engedélyezve van mindkettőhöz.',
+            'A böngészőben nyissa meg a címsor menüt a munkamenetéhez, és állítsa mindkét engedélyt (Kamera és Mikrofon) Engedélyezés-re.',
+            'Ha a kérések továbbra sem jelennek meg, törölje a webhelydata-t a chat-orbit.com-hoz (vagy a telepítéséhez), és töltse újra a munkamenetet egy friss engedélykérés indításához.',
+          ],
+        },
+        android: {
+          title: 'Android (Chrome, Firefox vagy Edge)',
+          steps: [
+            'Ellenőrizze a Beállítások → Alkalmazások → [Böngésző] → Engedélyek menüpontot, és győződjön meg róla, hogy a Kamera és Mikrofon engedélyezve van.',
+            'A böngészőben érintse meg a lakat ikont a címsorban, és kapcsolja be mindkét engedélyt a webhelyhez.',
+            'Töltse újra az oldalt. Ha a hívás továbbra is sikertelen, próbálja meg a videokérést az érintett eszközről indítani, hogy az engedélykérés közvetlenül az érintésére reagáljon.',
+          ],
+        },
+        desktop: {
+          title: 'Asztali (Windows, macOS vagy Linux)',
+          steps: [
+            'Zárja be az esetlegesen kamerát vagy mikrofont használó alkalmazásokat.',
+            'Használja a böngésző webhely-információs paneljét (általában a lakat ikon) a Kamera és Mikrofon hozzáférés engedélyezéséhez.',
+            'macOS-en nyissa meg a Rendszerbeállítások → Adatvédelem és biztonság → Kamera/Mikrofon menüpontot, és engedélyezze a böngészőjének. Windows-on lépjen a Beállítások → Adatvédelem és biztonság → Kamera/Mikrofon menüpontra, és győződjön meg róla, hogy a rendszerszintű és böngészőspecifikus kapcsolók is be vannak kapcsolva.',
+          ],
+        },
+      },
+    },
+
+    terms: {
+      title: 'Felhasználási feltételek',
+      lastUpdated: 'Utolsó frissítés: {date}',
+      lastUpdatedDate: '2025. október 14.',
+      sections: [
+        {
+          title: '1. Feltételek elfogadása',
+          body: 'A ChatOrbit (a „Szolgáltatás") elérésével vagy használatával Ön elfogadja ezeket a Felhasználási feltételeket. Legalább 18 évesnek kell lennie, vagy rendelkeznie kell a kötelező érvényű szerződés megkötéséhez szükséges jogképességgel. Ha nem ért egyet, nem használhatja a Szolgáltatást.',
+        },
+        {
+          title: '2. A Szolgáltatás leírása',
+          body: 'A ChatOrbit egy peer-to-peer kommunikációs platform, amely közvetlenül összeköti a résztvevőket WebRTC technológia segítségével. Az üzenetek közvetlenül a böngészők között utaznak anélkül, hogy a szervereinkön tárolódnának. Ha mindkét böngésző támogatja, a végponttól végpontig terjedő titkosítás AES-GCM-mel és a munkamenet tokenekből származtatott kulcsokkal biztosítja, hogy csak a címzettek olvashassák a tartalmat.',
+        },
+        {
+          title: '3. Tiltott használat',
+          body: 'Ön vállalja, hogy nem használja a Szolgáltatást: illegális tevékenységre vagy alkalmazandó törvények vagy rendeletek megsértésére; más felhasználók zaklatására, fenyegetésére, rágalmazására vagy egyéb módon történő bántalmazására; rosszindulatú programok, vírusok vagy más káros kódok továbbítására; biztonsági, titkosítási vagy hitelesítési mechanizmusok megkerülésére vagy aláásására; más személy vagy entitás megszemélyesítésére vagy hamis információk megadására. Bármilyen jogsértés azonnali hozzáférés-megszüntetést eredményezhet értesítés nélkül.',
+        },
+        {
+          title: '4. Munkamenet életciklusa',
+          body: 'A tokenek csak az aktiválási időablakon belül válthatók be, és utána automatikusan lejárnak. Amint két résztvevő csatlakozik, visszaszámlálás kezdődik. Amikor eléri a nullát, a munkamenet bezárul és nem nyitható újra. Bármelyik résztvevő bármikor aktívan befejezheti a munkamenetet. Amikor úgy dönt, hogy befejezi a munkamenetet, az törlöltként jelölődik meg az adatbázisban, minden résztvevő értesítést kap, és a token többé nem használható újra.',
+        },
+        {
+          title: '5. Nincs üzenettárolás vagy hátsó ajtók',
+          body: 'A ChatOrbit nem tárolja az üzenetek tartalmát vagy a titkosítási kulcsokat. Az üzenetek csak az eszközök memóriájában léteznek egy aktív munkamenet során. A Szolgáltatás hátsó ajtók vagy olyan mechanizmusok nélkül készült, amelyek lehetővé tennék számunkra az üzenetek visszafejtését. A jelzőszerverek ideiglenesen feldolgozhatnak metaadatokat, mint például munkamenet tokeneket, résztvevő azonosítókat és kapcsolat állapotot a kommunikáció elősegítése érdekében, de ezeket az információkat nem tartjuk meg a szükségesnél tovább.',
+        },
+        {
+          title: '6. Felhasználói felelősségek',
+          body: 'Ön kizárólagosan felelős a Szolgáltatás használatáért és a megosztott tartalomért. Be kell tartania az adatvédelemre, magánéletre és elektronikus kommunikációra vonatkozó összes törvényt. Mivel a kommunikáció peer-to-peer, a munkamenet tokeneket csak megbízható felekkel ossza meg, és biztosítsa eszközeit a jogosulatlan hozzáférés ellen.',
+        },
+        {
+          title: '7. Szellemi tulajdon',
+          body: 'A Szolgáltatás, beleértve a kódot, a dizájnt és a dokumentációt, a ChatOrbit és licenszadóinak tulajdona. Nem másolhatja, módosíthatja, terjesztheti, visszafejtheti vagy származékos műveket hozhat létre, kivéve ha ezt az alkalmazandó nyílt forráskódú licencek engedélyezik, vagy előzetes írásbeli hozzájárulásunkkal.',
+        },
+        {
+          title: '8. Garanciák kizárása',
+          body: 'A Szolgáltatást „ahogy van" és „ahogy elérhető" alapon nyújtjuk, mindenféle garancia nélkül, legyen az kifejezett vagy hallgatólagos, beleértve az eladhatóságot, egy adott célra való alkalmasságot vagy a jogsértés hiányát. Nem garantáljuk, hogy a Szolgáltatás megszakítás nélküli, biztonságos vagy hibamentes lesz.',
+        },
+        {
+          title: '9. Felelősség korlátozása',
+          body: 'A törvény által megengedett legteljesebb mértékig a ChatOrbit nem vállal felelősséget semmilyen közvetlen, közvetett, esetleges, következményes vagy büntető jellegű kárért, amely a Szolgáltatás használatából ered vagy azzal kapcsolatos, beleértve az adatvesztést, adatvédelmi incidenseket vagy a felhasználók által elkövetett illegális tevékenységet. Összesített felelősségünk nem haladja meg az Ön által (ha egyáltalán) a követelést megelőző tizenkét hónapban fizetett összeget.',
+        },
+        {
+          title: '10. Kártalanítás',
+          body: 'Ön vállalja, hogy kártalanítja és mentesíti a ChatOrbit-ot, leányvállalatait és ügynökeit minden követelés, felelősség, kár vagy költség (beleértve a jogi költségeket) alól, amely a Szolgáltatás használatából vagy ezen Feltételek megsértéséből ered.',
+        },
+        {
+          title: '11. Megszüntetés',
+          body: 'Saját belátásunk szerint felfüggeszthetjük vagy megszüntethetjük a Szolgáltatáshoz való hozzáférését, értesítéssel vagy anélkül, bármilyen okból, beleértve a Feltételek feltételezett megsértését vagy jogellenes magatartást.',
+        },
+        {
+          title: '12. Irányadó jog',
+          body: 'Ezekre a Feltételekre Kalifornia állam, USA törvényei az irányadók, a kollíziós jogi elvek figyelembevétele nélkül. Ön beleegyezik a Kaliforniában található állami és szövetségi bíróságok kizárólagos joghatóságába a Szolgáltatással kapcsolatos viták rendezésére.',
+        },
+        {
+          title: '13. Feltételek módosítása',
+          body: 'Frissíthetjük ezeket a Feltételeket új funkciók, jogi követelmények vagy működési változások tükrözése érdekében. Ha a módosítások lényegesek, frissített értesítést teszünk közzé az alkalmazásban. A ChatOrbit további használata a változások hatálybalépése után a módosított Feltételek elfogadását jelenti.',
+        },
+        {
+          title: '14. Kapcsolat',
+          body: 'A feltételekkel kapcsolatos kérdéseket a legal@chatorbit.com címre küldheti.',
+        },
+      ],
+    },
+
+    privacy: {
+      title: 'Adatvédelmi irányelvek',
+      lastUpdated: 'Utolsó frissítés: {date}',
+      lastUpdatedDate: '2025. október 14.',
+      sections: [
+        {
+          title: '1. Elkötelezettségünk a magánélet védelme iránt',
+          body: 'A ChatOrbit úgy lett tervezve, hogy előnyben részesítse a privát, ideiglenes beszélgetéseket. A Szolgáltatás peer-to-peer WebRTC technológiával köti össze a résztvevőket, így az üzenetek közvetlenül az eszközök között áramlanak. Ha mindkét böngésző támogatja, a végponttól végpontig terjedő titkosítás biztosítja, hogy az üzenetek tartalma csak a címzettek számára legyen elérhető.',
+        },
+        {
+          title: '2. Milyen információkat gyűjtünk',
+          body: 'Munkamenet metaadatok: Ideiglenesen feldolgozzuk a munkamenet tokeneket, résztvevő azonosítókat, visszaszámlálási konfigurációt és kapcsolat állapotot a csatlakozások koordinálásához és a csatlakozott személyek megjelenítéséhez. Jelzési részletek: Jelzőszerverünk ICE jelölteket és WebSocket üzeneteket cserél a kapcsolat létrehozásához. Ezek az üzenetek tartalmazhatnak IP-címeket és böngésző hálózati információkat. STUN/TURN hitelesítés: Harmadik fél relészolgáltatások rövid élettartamú nonce-okat (600 másodpercig érvényesek) és IP-címeket kapnak kizárólag a NAT átjárás elősegítésére. Opcionális diagnosztika: Ha bekapcsolja a kliens hibakeresést, korlátozott technikai naplók menthetők a helyi eszközére a kapcsolódási problémák elhárításához.',
+        },
+        {
+          title: '3. Hogyan használjuk az információit',
+          body: 'A fent leírt információkat kizárólag a peer-to-peer kapcsolatok elősegítésére, a STUN/TURN szerverekhez való legitim hozzáférés hitelesítésére, a munkamenet aktív állapotának figyelésére és a Szolgáltatás visszaéléssel szembeni védelmére használjuk. Nem profilozzuk a felhasználókat és nem használjuk az adatokat hirdetésre.',
+        },
+        {
+          title: '4. Végponttól végpontig terjedő titkosítás',
+          body: 'Ha támogatott, a ChatOrbit AES-GCM titkosítást egyeztet a munkamenet tokenekből származtatott kulcsokkal közvetlenül a felhasználók eszközein. Ezeket a kulcsokat nem kapjuk meg és nem tudjuk visszafejteni az üzenetek tartalmát. Ha a titkosítás nem érhető el az egyik vagy mindkét böngészőben, az üzenetek titkosítatlanul kerülnek továbbításra, és az alkalmazás figyelmezteti a résztvevőket.',
+        },
+        {
+          title: '5. Nincs üzenettárolás',
+          body: 'Az üzenetek tartalma soha nem tárolódik a szervereinken. Az üzenetek csak a résztvevő eszközök memóriájában léteznek egy aktív munkamenet alatt, és eltűnnek, amikor a munkamenet véget ér vagy az alkalmazás bezárul. Ez a kialakítás azt jelenti, hogy nem tudjuk lekérni vagy biztosítani az üzenetelőzményeket harmadik feleknek, beleértve a bűnüldöző szerveket.',
+        },
+        {
+          title: '6. Cookie-k és helyi tárolás',
+          body: 'A ChatOrbit minimális helyi tárhelyre támaszkodik a munkamenet tokenek megjegyzéséhez ugyanazon az eszközön. Nem használunk hirdetési cookie-kat, harmadik fél analitikai jelzőfényeket vagy webhelyek közötti nyomkövető technológiákat.',
+        },
+        {
+          title: '7. Adatmegőrzés',
+          body: 'A munkamenet metaadatokat csak addig tartjuk meg, amíg szükséges az aktív kapcsolatok koordinálásához és a visszaélés megelőzéséhez. A biztonsághoz vagy csaláshoz kapcsolódó naplók korlátozott ideig megőrizhetők a jogi kötelezettségeknek megfelelően.',
+        },
+        {
+          title: '8. Az Ön választásai',
+          body: 'Bármikor elutasíthatja munkamenetek generálását vagy azokhoz való csatlakozást. Törölheti a helyi munkamenet adatokat a böngészőjéből, vagy használhat privát böngészési módot a tokenek tárolásának elkerülésére. Ha kérdései vannak az információival kapcsolatban, lépjen kapcsolatba velünk a privacy@chatorbit.com címen.',
         },
       ],
     },
