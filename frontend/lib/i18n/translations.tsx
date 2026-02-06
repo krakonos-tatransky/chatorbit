@@ -99,6 +99,9 @@ const baseTranslation = {
     unknownError: "Unknown error",
     tokenIssueError: "Unable to issue a token.",
     tokenJoinError: "Unable to join this token.",
+    qrCode: "QR Code",
+    qrCodeHide: "Hide QR",
+    qrCodeHint: "Scan with ChatOrbit app",
   },
   termsModal: {
     title: "Review and accept the Terms of Service",
@@ -295,6 +298,9 @@ export const TRANSLATIONS: Record<LanguageCode, AppTranslation> = {
       unknownError: "Neznáma chyba",
       tokenIssueError: "Token sa nepodarilo vydať.",
       tokenJoinError: "K tomuto tokenu sa nedá pripojiť.",
+      qrCode: "QR kód",
+      qrCodeHide: "Skryť QR",
+      qrCodeHint: "Naskenujte aplikáciou ChatOrbit",
     },
     termsModal: {
       title: "Skontrolujte a potvrďte Podmienky používania",

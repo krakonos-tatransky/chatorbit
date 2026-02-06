@@ -2290,6 +2290,24 @@ main {
   border: 0;
 }
 
+.session-token-qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  margin-top: 0.5rem;
+  background: #ffffff;
+  border-radius: 0.75rem;
+}
+
+.session-token-qr__hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: rgba(15, 23, 42, 0.65);
+  font-weight: 500;
+}
+
 .session-token-value {
   margin: 0;
   font-family: "JetBrains Mono", "SF Mono", "Consolas", monospace;

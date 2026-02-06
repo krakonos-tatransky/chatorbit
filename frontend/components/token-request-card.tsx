@@ -6,6 +6,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { useLanguage } from "@/components/language/language-provider";
+import { QRCodeSVG } from "qrcode.react";
+
 import { apiUrl } from "@/lib/api";
 import { getClientIdentity } from "@/lib/client-identity";
 import { useViewportType } from "@/hooks/use-viewport-type";
@@ -49,6 +51,7 @@ export function TokenRequestCard() {
   const [startSessionLoading, setStartSessionLoading] = useState<boolean>(false);
   const [startSessionError, setStartSessionError] = useState<string | null>(null);
   const [startSessionAvailable, setStartSessionAvailable] = useState<boolean>(false);
+  const [showQR, setShowQR] = useState<boolean>(false);
   const router = useRouter();
   const viewportType = useViewportType();
   const isPhoneViewportType = viewportType === "phone";
@@ -113,6 +116,7 @@ export function TokenRequestCard() {
     setStartSessionError(null);
     setStartSessionLoading(false);
     setStartSessionAvailable(false);
+    setShowQR(false);
   }, [result?.token]);
 
   useEffect(() => {
@@ -433,6 +437,13 @@ export function TokenRequestCard() {
               >
                 {tokenCopyState === "copied" ? tokenCard.copySuccess : tokenCard.copyIdle}
               </button>
+              <button
+                type="button"
+                className="session-token-copy"
+                onClick={() => setShowQR((prev) => !prev)}
+              >
+                {showQR ? tokenCard.qrCodeHide : tokenCard.qrCode}
+              </button>
               {startSessionAvailable ? (
                 <button
                   type="button"
@@ -453,6 +464,17 @@ export function TokenRequestCard() {
               </span>
             </div>
             <p className="session-token-value">{result.token}</p>
+            {showQR ? (
+              <div className="session-token-qr">
+                <QRCodeSVG
+                  value={`chatorbit://join/${result.token}`}
+                  size={200}
+                  bgColor="#ffffff"
+                  fgColor="#0f172a"
+                />
+                <p className="session-token-qr__hint">{tokenCard.qrCodeHint}</p>
+              </div>
+            ) : null}
           </div>
           <div className="result-card__row">
             <span>{tokenCard.validUntil}</span>
