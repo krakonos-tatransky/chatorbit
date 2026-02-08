@@ -111,6 +111,8 @@ secure chat,encrypted,private messaging,ephemeral,video call,peer to peer,no acc
 
 ## App Review Information
 
+> **Full review notes with guideline compliance rationale**: See `docs/APP_REVIEW_NOTES.md`
+
 ### Demo Account
 ```
 Not required - app uses token-based access without accounts.
@@ -118,15 +120,25 @@ Not required - app uses token-based access without accounts.
 
 ### Review Notes
 ```
-To test the app:
-1. Open the app and tap "Need token" to generate a session token
-2. Note the 12-character token displayed
-3. Open a second device (or simulator) with the app
-4. Tap "Have token" and enter the same token
-5. Both devices will connect and you can exchange messages
-6. Tap the video icon to start a video call between devices
+ChatOrbit is a private, token-based, two-person ephemeral chat application
+with optional peer-to-peer video calling. It does NOT require user accounts.
 
-No login or account is required. The app uses time-limited tokens for session access.
+TESTING INSTRUCTIONS:
+1. Open the app and tap "Need token" to create a session token
+2. Choose session duration and tap "Create Token"
+3. Copy or share the 12-character token
+4. On a second device, open ChatOrbit and tap "Have token"
+5. Paste/enter the same token to connect
+6. Exchange messages in the encrypted session
+7. Optionally tap the camera icon to start a video call
+8. Session ends automatically when the timer expires, or tap "End Session"
+
+IMPORTANT NOTES:
+- No login or account required — sessions are gated by shared tokens
+- Two devices are needed to test the full peer-to-peer experience
+- Video calls require camera and microphone permissions
+- All messages are end-to-end encrypted (AES-256-GCM) and exist only in
+  device memory — nothing is stored on the server
 ```
 
 ### Contact for Review Issues
