@@ -58,6 +58,8 @@ from .schemas import (
     AdminUpdateAbuseReportRequest,
     AdminResetRateLimitRequest,
     AdminResetRateLimitResponse,
+    ContactRequest,
+    ContactResponse,
     CreateTokenRequest,
     JoinSessionRequest,
     JoinSessionResponse,
@@ -841,6 +843,68 @@ def report_abuse(
         status=abuse_record.status.value,
         session_status=session_model.status.value,
     )
+
+
+_contact_rate_limit: Dict[str, List[datetime]] = {}
+
+
+@router.post("/contact", response_model=ContactResponse)
+def submit_contact(
+    payload: ContactRequest,
+    background_tasks: BackgroundTasks,
+    http_request: Request = None,
+) -> ContactResponse:
+    ip = get_client_ip(http_request)
+    now = utcnow()
+    window_start = now - timedelta(hours=1)
+
+    timestamps = _contact_rate_limit.get(ip, [])
+    timestamps = [t for t in timestamps if t >= window_start]
+    if len(timestamps) >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many contact requests. Please try again later.",
+        )
+    timestamps.append(now)
+    _contact_rate_limit[ip] = timestamps
+
+    sender = settings.smtp_sender or settings.smtp_username or "no-reply@chatorbit.com"
+
+    if settings.smtp_host:
+        admin_recipient = settings.abuse_notifications_email or settings.smtp_username or "support@chatorbit.com"
+        admin_body = (
+            f"New contact form submission\n\n"
+            f"Name: {payload.name}\n"
+            f"Email: {payload.email}\n"
+            f"Subject: {payload.subject}\n"
+            f"IP: {ip}\n\n"
+            f"Message:\n{payload.message}\n"
+        )
+        admin_message = create_email_message(
+            subject=f"[ChatOrbit Contact] {payload.subject}",
+            body=admin_body,
+            recipients=admin_recipient,
+            sender=sender,
+        )
+        background_tasks.add_task(send_email, admin_message)
+
+        ack_body = (
+            f"Hi {payload.name},\n\n"
+            "Thank you for contacting ChatOrbit. We have received your message "
+            "and will get back to you as soon as possible.\n\n"
+            "— The ChatOrbit Team"
+        )
+        ack_message = create_email_message(
+            subject="We received your message",
+            body=ack_body,
+            recipients=str(payload.email),
+            sender=sender,
+        )
+        background_tasks.add_task(send_email, ack_message)
+    else:
+        logger.warning("SMTP host is not configured; skipping contact form email delivery.")
+
+    return ContactResponse(success=True, message="Your message has been sent successfully.")
 
 
 @router.delete("/sessions/{token}", response_model=SessionStatusResponse)

@@ -206,6 +206,18 @@ class AdminAbuseReportListResponse(BaseModel):
     reports: List[AdminAbuseReport]
 
 
+class ContactRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200, description="Sender's name.")
+    email: EmailStr = Field(description="Sender's email address for acknowledgement.")
+    subject: str = Field(min_length=1, max_length=200, description="Message subject.")
+    message: str = Field(min_length=10, max_length=5000, description="Message body.")
+
+
+class ContactResponse(BaseModel):
+    success: bool
+    message: str
+
+
 class AdminUpdateAbuseReportRequest(BaseModel):
     status: Optional[AbuseReportStatus] = Field(
         default=None,

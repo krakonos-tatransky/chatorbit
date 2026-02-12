@@ -955,6 +955,21 @@ export const HELP_TRANSLATIONS: Record<LanguageCode, {
   troubleshootingTitle: string;
   troubleshootingDescription: string;
   sections: { id: string; title: string; steps: ReactNode[] }[];
+  contactForm: {
+    title: string;
+    description: string;
+    namePlaceholder: string;
+    emailPlaceholder: string;
+    subjectLabel: string;
+    subjectOptions: { value: string; label: string }[];
+    messagePlaceholder: string;
+    send: string;
+    sending: string;
+    success: string;
+    error: string;
+    required: string;
+    invalidEmail: string;
+  };
 }> = {
   en: {
     heading: "Help & FAQ",
@@ -1020,6 +1035,26 @@ export const HELP_TRANSLATIONS: Record<LanguageCode, {
         ],
       },
     ],
+    contactForm: {
+      title: "Contact Support",
+      description: "Have a question or need help? Send us a message and we will get back to you.",
+      namePlaceholder: "Your name",
+      emailPlaceholder: "you@example.com",
+      subjectLabel: "Subject",
+      subjectOptions: [
+        { value: "General Question", label: "General Question" },
+        { value: "Technical Issue", label: "Technical Issue" },
+        { value: "Feature Request", label: "Feature Request" },
+        { value: "Other", label: "Other" },
+      ],
+      messagePlaceholder: "Describe your question or issue…",
+      send: "Send Message",
+      sending: "Sending…",
+      success: "Your message has been sent. We will get back to you soon.",
+      error: "Failed to send message. Please try again later.",
+      required: "This field is required.",
+      invalidEmail: "Please enter a valid email address.",
+    },
   },
   sk: {
     heading: "Pomoc a FAQ",
@@ -1083,6 +1118,26 @@ export const HELP_TRANSLATIONS: Record<LanguageCode, {
         ],
       },
     ],
+    contactForm: {
+      title: "Kontaktovať podporu",
+      description: "Máte otázku alebo potrebujete pomoc? Pošlite nám správu a ozveme sa vám.",
+      namePlaceholder: "Vaše meno",
+      emailPlaceholder: "vas@email.com",
+      subjectLabel: "Predmet",
+      subjectOptions: [
+        { value: "General Question", label: "Všeobecná otázka" },
+        { value: "Technical Issue", label: "Technický problém" },
+        { value: "Feature Request", label: "Požiadavka na funkciu" },
+        { value: "Other", label: "Iné" },
+      ],
+      messagePlaceholder: "Opíšte svoju otázku alebo problém…",
+      send: "Odoslať správu",
+      sending: "Odosiela sa…",
+      success: "Vaša správa bola odoslaná. Čoskoro sa vám ozveme.",
+      error: "Správu sa nepodarilo odoslať. Skúste to neskôr.",
+      required: "Toto pole je povinné.",
+      invalidEmail: "Zadajte platnú e-mailovú adresu.",
+    },
   },
 };
 
