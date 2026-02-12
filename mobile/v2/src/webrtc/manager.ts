@@ -255,6 +255,23 @@ export class WebRTCManager {
   }
 
   /**
+   * Announce encryption capabilities to peer via data channel.
+   * Browser requires this to enable the send button.
+   */
+  private sendCapabilities(): void {
+    if (!this.peerConnection) return;
+    try {
+      this.peerConnection.sendRawMessage({
+        type: 'capabilities',
+        supportsEncryption: true,
+      });
+      console.log('[WebRTC] Sent capabilities announcement');
+    } catch (error) {
+      console.log('[WebRTC] Failed to send capabilities (DataChannel not ready):', error);
+    }
+  }
+
+  /**
    * Send ICE candidate with queuing support
    */
   private sendIceCandidate(candidateData: RTCIceCandidateInit): void {
@@ -268,7 +285,7 @@ export class WebRTCManager {
     try {
       this.signaling.send({
         type: 'signal',
-        signalType: 'ice-candidate',
+        signalType: 'iceCandidate',
         payload: candidateData,
       });
     } catch (error) {
@@ -533,8 +550,8 @@ export class WebRTCManager {
    * Handle video accept from remote peer
    *
    * This is called when WE sent the video invite and the remote peer accepted.
-   * Since we initiated the call, we are responsible for creating a renegotiation offer
-   * to include the video tracks we've already added to the connection.
+   * Only the session HOST creates a renegotiation offer (matching browser protocol).
+   * If we're the guest, the host will create the offer — we just update the UI.
    */
   private async handleVideoAccept(): Promise<void> {
     // Prevent duplicate handling - browser sends accept via both data channel and signaling
@@ -544,23 +561,27 @@ export class WebRTCManager {
     }
     this.videoAcceptHandled = true;
 
-    console.log('[WebRTC] Remote peer accepted video - creating renegotiation offer');
+    console.log('[WebRTC] Remote peer accepted video');
 
     // Notify UI that video call is starting
     if (this.onVideoAccepted) {
       this.onVideoAccepted();
     }
 
-    // Create renegotiation offer to include video tracks
-    // Data channel already exists from text chat connection
-    if (this.peerConnection) {
+    // Only the session HOST creates renegotiation offers.
+    // This matches the browser's protocol and prevents offer collisions
+    // when mobile-guest initiates video with browser-host (both would create offers).
+    // If we're the guest, the host will create the renegotiation offer.
+    if (this.isInitiator && this.peerConnection) {
       const offer = await this.peerConnection.createOffer();
       this.signaling.send({
         type: 'signal',
         signalType: 'offer',
-        payload: offer,  // Send full RTCSessionDescriptionInit { type, sdp }
+        payload: offer,
       });
-      console.log('[WebRTC] Renegotiation offer sent after video accept');
+      console.log('[WebRTC] Renegotiation offer sent after video accept (host role)');
+    } else if (!this.isInitiator) {
+      console.log('[WebRTC] Guest role - waiting for host to send renegotiation offer');
     } else {
       console.error('[WebRTC] No peer connection to create offer');
     }
@@ -680,17 +701,18 @@ export class WebRTCManager {
       });
 
       // Recommendation #1: Register negotiation callback
-      // CRITICAL: Only the video initiator (who sent the invite) should create renegotiation offers.
-      // The video callee must wait for the caller's offer after adding video tracks.
-      // For text-only chat, only the session host creates offers.
+      // CRITICAL: Only the session HOST should create offers (both for text chat and video renegotiation).
+      // This matches the browser's protocol where the host always creates offers and
+      // the guest sends a "renegotiate" request via data channel when it needs renegotiation.
+      // Using a consistent role (host) prevents offer collisions in cross-platform scenarios
+      // (mobile ↔ browser) where the video initiator and session host may differ.
       this.peerConnection.onNegotiationNeeded(async () => {
         if (!this.peerConnection) return;
 
-        // Determine if we should create the offer based on context:
-        // - For video renegotiation: only the video initiator creates offers
-        // - For initial text chat: only the session host creates offers
-        // - The video callee's negotiationneeded event should be ignored
-        const shouldCreateOffer = this.videoStarted ? this.isVideoInitiator : this.isInitiator;
+        // Only the session host creates offers — for both text chat and video renegotiation.
+        // The guest's negotiationneeded events are suppressed; the host's offer will include
+        // the guest's tracks when the guest sends them in its answer.
+        const shouldCreateOffer = this.isInitiator;
 
         if (!shouldCreateOffer) {
           console.log('[WebRTC] Negotiation needed but not the appropriate initiator - waiting for peer offer');
@@ -839,6 +861,9 @@ export class WebRTCManager {
     this.peerConnection.onDataChannelOpen(() => {
       console.log('[WebRTC] Data channel opened - text chat ready');
       useConnectionStore.getState().setConnectionState('connected');
+
+      // Announce encryption capabilities to peer (browser needs this to enable send button)
+      this.sendCapabilities();
     });
 
     this.peerConnection.onDataChannelMessage(async (message: DataChannelMessage) => {
@@ -890,9 +915,9 @@ export class WebRTCManager {
             break;
 
           case 'capabilities' as any:
-            // Handle browser capabilities announcement
+            // Handle browser capabilities announcement and reply with our own
             console.log('[WebRTC] Received capabilities from browser:', message);
-            // Browser is announcing encryption support - we can ignore for now
+            this.sendCapabilities();
             break;
 
           case 'call' as any:
@@ -1347,8 +1372,8 @@ export class WebRTCManager {
       return;
     }
 
-    // Only initiator (or video initiator during video) should create restart offers
-    const shouldCreateOffer = this.videoStarted ? this.isVideoInitiator : this.isInitiator;
+    // Only the session host should create ICE restart offers (matches browser protocol)
+    const shouldCreateOffer = this.isInitiator;
     if (!shouldCreateOffer) {
       console.log('[WebRTC] Cannot restart ICE (not the appropriate initiator)');
       return;

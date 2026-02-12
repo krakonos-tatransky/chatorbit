@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,8 +7,12 @@ import {
   Platform,
   Alert,
   ScrollView,
+  TouchableOpacity,
+  Modal,
 } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
+import { Ionicons } from '@expo/vector-icons';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { COLORS } from '../../constants/colors';
 import { TEXT_STYLES } from '../../constants/typography';
 import { SPACING } from '../../constants/spacing';
@@ -48,7 +52,38 @@ export const AcceptContent: React.FC<AcceptContentProps> = ({
 }) => {
   const t = useTranslation();
   const [token, setToken] = useState('');
+  const [showScanner, setShowScanner] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
   const { joinSession, isJoining, error } = useSessionStore();
+
+  const handleScanQR = async () => {
+    if (!permission?.granted) {
+      const result = await requestPermission();
+      if (!result.granted) {
+        Alert.alert(t.common.error, t.accept.cameraPermissionDenied);
+        return;
+      }
+    }
+    setShowScanner(true);
+  };
+
+  const handleBarCodeScanned = ({ data }: { data: string }) => {
+    // Extract token from deep link: chatorbit://join/{token}
+    const match = data.match(/chatorbit:\/\/join\/([a-f0-9]{32})/i);
+    if (match) {
+      setToken(match[1].toLowerCase());
+      setShowScanner(false);
+    } else {
+      // Maybe it's just a raw token
+      const rawToken = data.toLowerCase().replace(/\s/g, '');
+      if (rawToken.length === 32 && /^[a-f0-9]+$/.test(rawToken)) {
+        setToken(rawToken);
+        setShowScanner(false);
+      } else {
+        Alert.alert(t.accept.invalidToken, t.accept.invalidQRCode);
+      }
+    }
+  };
 
   const handleJoin = async () => {
     const trimmedToken = token.trim().toLowerCase();
@@ -104,6 +139,39 @@ export const AcceptContent: React.FC<AcceptContentProps> = ({
           error={error || undefined}
           style={styles.input}
         />
+
+        <TouchableOpacity style={styles.scanButton} onPress={handleScanQR}>
+          <Ionicons name="qr-code-outline" size={24} color={COLORS.accent.yellow} />
+          <Text style={styles.scanButtonText} maxFontSizeMultiplier={1.2}>{t.accept.scanQRButton}</Text>
+        </TouchableOpacity>
+
+        {/* QR Scanner Modal */}
+        <Modal
+          visible={showScanner}
+          animationType="slide"
+          onRequestClose={() => setShowScanner(false)}
+        >
+          <View style={styles.scannerContainer}>
+            <View style={styles.scannerHeader}>
+              <Text style={styles.scannerTitle} maxFontSizeMultiplier={1.2}>{t.accept.scanQRTitle}</Text>
+              <TouchableOpacity onPress={() => setShowScanner(false)}>
+                <Ionicons name="close" size={28} color={COLORS.text.primary} />
+              </TouchableOpacity>
+            </View>
+            <CameraView
+              style={styles.camera}
+              facing="back"
+              barcodeScannerSettings={{
+                barcodeTypes: ['qr'],
+              }}
+              onBarcodeScanned={handleBarCodeScanned}
+            />
+            <View style={styles.scannerOverlay}>
+              <View style={styles.scannerFrame} />
+            </View>
+            <Text style={styles.scannerHint} maxFontSizeMultiplier={1.2}>{t.accept.scanQRHint}</Text>
+          </View>
+        </Modal>
 
         <View style={styles.buttonContainer}>
           <Button
@@ -200,5 +268,59 @@ const styles = StyleSheet.create({
   footerBadgeText: {
     fontSize: 10,
     color: 'rgba(255, 255, 255, 0.4)',
+  },
+  scanButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.sm,
+    paddingVertical: SPACING.md,
+    marginTop: SPACING.md,
+  },
+  scanButtonText: {
+    ...TEXT_STYLES.body,
+    color: COLORS.accent.yellow,
+  },
+  scannerContainer: {
+    flex: 1,
+    backgroundColor: COLORS.background.primary,
+  },
+  scannerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.xl + 20,
+    paddingBottom: SPACING.md,
+    backgroundColor: COLORS.background.primary,
+  },
+  scannerTitle: {
+    ...TEXT_STYLES.h3,
+    color: COLORS.text.primary,
+  },
+  camera: {
+    flex: 1,
+  },
+  scannerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 80,
+  },
+  scannerFrame: {
+    width: 250,
+    height: 250,
+    borderWidth: 2,
+    borderColor: COLORS.accent.yellow,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+  },
+  scannerHint: {
+    ...TEXT_STYLES.body,
+    color: COLORS.text.secondary,
+    textAlign: 'center',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.lg,
+    backgroundColor: COLORS.background.primary,
   },
 });

@@ -774,91 +774,25 @@ export class PeerConnection {
       return null;
     }
 
+    const newFacingMode = this.currentFacingMode === 'user' ? 'environment' : 'user';
+    console.log('[PeerConnection] Switching camera from', this.currentFacingMode, 'to', newFacingMode);
+
     try {
-      // Determine new facing mode
-      const newFacingMode = this.currentFacingMode === 'user' ? 'environment' : 'user';
-      console.log('[PeerConnection] Switching camera from', this.currentFacingMode, 'to', newFacingMode);
-
-      // Get the current video track's sender
-      const senders = (this.pc as any).getSenders?.() || [];
-      const videoSender = senders.find((sender: any) => sender.track?.kind === 'video');
-
-      if (!videoSender) {
-        console.log('[PeerConnection] No video sender found, falling back to _switchCamera');
-        // Fallback to _switchCamera if no sender found
-        const videoTrack = videoTracks[0] as any;
-        if (typeof videoTrack._switchCamera === 'function') {
-          videoTrack._switchCamera();
-          this.currentFacingMode = newFacingMode;
-          return this.localStream;
-        }
-        return null;
+      // Use react-native-webrtc's native _switchCamera API — this is the reliable
+      // method on iOS. The getUserMedia + replaceTrack approach can produce mirrored
+      // output on some iPhone models (e.g. iPhone 16) instead of actually switching.
+      const videoTrack = videoTracks[0] as any;
+      if (typeof videoTrack._switchCamera === 'function') {
+        videoTrack._switchCamera();
+        this.currentFacingMode = newFacingMode;
+        console.log('[PeerConnection] Camera switched to', newFacingMode, 'via _switchCamera');
+        return this.localStream;
       }
 
-      // Request new video track with the new facing mode
-      const newStream = await mediaDevices.getUserMedia({
-        video: {
-          facingMode: newFacingMode,
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 30 },
-        },
-        audio: false, // Don't request audio again
-      });
-
-      const newVideoTrack = newStream.getVideoTracks()[0];
-      if (!newVideoTrack) {
-        console.error('[PeerConnection] Failed to get new video track');
-        return null;
-      }
-
-      // Get audio tracks from the old stream to preserve them
-      const audioTracks = this.localStream.getAudioTracks();
-      const oldVideoTrack = videoTracks[0];
-
-      // Create a NEW MediaStream with the new video track and existing audio IMMEDIATELY
-      // This is necessary because RTCView caches the stream URL and won't update
-      // if we just modify the existing stream's tracks
-      const newLocalStream = new MediaStream();
-      newLocalStream.addTrack(newVideoTrack);
-      audioTracks.forEach(track => newLocalStream.addTrack(track));
-
-      // Update the internal reference and facing mode IMMEDIATELY
-      // so the UI can show the new camera feed right away
-      this.localStream = newLocalStream;
-      this.currentFacingMode = newFacingMode;
-      console.log('[PeerConnection] New local stream created, updating UI immediately');
-
-      // Replace the track in the sender (for remote peer) - do this AFTER updating local stream
-      // This operation can take time but shouldn't block the local preview
-      videoSender.replaceTrack(newVideoTrack).then(() => {
-        console.log('[PeerConnection] Video track replaced in sender successfully');
-      }).catch((err: Error) => {
-        console.error('[PeerConnection] Failed to replace track in sender:', err);
-      });
-
-      // Stop the old video track after we've set up the new one
-      oldVideoTrack.stop();
-
-      console.log('[PeerConnection] Camera switched to', newFacingMode, 'successfully');
-
-      return this.localStream;
+      console.error('[PeerConnection] _switchCamera not available on video track');
+      return null;
     } catch (error) {
       console.error('[PeerConnection] Failed to switch camera:', error);
-
-      // Fallback to _switchCamera API if the new method fails
-      try {
-        const videoTrack = videoTracks[0] as any;
-        if (typeof videoTrack._switchCamera === 'function') {
-          videoTrack._switchCamera();
-          this.currentFacingMode = this.currentFacingMode === 'user' ? 'environment' : 'user';
-          console.log('[PeerConnection] Fallback _switchCamera succeeded');
-          return this.localStream;
-        }
-      } catch (fallbackError) {
-        console.error('[PeerConnection] Fallback _switchCamera also failed:', fallbackError);
-      }
-
       return null;
     }
   }

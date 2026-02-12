@@ -12,6 +12,7 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import Svg, { Path } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
+import QRCode from 'react-native-qrcode-svg';
 import { COLORS } from '../../constants/colors';
 import { TEXT_STYLES } from '../../constants/typography';
 import { SPACING } from '../../constants/spacing';
@@ -66,6 +67,7 @@ export const MintContent: React.FC<MintContentProps> = ({
   const [showValidityPicker, setShowValidityPicker] = useState(false);
   const [showDurationPicker, setShowDurationPicker] = useState(false);
   const [showMessageLimitPicker, setShowMessageLimitPicker] = useState(false);
+  const [showQRCode, setShowQRCode] = useState(false);
 
   // Map values to translated labels
   const validityLabels: Record<ValidityPeriod, string> = {
@@ -205,7 +207,43 @@ export const MintContent: React.FC<MintContentProps> = ({
             <Ionicons name="share-outline" size={24} color={COLORS.accent.yellow} />
             <Text style={styles.tokenActionButtonText} maxFontSizeMultiplier={1.2}>{t.mint.shareButton}</Text>
           </TouchableOpacity>
+          <TouchableOpacity style={styles.tokenActionButton} onPress={() => setShowQRCode(true)}>
+            <Ionicons name="qr-code-outline" size={24} color={COLORS.accent.yellow} />
+            <Text style={styles.tokenActionButtonText} maxFontSizeMultiplier={1.2}>{t.mint.qrCodeButton}</Text>
+          </TouchableOpacity>
         </View>
+
+        {/* QR Code Modal */}
+        <Modal
+          visible={showQRCode}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowQRCode(false)}
+        >
+          <TouchableOpacity
+            style={styles.qrOverlay}
+            activeOpacity={1}
+            onPress={() => setShowQRCode(false)}
+          >
+            <View style={styles.qrContent}>
+              <View style={styles.qrHeader}>
+                <Text style={styles.qrTitle} maxFontSizeMultiplier={1.2}>{t.mint.qrCodeTitle}</Text>
+                <TouchableOpacity onPress={() => setShowQRCode(false)}>
+                  <Ionicons name="close" size={24} color={COLORS.text.primary} />
+                </TouchableOpacity>
+              </View>
+              <View style={styles.qrCodeContainer}>
+                <QRCode
+                  value={`chatorbit://join/${mintedToken}`}
+                  size={200}
+                  backgroundColor={COLORS.background.secondary}
+                  color={COLORS.text.primary}
+                />
+              </View>
+              <Text style={styles.qrHint} maxFontSizeMultiplier={1.2}>{t.mint.qrCodeHint}</Text>
+            </View>
+          </TouchableOpacity>
+        </Modal>
 
         <View style={styles.startSessionButtonContainer}>
           <Button
@@ -657,6 +695,43 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.sm,
   },
   tokenHint: {
+    ...TEXT_STYLES.caption,
+    color: COLORS.text.secondary,
+    textAlign: 'center',
+  },
+  qrOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.lg,
+  },
+  qrContent: {
+    backgroundColor: COLORS.background.secondary,
+    borderRadius: 16,
+    padding: SPACING.lg,
+    alignItems: 'center',
+    width: '100%',
+    maxWidth: 300,
+  },
+  qrHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: SPACING.lg,
+  },
+  qrTitle: {
+    ...TEXT_STYLES.bodyMedium,
+    color: COLORS.text.primary,
+  },
+  qrCodeContainer: {
+    backgroundColor: '#FFFFFF',
+    padding: SPACING.md,
+    borderRadius: 12,
+    marginBottom: SPACING.md,
+  },
+  qrHint: {
     ...TEXT_STYLES.caption,
     color: COLORS.text.secondary,
     textAlign: 'center',

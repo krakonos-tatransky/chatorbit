@@ -33,6 +33,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Button, Input, StatusDot, BackgroundPattern } from '@/components/ui';
+import { ReportAbuseModal, type ReportAbuseFormValues } from '@/components/ReportAbuseModal';
 
 import { COLORS, SPACING, TEXT_STYLES, RADIUS } from '@/constants';
 import {
@@ -49,6 +50,8 @@ import {
   selectPatternOpacity,
 } from '@/state';
 import { webrtcManager } from '@/webrtc';
+import { reportAbuse } from '@/services/api';
+import { useTranslation } from '../i18n';
 import type { Message } from '@/state';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -96,6 +99,18 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
 
   // End session confirmation modal
   const [showEndConfirmModal, setShowEndConfirmModal] = useState(false);
+
+  // Report abuse modal
+  const [showReportAbuseModal, setShowReportAbuseModal] = useState(false);
+  const [sessionEndedByAbuseReport, setSessionEndedByAbuseReport] = useState(false);
+
+  const t = useTranslation();
+
+  // Toast message for fullscreen mode
+  const [toastMessage, setToastMessage] = useState<Message | null>(null);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastMessageCountRef = useRef(0);
 
   // Draggable local video position
   const pan = useRef(new Animated.ValueXY({ x: SPACING.md, y: SPACING.md })).current;
@@ -350,6 +365,42 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
     setShowEndConfirmModal(false);
   }, []);
 
+  // Report abuse handlers
+  const handleOpenReportAbuse = useCallback(() => {
+    setShowReportAbuseModal(true);
+  }, []);
+
+  const handleCloseReportAbuse = useCallback(() => {
+    setShowReportAbuseModal(false);
+    if (sessionEndedByAbuseReport) {
+      endSessionAndNavigate();
+    }
+  }, [sessionEndedByAbuseReport, endSessionAndNavigate]);
+
+  const handleReportAbuseSubmit = useCallback(async (values: ReportAbuseFormValues) => {
+    if (!token) {
+      throw new Error('No active session');
+    }
+
+    try {
+      await reportAbuse(token, {
+        participant_id: participantId,
+        reporter_email: values.reporterEmail,
+        summary: values.summary,
+        questionnaire: {
+          immediate_threat: values.immediateThreat,
+          involves_criminal_activity: values.involvesCriminalActivity,
+          requires_follow_up: values.requiresFollowUp,
+          additional_details: values.additionalDetails || undefined,
+        },
+      });
+      setSessionEndedByAbuseReport(true);
+    } catch (error) {
+      console.error('Failed to submit abuse report:', error);
+      throw error;
+    }
+  }, [token, participantId]);
+
   // Initialize signaling connection (no video yet)
   useEffect(() => {
     if (!token || !participantId) {
@@ -531,6 +582,63 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
   useEffect(() => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
   }, [messages.length]);
+
+  // Show toast for new incoming messages in fullscreen mode
+  useEffect(() => {
+    // Skip initial render
+    if (lastMessageCountRef.current === 0) {
+      lastMessageCountRef.current = messages.length;
+      return;
+    }
+
+    // Only show toast in fullscreen mode
+    if (videoMode !== 'fullscreen') {
+      lastMessageCountRef.current = messages.length;
+      return;
+    }
+
+    // Check if there's a new message
+    if (messages.length > lastMessageCountRef.current) {
+      const newMessage = messages[messages.length - 1];
+      // Only show toast for received messages (not our own)
+      if (newMessage && newMessage.type === 'received') {
+        // Clear any existing toast timeout
+        if (toastTimeoutRef.current) {
+          clearTimeout(toastTimeoutRef.current);
+        }
+
+        // Show toast
+        setToastMessage(newMessage);
+        Animated.timing(toastOpacity, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }).start();
+
+        // Auto-hide after 4 seconds
+        toastTimeoutRef.current = setTimeout(() => {
+          Animated.timing(toastOpacity, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }).start(() => {
+            setToastMessage(null);
+          });
+        }, 4000);
+      }
+    }
+
+    lastMessageCountRef.current = messages.length;
+  }, [messages.length, videoMode, messages, toastOpacity]);
+
+  // Cleanup toast timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Auto-hide footer in fullscreen mode
   useEffect(() => {
@@ -803,7 +911,16 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                 {isConnected ? 'Connected' : 'Waiting for peer...'}
               </Text>
             </View>
-            <Text style={styles.timer} allowFontScaling={false}>{formatTime(displayTime)}</Text>
+            <View style={styles.headerRight}>
+              <Text style={styles.timer} allowFontScaling={false}>{formatTime(displayTime)}</Text>
+              <TouchableOpacity
+                style={styles.reportAbuseButton}
+                onPress={handleOpenReportAbuse}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="flag-outline" size={20} color={COLORS.status.error} />
+              </TouchableOpacity>
+            </View>
           </View>
         )}
 
@@ -859,6 +976,23 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
                 />
               </TouchableOpacity>
             </TouchableOpacity>
+          )}
+
+          {/* Toast message in fullscreen mode - positioned above footer */}
+          {videoMode === 'fullscreen' && toastMessage && (
+            <Animated.View
+              style={[
+                styles.toastContainer,
+                { opacity: toastOpacity, bottom: insets.bottom + 100 }
+              ]}
+              pointerEvents="none"
+            >
+              <View style={styles.toastBubble}>
+                <Text style={styles.toastText} numberOfLines={3}>
+                  {toastMessage.content}
+                </Text>
+              </View>
+            </Animated.View>
           )}
 
           {/* Chat Section (hidden in fullscreen mode) */}
@@ -947,10 +1081,12 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
               {...panResponder.panHandlers}
             >
               <RTCView
+                key={localStream.toURL()}
                 streamURL={localStream.toURL()}
                 style={styles.localVideo}
                 objectFit="cover"
-                mirror={isFrontCamera}
+                mirror={Platform.OS === 'ios' ? isFrontCamera : false}
+                zOrder={Platform.OS === 'android' ? 1 : undefined}
               />
             </Animated.View>
           )}
@@ -1112,6 +1248,13 @@ export const SessionScreen: React.FC<SessionScreenProps> = ({ navigation }) => {
             </View>
           </View>
         </Modal>
+
+        {/* Report Abuse Modal */}
+        <ReportAbuseModal
+          visible={showReportAbuseModal}
+          onClose={handleCloseReportAbuse}
+          onSubmit={handleReportAbuseSubmit}
+        />
         </KeyboardAvoidingView>
       </SafeAreaView>
     </View>
@@ -1155,6 +1298,19 @@ const styles = StyleSheet.create({
   },
   headerLeft: {
     flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  reportAbuseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(239, 71, 111, 0.15)',
+    justifyContent: 'center',
     alignItems: 'center',
   },
   statusDot: {
@@ -1432,5 +1588,27 @@ const styles = StyleSheet.create({
   },
   modalButtonHalf: {
     flex: 1,
+  },
+  // Toast styles for fullscreen video
+  toastContainer: {
+    position: 'absolute',
+    left: SPACING.lg,
+    right: SPACING.lg,
+    alignItems: 'center',
+    zIndex: 200,
+  },
+  toastBubble: {
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.md,
+    borderRadius: RADIUS.xl,
+    maxWidth: '90%',
+    borderWidth: 1,
+    borderColor: 'rgba(79, 195, 247, 0.3)',
+  },
+  toastText: {
+    ...TEXT_STYLES.body,
+    color: COLORS.text.primary,
+    textAlign: 'center',
   },
 });
