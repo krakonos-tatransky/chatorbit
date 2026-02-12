@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from email.message import EmailMessage
 import smtplib
 import ssl
 from typing import Sequence
 
 from .config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 def _ensure_iterable(recipients: str | Sequence[str]) -> Sequence[str]:
@@ -46,20 +49,40 @@ def send_email(message: EmailMessage) -> None:
     port = settings.smtp_port
     username = settings.smtp_username
     password = settings.smtp_password
-    context = ssl.create_default_context()
 
-    if settings.smtp_use_ssl:
-        with smtplib.SMTP_SSL(host, port, context=context) as server:
+    logger.info(
+        "SMTP: sending email to=%s from=%s subject=%r via %s:%s (ssl=%s tls=%s auth=%s)",
+        message["To"], message["From"], message["Subject"],
+        host, port, settings.smtp_use_ssl, settings.smtp_use_tls,
+        bool(username and password),
+    )
+
+    try:
+        context = ssl.create_default_context()
+
+        if settings.smtp_use_ssl:
+            with smtplib.SMTP_SSL(host, port, context=context) as server:
+                if username and password:
+                    server.login(username, password)
+                server.send_message(message)
+            logger.info("SMTP: email sent successfully (SSL) to=%s", message["To"])
+            return
+
+        with smtplib.SMTP(host, port) as server:
+            server.ehlo()
+            if settings.smtp_use_tls:
+                server.starttls(context=context)
+                server.ehlo()
             if username and password:
                 server.login(username, password)
             server.send_message(message)
-        return
+        logger.info("SMTP: email sent successfully to=%s", message["To"])
 
-    with smtplib.SMTP(host, port) as server:
-        server.ehlo()
-        if settings.smtp_use_tls:
-            server.starttls(context=context)
-            server.ehlo()
-        if username and password:
-            server.login(username, password)
-        server.send_message(message)
+    except smtplib.SMTPAuthenticationError as exc:
+        logger.error("SMTP: authentication failed for user=%r — %s", username, exc)
+    except smtplib.SMTPRecipientsRefused as exc:
+        logger.error("SMTP: recipients refused to=%s — %s", message["To"], exc)
+    except smtplib.SMTPException as exc:
+        logger.error("SMTP: failed to send email to=%s — %s: %s", message["To"], type(exc).__name__, exc)
+    except OSError as exc:
+        logger.error("SMTP: connection error to %s:%s — %s: %s", host, port, type(exc).__name__, exc)
