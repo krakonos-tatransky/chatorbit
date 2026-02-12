@@ -9,7 +9,7 @@ module.exports = {
     orientation: 'portrait',
     icon: './assets/icon.png',
     userInterfaceStyle: 'light',
-    newArchEnabled: true,
+    newArchEnabled: false,
     splash: {
       image: './assets/splash-icon.png',
       resizeMode: 'contain',
@@ -68,6 +68,9 @@ module.exports = {
       'expo-font',
     ],
     extra: {
+      eas: {
+        projectId: 'ffb1c8a9-17e9-4dca-8e57-3678b8088638',
+      },
       // Expose environment variables to the app
       EXPO_PUBLIC_API_BASE_URL: process.env.EXPO_PUBLIC_API_BASE_URL,
       EXPO_PUBLIC_WS_BASE_URL: process.env.EXPO_PUBLIC_WS_BASE_URL,

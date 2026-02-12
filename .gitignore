@@ -40,7 +40,8 @@ logs/
 **/coverage/
 **/.nyc_output/
 **/tsconfig.tsbuildinfo
-**/package-lock.json
+# package-lock.json — mobile/v2 needs its lockfile for EAS builds
+/package-lock.json
 
 # --- Python ---
 **/__pycache__/
