@@ -28,6 +28,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head>
+        <meta name="apple-itunes-app" content="app-id=6759070105" />
         {/* Only include AdSense meta tag if explicitly enabled via NEXT_PUBLIC_ENABLE_ADSENSE=true */}
         {ADSENSE_ENABLED && ADSENSE_PUBLISHER_ID && (
           <meta name="google-adsense-account" content={ADSENSE_PUBLISHER_ID} />

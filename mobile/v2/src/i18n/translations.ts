@@ -317,7 +317,7 @@ const baseTranslation = {
   terms: {
     title: 'Terms of Service',
     lastUpdated: 'Last updated {date}',
-    lastUpdatedDate: 'October 14, 2025',
+    lastUpdatedDate: 'February 18, 2026',
     sections: [
       {
         title: '1. Acceptance of Terms',
@@ -332,47 +332,51 @@ const baseTranslation = {
         body: 'You agree that you will not use the Service to: engage in illegal activity or violate any applicable law or regulation; harass, threaten, defame, or otherwise harm other users; transmit malware, viruses, or other harmful code; bypass or undermine security, encryption, or authentication mechanisms; impersonate another person or entity or submit false information. Any violation may result in immediate termination of access without notice.',
       },
       {
-        title: '4. Session Lifecycle',
+        title: '4. Child Safety and Protection Against Child Sexual Abuse',
+        body: 'Zero-Tolerance Policy. ChatOrbit maintains a strict zero-tolerance policy toward Child Sexual Abuse Material (CSAM) and any form of Child Sexual Abuse and Exploitation (CSAE). The creation, distribution, solicitation, or possession of any content that sexually exploits or endangers a child is absolutely prohibited on this Service. This includes, without limitation: Child Sexual Abuse Material as defined under 18 U.S.C. Sections 2252 and 2252A; grooming, defined as befriending or building trust with a minor for the purpose of facilitating sexual contact or the exchange of sexual imagery; sextortion, defined as threatening, coercing, or blackmailing a minor using real or alleged access to the minor\'s intimate images; trafficking or solicitation of a minor for commercial sexual exploitation; and any other predatory behavior directed at a person under the age of 18.\n\nAge Requirement. You must be at least 18 years of age to use ChatOrbit. By using the Service, you represent and warrant that you are 18 years of age or older. ChatOrbit is not directed at children and does not knowingly permit use by anyone under the age of 18.\n\nReporting Mechanism. ChatOrbit provides an in-app Report Abuse feature that allows any participant to flag a session for suspected illegal conduct, including but not limited to CSAE. Reports are reviewed and, where warranted, escalated to the appropriate authorities. You may also report concerns directly to legal@chatorbit.com.\n\nCooperation with Law Enforcement and NCMEC Reporting. In accordance with 18 U.S.C. Section 2258A and the REPORT Act of 2024, ChatOrbit will report confirmed or apparent instances of CSAM to the National Center for Missing and Exploited Children (NCMEC) via the CyberTipline as soon as reasonably possible after obtaining actual knowledge. We will cooperate fully with law enforcement agencies investigating child exploitation offenses and will preserve and disclose available information in response to valid legal process.\n\nSession Termination. Any use of ChatOrbit in connection with CSAE will result in immediate termination of the active session. We reserve the right to take any action necessary to prevent the use of our Service for child exploitation, including cooperating with platform providers and law enforcement to identify offenders.\n\nTechnical Limitations. ChatOrbit is an end-to-end encrypted, ephemeral communication service. Messages are not stored on our servers and encryption keys are derived client-side. We cannot proactively monitor or scan encrypted communications. Our obligations under this section arise when we obtain actual knowledge of CSAE through user reports, law enforcement notifications, or other means. This does not diminish our commitment to child safety or our legal obligations.',
+      },
+      {
+        title: '5. Session Lifecycle',
         body: 'Tokens can only be claimed within their activation window and expire automatically afterwards. Once two participants connect, a countdown begins. When it reaches zero, the session closes itself and cannot be reopened. Either participant may actively end a session at any time. When you choose to end a session, it is flagged as deleted in the database, all participants are notified, and the token can no longer be reused.',
       },
       {
-        title: '5. No Message Storage or Backdoors',
+        title: '6. No Message Storage or Backdoors',
         body: 'ChatOrbit does not store message content or encryption keys. Messages exist only in device memory during an active session. The Service is designed without backdoors or mechanisms that would allow us to decrypt messages. Signaling servers may temporarily process metadata such as session tokens, participant identifiers, and connection status to facilitate communication, but this information is not retained longer than necessary.',
       },
       {
-        title: '6. User Responsibilities',
+        title: '7. User Responsibilities',
         body: 'You are solely responsible for your use of the Service and for the content you share. You must comply with all laws regarding data protection, privacy, and electronic communications. Because communications are peer to peer, you should only share session tokens with trusted parties and must secure your devices against unauthorized access.',
       },
       {
-        title: '7. Intellectual Property',
+        title: '8. Intellectual Property',
         body: 'The Service, including code, design, and documentation, is the property of ChatOrbit and its licensors. You may not copy, modify, distribute, reverse engineer, or create derivative works except as permitted by applicable open-source licenses or with our prior written consent.',
       },
       {
-        title: '8. Disclaimer of Warranties',
+        title: '9. Disclaimer of Warranties',
         body: 'The Service is provided on an "as is" and "as available" basis without warranties of any kind, whether express or implied, including merchantability, fitness for a particular purpose, or non-infringement. We do not guarantee that the Service will be uninterrupted, secure, or error free.',
       },
       {
-        title: '9. Limitation of Liability',
+        title: '10. Limitation of Liability',
         body: 'To the fullest extent permitted by law, ChatOrbit will not be liable for any direct, indirect, incidental, consequential, or punitive damages arising from or related to your use of the Service, including loss of data, privacy breaches, or illegal activity conducted by users. Our aggregate liability will not exceed the amount you paid (if any) in the twelve months preceding the claim.',
       },
       {
-        title: '10. Indemnification',
+        title: '11. Indemnification',
         body: 'You agree to indemnify and hold harmless ChatOrbit, its affiliates, and agents from any claims, liabilities, damages, or expenses (including legal fees) arising from your use of the Service or violation of these Terms.',
       },
       {
-        title: '11. Termination',
+        title: '12. Termination',
         body: 'We may suspend or terminate your access to the Service at our discretion, with or without notice, for any reason including suspected violations of these Terms or unlawful conduct.',
       },
       {
-        title: '12. Governing Law',
+        title: '13. Governing Law',
         body: 'These Terms are governed by the laws of California, USA, without regard to conflict of law principles. You agree to submit to the exclusive jurisdiction of the state and federal courts located in California for resolution of any dispute related to the Service.',
       },
       {
-        title: '13. Changes to Terms',
+        title: '14. Changes to Terms',
         body: 'We may update these Terms to reflect new features, legal requirements, or operational changes. When revisions are material we will post an updated notice in the application. Continued use of ChatOrbit after changes take effect constitutes acceptance of the revised Terms.',
       },
       {
-        title: '14. Contact',
+        title: '15. Contact',
         body: 'Questions about these terms can be sent to legal@chatorbit.com.',
       },
     ],
@@ -704,7 +708,7 @@ export const TRANSLATIONS: Record<LanguageCode, AppTranslation> = {
     terms: {
       title: 'Podmienky používania',
       lastUpdated: 'Naposledy aktualizované {date}',
-      lastUpdatedDate: '14. októbra 2025',
+      lastUpdatedDate: '18. februára 2026',
       sections: [
         {
           title: '1. Prijatie podmienok',
@@ -719,47 +723,51 @@ export const TRANSLATIONS: Record<LanguageCode, AppTranslation> = {
           body: 'Zaväzujete sa, že službu nebudete používať na: páchanie nezákonnej činnosti alebo porušovanie zákonov a predpisov; obťažovanie, vyhrážanie sa, ohováranie či iné ubližovanie používateľom; šírenie malvéru, vírusov alebo iného škodlivého kódu; obchádzanie či narúšanie bezpečnostných, šifrovacích alebo autentifikačných mechanizmov; vydávanie sa za inú osobu alebo poskytovanie nepravdivých informácií. Akékoľvek porušenie môže viesť k okamžitému zrušeniu prístupu bez predchádzajúceho upozornenia.',
         },
         {
-          title: '4. Životný cyklus relácie',
+          title: '4. Ochrana detí a prevencia sexuálneho zneužívania detí',
+          body: 'Politika nulovej tolerancie. ChatOrbit uplatňuje prísnú politiku nulovej tolerancie voči materiálom zobrazujúcim sexuálne zneužívanie detí (CSAM) a akejkoľvek forme sexuálneho zneužívania a vykorisťovania detí (CSAE). Vytváranie, šírenie, vyžadovanie alebo držanie akéhokoľvek obsahu, ktorý sexuálne zneužíva alebo ohrozuje dieťa, je na tejto službe absolútne zakázané. To zahŕňa najmä: materiály zobrazujúce sexuálne zneužívanie detí podľa 18 U.S.C. oddielov 2252 a 2252A; grooming — nadväzovanie kontaktu a budovanie dôvery s maloletým za účelom sexuálneho kontaktu alebo výmeny sexuálnych materiálov; sextortion — vyhrážanie sa, nátlak alebo vydieranie maloletého s využitím skutočného alebo údajného prístupu k intímnym obrazom maloletého; obchodovanie s maloletým alebo jeho navádzanie na komerčné sexuálne vykorisťovanie; a akékoľvek iné predátorské správanie zamerané na osobu mladšiu ako 18 rokov.\n\nVeková požiadavka. Na používanie ChatOrbit musíte mať aspoň 18 rokov. Používaním služby vyhlasujete a zaručujete, že máte 18 a viac rokov. ChatOrbit nie je určený pre deti a vedome neumožňuje používanie osobám mladším ako 18 rokov.\n\nMechanizmus nahlasovania. ChatOrbit poskytuje funkciu Nahlásiť zneužitie priamo v aplikácii, ktorá umožňuje každému účastníkovi označiť reláciu pre podozrenie z nezákonného konania vrátane CSAE. Nahlásenia sú preskúmané a v odôvodnených prípadoch postúpené príslušným orgánom. Obavy môžete nahlásiť aj priamo na adresu legal@chatorbit.com.\n\nSpolupráca s orgánmi činnými v trestnom konaní a hlásenie NCMEC. V súlade s 18 U.S.C. oddielom 2258A a zákonom REPORT Act z roku 2024 bude ChatOrbit hlásiť potvrdené alebo zjavné prípady CSAM Národnému centru pre nezvestné a zneužívané deti (NCMEC) prostredníctvom CyberTipline čo najskôr po získaní skutočnej vedomosti. Budeme plne spolupracovať s orgánmi činnými v trestnom konaní pri vyšetrovaní trestných činov vykorisťovania detí.\n\nUkončenie relácie. Akékoľvek použitie ChatOrbit v súvislosti s CSAE bude mať za následok okamžité ukončenie aktívnej relácie. Vyhradzujeme si právo podniknúť akékoľvek opatrenia potrebné na zabránenie zneužitia našej služby na vykorisťovanie detí.\n\nTechnické obmedzenia. ChatOrbit je end-to-end šifrovaná efemérna komunikačná služba. Správy sa na našich serveroch neukladajú a šifrovacie kľúče sa odvodzujú na strane klienta. Nemôžeme proaktívne monitorovať ani skenovať šifrovanú komunikáciu. Naše povinnosti podľa tohto oddielu vznikajú, keď získame skutočnú vedomosť o CSAE prostredníctvom hlásení používateľov, oznámení od orgánov činných v trestnom konaní alebo iných prostriedkov.',
+        },
+        {
+          title: '5. Životný cyklus relácie',
           body: 'Tokeny je možné uplatniť iba v rámci aktivačného okna; po jeho skončení sa automaticky zneplatnia. Keď sa pripoja dvaja účastníci, spustí sa odpočítavanie. Po jeho skončení sa relácia uzavrie a nie je možné ju znovu otvoriť. Každý účastník môže reláciu kedykoľvek ukončiť. Po ukončení sa relácia označí ako zmazaná, všetci účastníci sú informovaní a token už nie je možné znova použiť.',
         },
         {
-          title: '5. Bez ukladania správ a zadných vrátok',
+          title: '6. Bez ukladania správ a zadných vrátok',
           body: 'ChatOrbit neukladá obsah správ ani šifrovacie kľúče. Správy existujú len v pamäti zariadení počas aktívnej relácie. Služba je navrhnutá bez zadných vrátok alebo mechanizmov, ktoré by nám umožnili správy dešifrovať. Signalizačné servery môžu dočasne spracúvať metadáta, ako sú tokeny relácií, identifikátory účastníkov a stav pripojenia, iba na uľahčenie komunikácie a tieto informácie sa neuchovávajú dlhšie, než je nevyhnutné.',
         },
         {
-          title: '6. Zodpovednosť používateľa',
+          title: '7. Zodpovednosť používateľa',
           body: 'Za svoje používanie služby a obsah, ktorý zdieľate, nesiete plnú zodpovednosť. Musíte dodržiavať všetky zákony týkajúce sa ochrany údajov, súkromia a elektronickej komunikácie. Keďže komunikácia prebieha priamo medzi účastníkmi, tokeny relácií zdieľajte len s dôveryhodnými osobami a svoje zariadenia chráňte pred neoprávneným prístupom.',
         },
         {
-          title: '7. Duševné vlastníctvo',
+          title: '8. Duševné vlastníctvo',
           body: 'Služba vrátane kódu, dizajnu a dokumentácie je majetkom ChatOrbit a jeho poskytovateľov licencií. Bez nášho predchádzajúceho písomného súhlasu nesmiete kopírovať, upravovať, distribuovať, spätne analyzovať ani vytvárať odvodené diela, okrem prípadov, ktoré povoľujú príslušné open-source licencie.',
         },
         {
-          title: '8. Zrieknutie sa záruk',
+          title: '9. Zrieknutie sa záruk',
           body: 'Služba sa poskytuje „tak, ako je" a „ako je dostupná" bez akýchkoľvek záruk, či už výslovných alebo implicitných, vrátane záruky predajnosti, vhodnosti na konkrétny účel alebo neporušovania práv. Nezaručujeme nepretržitú, bezpečnú ani bezchybnú prevádzku služby.',
         },
         {
-          title: '9. Obmedzenie zodpovednosti',
+          title: '10. Obmedzenie zodpovednosti',
           body: 'V maximálnom rozsahu povolenom zákonom nebude ChatOrbit zodpovedať za žiadne priame, nepriame, náhodné, následné ani represívne škody vzniknuté používaním služby vrátane straty údajov, porušenia súkromia alebo nezákonnej činnosti používateľov. Naša celková zodpovednosť neprekročí sumu, ktorú ste zaplatili (ak vôbec) za dvanásť mesiacov pred uplatnením nároku.',
         },
         {
-          title: '10. Odškodnenie',
+          title: '11. Odškodnenie',
           body: 'Súhlasíte, že odškodníte a budete chrániť ChatOrbit, jeho pobočky a zástupcov pred nárokmi, zodpovednosťou, škodami alebo výdavkami (vrátane právnych poplatkov) vyplývajúcimi z používania služby alebo porušenia týchto podmienok.',
         },
         {
-          title: '11. Ukončenie',
+          title: '12. Ukončenie',
           body: 'Môžeme pozastaviť alebo ukončiť váš prístup k službe podľa vlastného uváženia, s upozornením alebo bez neho, z akéhokoľvek dôvodu vrátane podozrenia na porušenie týchto podmienok alebo nezákonného konania.',
         },
         {
-          title: '12. Rozhodné právo',
+          title: '13. Rozhodné právo',
           body: 'Tieto podmienky sa riadia právom štátu Kalifornia, USA, bez ohľadu na kolízne normy. Súhlasíte s výlučnou právomocou súdov v Kalifornii pri riešení sporov súvisiacich so službou.',
         },
         {
-          title: '13. Zmeny podmienok',
+          title: '14. Zmeny podmienok',
           body: 'Podmienky môžeme aktualizovať z dôvodu nových funkcií, legislatívnych požiadaviek alebo prevádzkových zmien. Ak pôjde o zásadné úpravy, zverejníme o tom oznámenie v aplikácii. Pokračovaním v používaní ChatOrbit po účinnosti zmien vyjadrujete súhlas s aktualizovanými podmienkami.',
         },
         {
-          title: '14. Kontakt',
+          title: '15. Kontakt',
           body: 'Otázky k týmto podmienkam môžete poslať na adresu legal@chatorbit.com.',
         },
       ],
@@ -1078,7 +1086,7 @@ export const TRANSLATIONS: Record<LanguageCode, AppTranslation> = {
     terms: {
       title: 'Felhasználási feltételek',
       lastUpdated: 'Utolsó frissítés: {date}',
-      lastUpdatedDate: '2025. október 14.',
+      lastUpdatedDate: '2026. február 18.',
       sections: [
         {
           title: '1. Feltételek elfogadása',
@@ -1093,47 +1101,51 @@ export const TRANSLATIONS: Record<LanguageCode, AppTranslation> = {
           body: 'Ön vállalja, hogy nem használja a Szolgáltatást: illegális tevékenységre vagy alkalmazandó törvények vagy rendeletek megsértésére; más felhasználók zaklatására, fenyegetésére, rágalmazására vagy egyéb módon történő bántalmazására; rosszindulatú programok, vírusok vagy más káros kódok továbbítására; biztonsági, titkosítási vagy hitelesítési mechanizmusok megkerülésére vagy aláásására; más személy vagy entitás megszemélyesítésére vagy hamis információk megadására. Bármilyen jogsértés azonnali hozzáférés-megszüntetést eredményezhet értesítés nélkül.',
         },
         {
-          title: '4. Munkamenet életciklusa',
+          title: '4. Gyermekvédelem és a gyermekek szexuális kizsákmányolása elleni védelem',
+          body: 'Zéró tolerancia politika. A ChatOrbit szigorú zéró tolerancia politikát alkalmaz a gyermekek szexuális visszaélését ábrázoló anyagokkal (CSAM) és a gyermekek szexuális visszaélésének és kizsákmányolásának (CSAE) bármely formájával szemben. A gyermekeket szexuálisan kizsákmányoló vagy veszélyeztető tartalom létrehozása, terjesztése, kérése vagy birtoklása ezen a Szolgáltatáson szigorúan tilos. Ez magában foglalja többek között: a 18 U.S.C. 2252. és 2252A. szakaszai szerint meghatározott gyermek szexuális visszaélést ábrázoló anyagokat; grooming — kiskorúval való bizalomépítés szexuális kapcsolat vagy szexuális képek cseréjének céljából; szextorzió — kiskorú fenyegetése, kényszerítése vagy zsarolása intim képeinek valós vagy állítólagos birtoklásával; kiskorú kereskedelmi szexuális kizsákmányolás céljából történő emberkereskedelem vagy toborzás; valamint bármely más ragadozó magatartás 18 év alatti személy ellen.\n\nKorhatár. A ChatOrbit használatához legalább 18 évesnek kell lennie. A Szolgáltatás használatával Ön kijelenti és szavatolja, hogy 18 éves vagy annál idősebb. A ChatOrbit nem gyermekeknek szól, és tudatosan nem engedélyezi a 18 év alattiak általi használatot.\n\nBejelentési mechanizmus. A ChatOrbit alkalmazáson belüli Visszaélés bejelentése funkciót biztosít, amely lehetővé teszi bármely résztvevő számára, hogy megjelöljön egy munkamenetet feltételezett jogellenes magatartás, köztük CSAE miatt. A bejelentéseket felülvizsgáljuk, és indokolt esetben továbbítjuk a megfelelő hatóságoknak. Aggályait közvetlenül is jelezheti a legal@chatorbit.com címen.\n\nEgyüttműködés a bűnüldöző szervekkel és NCMEC bejelentés. A 18 U.S.C. 2258A. szakaszával és a 2024-es REPORT törvénnyel összhangban a ChatOrbit a megerősített vagy nyilvánvaló CSAM eseteket jelenti az Eltűnt és Kizsákmányolt Gyermekek Nemzeti Központjának (NCMEC) a CyberTipline-on keresztül, amint ésszerűen lehetséges a tényleges tudomásszerzés után. Teljes mértékben együttműködünk a gyermekek kizsákmányolásával kapcsolatos bűncselekményeket vizsgáló bűnüldöző szervekkel.\n\nMunkamenet megszüntetése. A ChatOrbit CSAE-vel kapcsolatos bármilyen használata a munkamenet azonnali megszüntetését vonja maga után. Fenntartjuk a jogot, hogy megtegyünk minden szükséges intézkedést Szolgáltatásunk gyermekek kizsákmányolására történő használatának megakadályozására.\n\nTechnikai korlátok. A ChatOrbit végpontok közötti titkosítással rendelkező, ideiglenes kommunikációs szolgáltatás. Az üzenetek nem tárolódnak a szervereinken, és a titkosítási kulcsok az ügyféloldalon kerülnek származtatásra. Nem tudjuk proaktívan figyelni vagy szkenneini a titkosított kommunikációt. Az e szakasz szerinti kötelezettségeink akkor keletkeznek, amikor tényleges tudomást szerzünk a CSAE-ről felhasználói bejelentések, bűnüldözői értesítések vagy más eszközök révén.',
+        },
+        {
+          title: '5. Munkamenet életciklusa',
           body: 'A tokenek csak az aktiválási időablakon belül válthatók be, és utána automatikusan lejárnak. Amint két résztvevő csatlakozik, visszaszámlálás kezdődik. Amikor eléri a nullát, a munkamenet bezárul és nem nyitható újra. Bármelyik résztvevő bármikor aktívan befejezheti a munkamenetet. Amikor úgy dönt, hogy befejezi a munkamenetet, az törlöltként jelölődik meg az adatbázisban, minden résztvevő értesítést kap, és a token többé nem használható újra.',
         },
         {
-          title: '5. Nincs üzenettárolás vagy hátsó ajtók',
+          title: '6. Nincs üzenettárolás vagy hátsó ajtók',
           body: 'A ChatOrbit nem tárolja az üzenetek tartalmát vagy a titkosítási kulcsokat. Az üzenetek csak az eszközök memóriájában léteznek egy aktív munkamenet során. A Szolgáltatás hátsó ajtók vagy olyan mechanizmusok nélkül készült, amelyek lehetővé tennék számunkra az üzenetek visszafejtését. A jelzőszerverek ideiglenesen feldolgozhatnak metaadatokat, mint például munkamenet tokeneket, résztvevő azonosítókat és kapcsolat állapotot a kommunikáció elősegítése érdekében, de ezeket az információkat nem tartjuk meg a szükségesnél tovább.',
         },
         {
-          title: '6. Felhasználói felelősségek',
+          title: '7. Felhasználói felelősségek',
           body: 'Ön kizárólagosan felelős a Szolgáltatás használatáért és a megosztott tartalomért. Be kell tartania az adatvédelemre, magánéletre és elektronikus kommunikációra vonatkozó összes törvényt. Mivel a kommunikáció peer-to-peer, a munkamenet tokeneket csak megbízható felekkel ossza meg, és biztosítsa eszközeit a jogosulatlan hozzáférés ellen.',
         },
         {
-          title: '7. Szellemi tulajdon',
+          title: '8. Szellemi tulajdon',
           body: 'A Szolgáltatás, beleértve a kódot, a dizájnt és a dokumentációt, a ChatOrbit és licenszadóinak tulajdona. Nem másolhatja, módosíthatja, terjesztheti, visszafejtheti vagy származékos műveket hozhat létre, kivéve ha ezt az alkalmazandó nyílt forráskódú licencek engedélyezik, vagy előzetes írásbeli hozzájárulásunkkal.',
         },
         {
-          title: '8. Garanciák kizárása',
+          title: '9. Garanciák kizárása',
           body: 'A Szolgáltatást „ahogy van" és „ahogy elérhető" alapon nyújtjuk, mindenféle garancia nélkül, legyen az kifejezett vagy hallgatólagos, beleértve az eladhatóságot, egy adott célra való alkalmasságot vagy a jogsértés hiányát. Nem garantáljuk, hogy a Szolgáltatás megszakítás nélküli, biztonságos vagy hibamentes lesz.',
         },
         {
-          title: '9. Felelősség korlátozása',
+          title: '10. Felelősség korlátozása',
           body: 'A törvény által megengedett legteljesebb mértékig a ChatOrbit nem vállal felelősséget semmilyen közvetlen, közvetett, esetleges, következményes vagy büntető jellegű kárért, amely a Szolgáltatás használatából ered vagy azzal kapcsolatos, beleértve az adatvesztést, adatvédelmi incidenseket vagy a felhasználók által elkövetett illegális tevékenységet. Összesített felelősségünk nem haladja meg az Ön által (ha egyáltalán) a követelést megelőző tizenkét hónapban fizetett összeget.',
         },
         {
-          title: '10. Kártalanítás',
+          title: '11. Kártalanítás',
           body: 'Ön vállalja, hogy kártalanítja és mentesíti a ChatOrbit-ot, leányvállalatait és ügynökeit minden követelés, felelősség, kár vagy költség (beleértve a jogi költségeket) alól, amely a Szolgáltatás használatából vagy ezen Feltételek megsértéséből ered.',
         },
         {
-          title: '11. Megszüntetés',
+          title: '12. Megszüntetés',
           body: 'Saját belátásunk szerint felfüggeszthetjük vagy megszüntethetjük a Szolgáltatáshoz való hozzáférését, értesítéssel vagy anélkül, bármilyen okból, beleértve a Feltételek feltételezett megsértését vagy jogellenes magatartást.',
         },
         {
-          title: '12. Irányadó jog',
+          title: '13. Irányadó jog',
           body: 'Ezekre a Feltételekre Kalifornia állam, USA törvényei az irányadók, a kollíziós jogi elvek figyelembevétele nélkül. Ön beleegyezik a Kaliforniában található állami és szövetségi bíróságok kizárólagos joghatóságába a Szolgáltatással kapcsolatos viták rendezésére.',
         },
         {
-          title: '13. Feltételek módosítása',
+          title: '14. Feltételek módosítása',
           body: 'Frissíthetjük ezeket a Feltételeket új funkciók, jogi követelmények vagy működési változások tükrözése érdekében. Ha a módosítások lényegesek, frissített értesítést teszünk közzé az alkalmazásban. A ChatOrbit további használata a változások hatálybalépése után a módosított Feltételek elfogadását jelenti.',
         },
         {
-          title: '14. Kapcsolat',
+          title: '15. Kapcsolat',
           body: 'A feltételekkel kapcsolatos kérdéseket a legal@chatorbit.com címre küldheti.',
         },
       ],

@@ -1184,6 +1184,100 @@ main {
   color: rgba(110, 231, 183, 0.95);
 }
 
+/* ── App download card ────────────────────────────── */
+.app-download-card {
+  border-radius: 24px;
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  padding: 2rem;
+  background: rgba(2, 6, 23, 0.65);
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+}
+
+@media (max-width: 640px) {
+  .app-download-card {
+    flex-direction: column;
+    text-align: center;
+    gap: 1.5rem;
+    padding: 1.5rem;
+  }
+}
+
+.app-download-card__content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.app-download-card__content h2 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.app-download-card__content p {
+  margin: 0;
+  color: rgba(203, 213, 225, 0.9);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.app-store-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1.25rem;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #000000;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: opacity 0.15s ease;
+  align-self: flex-start;
+}
+
+@media (max-width: 640px) {
+  .app-store-badge {
+    align-self: center;
+  }
+}
+
+.app-store-badge:hover {
+  opacity: 0.85;
+}
+
+.app-store-badge__text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.app-store-badge__label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.app-download-card__qr {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.app-download-card__qr-img {
+  border-radius: 12px;
+}
+
+.app-download-card__qr-label {
+  color: rgba(203, 213, 225, 0.6);
+  font-size: 0.75rem;
+}
+
 .session-shell {
   margin: 0 auto;
   max-width: 1100px;

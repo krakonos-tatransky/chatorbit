@@ -48,6 +48,12 @@ const baseTranslation = {
       "Share the token however you like. The first partner to log in reserves the host seat.",
       "Once both devices connect, message bundles flow directly with end-to-end encryption and a live timer.",
     ],
+    mobileApp: {
+      title: "Get the mobile app",
+      subtitle: "ChatOrbit is now available on the App Store. Download it to chat securely on the go.",
+      downloadButton: "Download on the App Store",
+      scanQr: "or scan the QR code",
+    },
   },
   joinCard: {
     title: "Join with an existing token",
@@ -247,6 +253,12 @@ export const TRANSLATIONS: Record<LanguageCode, AppTranslation> = {
         "Token zdieľajte akýmkoľvek spôsobom. Prvý prihlásený účastník získa miesto hostiteľa.",
         "Keď sa pripoja obe zariadenia, správy prechádzajú priamo s end-to-end šifrovaním a živým časovačom.",
       ],
+      mobileApp: {
+        title: "Stiahnite si mobilnú aplikáciu",
+        subtitle: "ChatOrbit je teraz dostupný v App Store. Stiahnite si ho a chatujte bezpečne aj na cestách.",
+        downloadButton: "Stiahnuť z App Store",
+        scanQr: "alebo naskenujte QR kód",
+      },
     },
     joinCard: {
       title: "Pripojiť sa pomocou existujúceho tokenu",
@@ -453,6 +465,12 @@ export const TRANSLATIONS: Record<LanguageCode, AppTranslation> = {
         "Ossza meg a tokent tetszőleges módon. Az első bejelentkező foglalja el a házigazda helyét.",
         "Amikor mindkét eszköz csatlakozik, az üzenetek közvetlen, végpontok közötti titkosítással és élő időzítővel érkeznek.",
       ],
+      mobileApp: {
+        title: "Töltse le a mobilalkalmazást",
+        subtitle: "A ChatOrbit mostantól elérhető az App Store-ban. Töltse le, és csevegjen biztonságosan útközben is.",
+        downloadButton: "Letöltés az App Store-ból",
+        scanQr: "vagy szkennelje be a QR kódot",
+      },
     },
     joinCard: {
       title: "Csatlakozás meglévő tokennel",
@@ -642,7 +660,7 @@ export type TermsContent = {
 
 const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
   en: {
-    lastUpdated: "October 14, 2025",
+    lastUpdated: "February 18, 2026",
     sections: [
       {
         title: "1. Acceptance of Terms",
@@ -681,7 +699,56 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "4. Session Lifecycle",
+        title: "4. Child Safety and Protection Against Child Sexual Abuse",
+        body: (
+          <>
+            <p>
+              <strong>Zero-Tolerance Policy.</strong> ChatOrbit maintains a strict zero-tolerance policy toward Child Sexual Abuse
+              Material (CSAM) and any form of Child Sexual Abuse and Exploitation (CSAE). The creation, distribution, solicitation, or
+              possession of any content that sexually exploits or endangers a child is absolutely prohibited on this Service. This
+              includes, without limitation:
+            </p>
+            <ul className="legal-list">
+              <li>Child Sexual Abuse Material as defined under 18 U.S.C. Sections 2252 and 2252A;</li>
+              <li>Grooming, defined as befriending or building trust with a minor for the purpose of facilitating sexual contact or the exchange of sexual imagery;</li>
+              <li>Sextortion, defined as threatening, coercing, or blackmailing a minor using real or alleged access to the minor&#39;s intimate images;</li>
+              <li>Trafficking or solicitation of a minor for commercial sexual exploitation; and</li>
+              <li>Any other predatory behavior directed at a person under the age of 18.</li>
+            </ul>
+            <p>
+              <strong>Age Requirement.</strong> You must be at least 18 years of age to use ChatOrbit. By using the Service, you
+              represent and warrant that you are 18 years of age or older. ChatOrbit is not directed at children and does not knowingly
+              permit use by anyone under the age of 18.
+            </p>
+            <p>
+              <strong>Reporting Mechanism.</strong> ChatOrbit provides an in-app Report Abuse feature that allows any participant to
+              flag a session for suspected illegal conduct, including but not limited to CSAE. Reports are reviewed and, where
+              warranted, escalated to the appropriate authorities. You may also report concerns directly
+              to <a href="mailto:legal@chatorbit.com">legal@chatorbit.com</a>.
+            </p>
+            <p>
+              <strong>Cooperation with Law Enforcement and NCMEC Reporting.</strong> In accordance with 18 U.S.C. Section 2258A and
+              the REPORT Act of 2024, ChatOrbit will report confirmed or apparent instances of CSAM to the National Center for Missing
+              and Exploited Children (NCMEC) via the CyberTipline as soon as reasonably possible after obtaining actual knowledge. We
+              will cooperate fully with law enforcement agencies investigating child exploitation offenses and will preserve and
+              disclose available information in response to valid legal process.
+            </p>
+            <p>
+              <strong>Session Termination.</strong> Any use of ChatOrbit in connection with CSAE will result in immediate termination
+              of the active session. We reserve the right to take any action necessary to prevent the use of our Service for child
+              exploitation, including cooperating with platform providers and law enforcement to identify offenders.
+            </p>
+            <p>
+              <strong>Technical Limitations.</strong> ChatOrbit is an end-to-end encrypted, ephemeral communication service. Messages
+              are not stored on our servers and encryption keys are derived client-side. We cannot proactively monitor or scan encrypted
+              communications. Our obligations under this section arise when we obtain actual knowledge of CSAE through user reports, law
+              enforcement notifications, or other means. This does not diminish our commitment to child safety or our legal obligations.
+            </p>
+          </>
+        ),
+      },
+      {
+        title: "5. Session Lifecycle",
         body: (
           <ul className="legal-list">
             <li>Tokens can only be claimed within their activation window and expire automatically afterwards.</li>
@@ -697,7 +764,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "5. No Message Storage or Backdoors",
+        title: "6. No Message Storage or Backdoors",
         body: (
           <p>
             ChatOrbit does not store message content or encryption keys. Messages exist only in device memory during an active
@@ -708,7 +775,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "6. User Responsibilities",
+        title: "7. User Responsibilities",
         body: (
           <>
             <p>
@@ -724,7 +791,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "7. Intellectual Property",
+        title: "8. Intellectual Property",
         body: (
           <p>
             The Service, including code, design, and documentation, is the property of ChatOrbit and its licensors. You may not copy,
@@ -734,7 +801,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "8. Disclaimer of Warranties",
+        title: "9. Disclaimer of Warranties",
         body: (
           <p>
             The Service is provided on an "as is" and "as available" basis without warranties of any kind, whether express or implied,
@@ -744,7 +811,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "9. Limitation of Liability",
+        title: "10. Limitation of Liability",
         body: (
           <p>
             To the fullest extent permitted by law, ChatOrbit will not be liable for any direct, indirect, incidental, consequential, or
@@ -755,7 +822,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "10. Indemnification",
+        title: "11. Indemnification",
         body: (
           <p>
             You agree to indemnify and hold harmless ChatOrbit, its affiliates, and agents from any claims, liabilities, damages, or
@@ -764,7 +831,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "11. Termination",
+        title: "12. Termination",
         body: (
           <p>
             We may suspend or terminate your access to the Service at our discretion, with or without notice, for any reason including
@@ -773,7 +840,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "12. Governing Law",
+        title: "13. Governing Law",
         body: (
           <p>
             These Terms are governed by the laws of California, USA, without regard to conflict of law principles. You agree to submit to
@@ -783,7 +850,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "13. Changes to Terms",
+        title: "14. Changes to Terms",
         body: (
           <p>
             We may update these Terms to reflect new features, legal requirements, or operational changes. When revisions are material we
@@ -793,7 +860,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "14. Contact",
+        title: "15. Contact",
         body: (
           <p>
             Questions about these terms can be sent to <a href="mailto:legal@chatorbit.com">legal@chatorbit.com</a>.
@@ -803,7 +870,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
     ],
   },
   sk: {
-    lastUpdated: "14. októbra 2025",
+    lastUpdated: "18. februára 2026",
     sections: [
       {
         title: "1. Prijatie podmienok",
@@ -841,7 +908,55 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "4. Životný cyklus relácie",
+        title: "4. Ochrana detí a prevencia sexuálneho zneužívania detí",
+        body: (
+          <>
+            <p>
+              <strong>Politika nulovej tolerancie.</strong> ChatOrbit uplatňuje prísnú politiku nulovej tolerancie voči materiálom
+              zobrazujúcim sexuálne zneužívanie detí (CSAM) a akejkoľvek forme sexuálneho zneužívania a vykorisťovania detí (CSAE).
+              Vytváranie, šírenie, vyžadovanie alebo držanie akéhokoľvek obsahu, ktorý sexuálne zneužíva alebo ohrozuje dieťa, je na
+              tejto službe absolútne zakázané. To zahŕňa najmä:
+            </p>
+            <ul className="legal-list">
+              <li>Materiály zobrazujúce sexuálne zneužívanie detí podľa 18 U.S.C. oddielov 2252 a 2252A;</li>
+              <li>Grooming — nadväzovanie kontaktu a budovanie dôvery s maloletým za účelom sexuálneho kontaktu alebo výmeny sexuálnych materiálov;</li>
+              <li>Sextortion — vyhrážanie sa, nátlak alebo vydieranie maloletého s využitím skutočného alebo údajného prístupu k intímnym obrazom maloletého;</li>
+              <li>Obchodovanie s maloletým alebo jeho navádzanie na komerčné sexuálne vykorisťovanie; a</li>
+              <li>Akékoľvek iné predátorské správanie zamerané na osobu mladšiu ako 18 rokov.</li>
+            </ul>
+            <p>
+              <strong>Veková požiadavka.</strong> Na používanie ChatOrbit musíte mať aspoň 18 rokov. Používaním služby vyhlasujete
+              a zaručujete, že máte 18 a viac rokov. ChatOrbit nie je určený pre deti a vedome neumožňuje používanie osobám mladším
+              ako 18 rokov.
+            </p>
+            <p>
+              <strong>Mechanizmus nahlasovania.</strong> ChatOrbit poskytuje funkciu Nahlásiť zneužitie priamo v aplikácii, ktorá
+              umožňuje každému účastníkovi označiť reláciu pre podozrenie z nezákonného konania vrátane CSAE. Nahlásenia sú
+              preskúmané a v odôvodnených prípadoch postúpené príslušným orgánom. Obavy môžete nahlásiť aj priamo na
+              adresu <a href="mailto:legal@chatorbit.com">legal@chatorbit.com</a>.
+            </p>
+            <p>
+              <strong>Spolupráca s orgánmi činnými v trestnom konaní a hlásenie NCMEC.</strong> V súlade s 18 U.S.C. oddielom 2258A
+              a zákonom REPORT Act z roku 2024 bude ChatOrbit hlásiť potvrdené alebo zjavné prípady CSAM Národnému centru pre
+              nezvestné a zneužívané deti (NCMEC) prostredníctvom CyberTipline čo najskôr po získaní skutočnej vedomosti. Budeme
+              plne spolupracovať s orgánmi činnými v trestnom konaní pri vyšetrovaní trestných činov vykorisťovania detí.
+            </p>
+            <p>
+              <strong>Ukončenie relácie.</strong> Akékoľvek použitie ChatOrbit v súvislosti s CSAE bude mať za následok okamžité
+              ukončenie aktívnej relácie. Vyhradzujeme si právo podniknúť akékoľvek opatrenia potrebné na zabránenie zneužitia
+              našej služby na vykorisťovanie detí.
+            </p>
+            <p>
+              <strong>Technické obmedzenia.</strong> ChatOrbit je end-to-end šifrovaná efemérna komunikačná služba. Správy sa na
+              našich serveroch neukladajú a šifrovacie kľúče sa odvodzujú na strane klienta. Nemôžeme proaktívne monitorovať ani
+              skenovať šifrovanú komunikáciu. Naše povinnosti podľa tohto oddielu vznikajú, keď získame skutočnú vedomosť o CSAE
+              prostredníctvom hlásení používateľov, oznámení od orgánov činných v trestnom konaní alebo iných prostriedkov.
+            </p>
+          </>
+        ),
+      },
+      {
+        title: "5. Životný cyklus relácie",
         body: (
           <ul className="legal-list">
             <li>Tokeny je možné uplatniť iba v rámci aktivačného okna; po jeho skončení sa automaticky zneplatnia.</li>
@@ -857,7 +972,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "5. Bez ukladania správ a zadných vrátok",
+        title: "6. Bez ukladania správ a zadných vrátok",
         body: (
           <p>
             ChatOrbit neukladá obsah správ ani šifrovacie kľúče. Správy existujú len v pamäti zariadení počas aktívnej relácie. Služba je
@@ -868,7 +983,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "6. Zodpovednosť používateľa",
+        title: "7. Zodpovednosť používateľa",
         body: (
           <>
             <p>
@@ -884,7 +999,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "7. Duševné vlastníctvo",
+        title: "8. Duševné vlastníctvo",
         body: (
           <p>
             Služba vrátane kódu, dizajnu a dokumentácie je majetkom ChatOrbit a jeho poskytovateľov licencií. Bez nášho predchádzajúceho
@@ -894,7 +1009,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "8. Zrieknutie sa záruk",
+        title: "9. Zrieknutie sa záruk",
         body: (
           <p>
             Služba sa poskytuje „tak, ako je" a „ako je dostupná" bez akýchkoľvek záruk, či už výslovných alebo implicitných, vrátane
@@ -904,7 +1019,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "9. Obmedzenie zodpovednosti",
+        title: "10. Obmedzenie zodpovednosti",
         body: (
           <p>
             V maximálnom rozsahu povolenom zákonom nebude ChatOrbit zodpovedať za žiadne priame, nepriame, náhodné, následné ani
@@ -914,7 +1029,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "10. Odškodnenie",
+        title: "11. Odškodnenie",
         body: (
           <p>
             Súhlasíte, že odškodníte a budete chrániť ChatOrbit, jeho pobočky a zástupcov pred nárokmi, zodpovednosťou, škodami alebo
@@ -923,7 +1038,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "11. Ukončenie",
+        title: "12. Ukončenie",
         body: (
           <p>
             Môžeme pozastaviť alebo ukončiť váš prístup k službe podľa vlastného uváženia, s upozornením alebo bez neho, z akéhokoľvek
@@ -932,7 +1047,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "12. Rozhodné právo",
+        title: "13. Rozhodné právo",
         body: (
           <p>
             Tieto podmienky sa riadia právom štátu Kalifornia, USA, bez ohľadu na kolízne normy. Súhlasíte s výlučnou právomocou súdov v
@@ -941,7 +1056,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "13. Zmeny podmienok",
+        title: "14. Zmeny podmienok",
         body: (
           <p>
             Podmienky môžeme aktualizovať z dôvodu nových funkcií, legislatívnych požiadaviek alebo prevádzkových zmien. Ak pôjde o zásadné
@@ -951,7 +1066,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "14. Kontakt",
+        title: "15. Kontakt",
         body: (
           <p>
             Otázky k týmto podmienkam môžete poslať na adresu <a href="mailto:legal@chatorbit.com">legal@chatorbit.com</a>.
@@ -961,7 +1076,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
     ],
   },
   hu: {
-    lastUpdated: "2025. október 14.",
+    lastUpdated: "2026. február 18.",
     sections: [
       {
         title: "1. A feltételek elfogadása",
@@ -1000,7 +1115,57 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "4. Munkamenet életciklusa",
+        title: "4. Gyermekvédelem és a gyermekek szexuális kizsákmányolása elleni védelem",
+        body: (
+          <>
+            <p>
+              <strong>Zéró tolerancia politika.</strong> A ChatOrbit szigorú zéró tolerancia politikát alkalmaz a gyermekek
+              szexuális visszaélését ábrázoló anyagokkal (CSAM) és a gyermekek szexuális visszaélésének és kizsákmányolásának
+              (CSAE) bármely formájával szemben. A gyermekeket szexuálisan kizsákmányoló vagy veszélyeztető tartalom létrehozása,
+              terjesztése, kérése vagy birtoklása ezen a Szolgáltatáson szigorúan tilos. Ez magában foglalja többek között:
+            </p>
+            <ul className="legal-list">
+              <li>A 18 U.S.C. 2252. és 2252A. szakaszai szerint meghatározott gyermek szexuális visszaélést ábrázoló anyagokat;</li>
+              <li>Grooming — kiskorúval való bizalomépítés szexuális kapcsolat vagy szexuális képek cseréjének céljából;</li>
+              <li>Szextorzió — kiskorú fenyegetése, kényszerítése vagy zsarolása intim képeinek valós vagy állítólagos birtoklásával;</li>
+              <li>Kiskorú kereskedelmi szexuális kizsákmányolás céljából történő emberkereskedelem vagy toborzás; valamint</li>
+              <li>Bármely más ragadozó magatartás 18 év alatti személy ellen.</li>
+            </ul>
+            <p>
+              <strong>Korhatár.</strong> A ChatOrbit használatához legalább 18 évesnek kell lennie. A Szolgáltatás használatával
+              Ön kijelenti és szavatolja, hogy 18 éves vagy annál idősebb. A ChatOrbit nem gyermekeknek szól, és tudatosan nem
+              engedélyezi a 18 év alattiak általi használatot.
+            </p>
+            <p>
+              <strong>Bejelentési mechanizmus.</strong> A ChatOrbit alkalmazáson belüli Visszaélés bejelentése funkciót biztosít,
+              amely lehetővé teszi bármely résztvevő számára, hogy megjelöljön egy munkamenetet feltételezett jogellenes
+              magatartás, köztük CSAE miatt. A bejelentéseket felülvizsgáljuk, és indokolt esetben továbbítjuk a megfelelő
+              hatóságoknak. Aggályait közvetlenül is jelezheti a <a href="mailto:legal@chatorbit.com">legal@chatorbit.com</a> címen.
+            </p>
+            <p>
+              <strong>Együttműködés a bűnüldöző szervekkel és NCMEC bejelentés.</strong> A 18 U.S.C. 2258A. szakaszával és a
+              2024-es REPORT törvénnyel összhangban a ChatOrbit a megerősített vagy nyilvánvaló CSAM eseteket jelenti az
+              Eltűnt és Kizsákmányolt Gyermekek Nemzeti Központjának (NCMEC) a CyberTipline-on keresztül, amint ésszerűen
+              lehetséges a tényleges tudomásszerzés után. Teljes mértékben együttműködünk a gyermekek kizsákmányolásával
+              kapcsolatos bűncselekményeket vizsgáló bűnüldöző szervekkel.
+            </p>
+            <p>
+              <strong>Munkamenet megszüntetése.</strong> A ChatOrbit CSAE-vel kapcsolatos bármilyen használata a munkamenet
+              azonnali megszüntetését vonja maga után. Fenntartjuk a jogot, hogy megtegyünk minden szükséges intézkedést
+              Szolgáltatásunk gyermekek kizsákmányolására történő használatának megakadályozására.
+            </p>
+            <p>
+              <strong>Technikai korlátok.</strong> A ChatOrbit végpontok közötti titkosítással rendelkező, ideiglenes
+              kommunikációs szolgáltatás. Az üzenetek nem tárolódnak a szervereinken, és a titkosítási kulcsok az ügyféloldalon
+              kerülnek származtatásra. Nem tudjuk proaktívan figyelni vagy szkenneini a titkosított kommunikációt. Az e szakasz
+              szerinti kötelezettségeink akkor keletkeznek, amikor tényleges tudomást szerzünk a CSAE-ről felhasználói
+              bejelentések, bűnüldözői értesítések vagy más eszközök révén.
+            </p>
+          </>
+        ),
+      },
+      {
+        title: "5. Munkamenet életciklusa",
         body: (
           <ul className="legal-list">
             <li>A tokenek csak az aktiválási ablakon belül érvényesíthetők; azt követően automatikusan lejárnak.</li>
@@ -1015,7 +1180,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "5. Nincs üzenettárolás és hátsó ajtó",
+        title: "6. Nincs üzenettárolás és hátsó ajtó",
         body: (
           <p>
             A ChatOrbit nem tárol üzenet-tartalmat vagy titkosítási kulcsokat. Az üzenetek csak az eszközök memóriájában léteznek az aktív munkamenet
@@ -1026,7 +1191,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "6. Felhasználói felelősség",
+        title: "7. Felhasználói felelősség",
         body: (
           <>
             <p>
@@ -1042,7 +1207,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "7. Szellemi tulajdon",
+        title: "8. Szellemi tulajdon",
         body: (
           <p>
             A Szolgáltatás, beleértve a kódot, a dizájnt és a dokumentációt, a ChatOrbit és licencadóinak tulajdona. Előzetes írásbeli
@@ -1052,7 +1217,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "8. Garanciák kizárása",
+        title: "9. Garanciák kizárása",
         body: (
           <p>
             A Szolgáltatás „ahogy van" és „ahogy elérhető" alapon kerül nyújtásra, mindenféle garancia nélkül, legyen az kifejezett vagy
@@ -1062,7 +1227,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "9. Felelősség korlátozása",
+        title: "10. Felelősség korlátozása",
         body: (
           <p>
             A törvény által megengedett legteljesebb mértékben a ChatOrbit nem vállal felelősséget semmilyen közvetlen, közvetett, járulékos,
@@ -1072,7 +1237,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "10. Kártalanítás",
+        title: "11. Kártalanítás",
         body: (
           <p>
             Ön vállalja, hogy kártalanítja és mentesíti a ChatOrbitet, leányvállalatait és képviselőit minden olyan igénytől, felelősségtől,
@@ -1081,7 +1246,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "11. Megszüntetés",
+        title: "12. Megszüntetés",
         body: (
           <p>
             Saját belátásunk szerint, értesítéssel vagy anélkül felfüggeszthetjük vagy megszüntethetjük az Ön hozzáférését a Szolgáltatáshoz,
@@ -1090,7 +1255,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "12. Irányadó jog",
+        title: "13. Irányadó jog",
         body: (
           <p>
             Ezekre a Feltételekre Kalifornia állam (USA) jogszabályai az irányadók, a kollíziós normáktól függetlenül. Ön elfogadja a
@@ -1099,7 +1264,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "13. A Feltételek módosítása",
+        title: "14. A Feltételek módosítása",
         body: (
           <p>
             A Feltételeket új funkciók, jogi követelmények vagy működési változások miatt frissíthetjük. Lényeges módosítások esetén értesítést
@@ -1109,7 +1274,7 @@ const TERMS_TRANSLATIONS: Record<LanguageCode, TermsContent> = {
         ),
       },
       {
-        title: "14. Kapcsolat",
+        title: "15. Kapcsolat",
         body: (
           <p>
             A feltételekkel kapcsolatos kérdéseit a <a href="mailto:legal@chatorbit.com">legal@chatorbit.com</a> címre küldheti.
