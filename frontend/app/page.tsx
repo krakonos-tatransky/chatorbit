@@ -7,7 +7,7 @@ import { JoinSessionCard } from "@/components/join-session-card";
 import { TokenRequestCard } from "@/components/token-request-card";
 import { useLanguage } from "@/components/language/language-provider";
 
-const APP_STORE_URL = "https://apps.apple.com/za/app/chatorbit-secure-chat/id6759070105";
+const APP_STORE_URL = "https://apps.apple.com/app/chatorbit-secure-chat/id6759070105";
 
 export default function HomePage() {
   const {
