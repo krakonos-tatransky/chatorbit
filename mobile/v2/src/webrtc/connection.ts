@@ -190,24 +190,36 @@ export class PeerConnection {
 
     // Remote stream
     pc.addEventListener('track', (event: any) => {
-      console.log('[PeerConnection] Remote track received:', event.track.kind);
+      console.log('[PeerConnection] Remote track received:', event.track.kind, event.track.readyState);
       console.log('[PeerConnection] Track event streams:', event.streams?.length, event.streams);
 
-      // For reinvite scenarios: always create fresh stream from the event
-      // This ensures we don't accumulate old ended tracks
       let stream = event.streams?.[0];
 
-      if (!stream) {
-        // No stream in event, create new one with just this track
+      if (stream) {
+        // Stream provided by event — use it directly (typical on first connection)
+        console.log('[PeerConnection] Using stream from event, tracks:',
+          stream.getTracks().map((t: any) => `${t.kind}:${t.readyState}`).join(', '));
+        this.remoteStream = stream;
+      } else if (this.remoteStream && this.remoteStream.getTracks().some((t: any) => t.readyState === 'live')) {
+        // No stream in event but we have an existing stream with live tracks —
+        // accumulate the new track into it (fixes audio loss on video rejoin)
+        console.log('[PeerConnection] Adding track to existing remoteStream:', event.track.kind);
+        // Avoid duplicate tracks of the same kind by removing old ended ones
+        this.remoteStream.getTracks().forEach((existingTrack: any) => {
+          if (existingTrack.kind === event.track.kind && existingTrack.readyState === 'ended') {
+            this.remoteStream!.removeTrack(existingTrack);
+          }
+        });
+        this.remoteStream.addTrack(event.track);
+        stream = this.remoteStream;
+      } else {
+        // No existing stream or all tracks ended — create fresh stream
         stream = new MediaStream();
         stream.addTrack(event.track);
         console.log('[PeerConnection] Created new MediaStream with track:', event.track.kind);
-      } else {
-        console.log('[PeerConnection] Using stream from event, tracks:',
-          stream.getTracks().map((t: any) => `${t.kind}:${t.readyState}`).join(', '));
+        this.remoteStream = stream;
       }
 
-      this.remoteStream = stream;
       this.remoteStreamHandlers.forEach((handler) => {
         try {
           handler(stream);
@@ -811,19 +823,28 @@ export class PeerConnection {
   stopVideoTracks(): void {
     console.log('[PeerConnection] Stopping video tracks only (keeping data channel)');
 
-    // Stop and remove local video/audio tracks from peer connection
+    // Remove tracks from peer connection BEFORE stopping them
+    // Stopping first can cause sender.track reference to become unreliable
     if (this.localStream && this.pc) {
+      const senders = (this.pc as any).getSenders?.();
+      if (senders) {
+        this.localStream.getTracks().forEach((track) => {
+          const sender = senders.find((s: any) => s.track === track);
+          if (sender) {
+            try {
+              (this.pc as any).removeTrack(sender);
+              console.log('[PeerConnection] Removed sender for track:', track.kind);
+            } catch (error) {
+              console.warn('[PeerConnection] Failed to remove sender for track:', track.kind, error);
+            }
+          }
+        });
+      }
+
+      // Now stop all tracks after they've been removed from senders
       this.localStream.getTracks().forEach((track) => {
         track.stop();
-        // Remove track from peer connection
-        const senders = (this.pc as any).getSenders?.();
-        if (senders) {
-          senders.forEach((sender: any) => {
-            if (sender.track === track) {
-              (this.pc as any).removeTrack?.(sender);
-            }
-          });
-        }
+        console.log('[PeerConnection] Stopped track:', track.kind);
       });
       this.localStream = null;
     }

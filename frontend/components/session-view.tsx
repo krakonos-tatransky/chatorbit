@@ -1542,21 +1542,21 @@ export function SessionView({ token, participantIdFromQuery, initialReportAbuseO
       }
       const senders = pc?.getSenders() ?? [];
       for (const track of stream.getTracks()) {
+        // Remove sender BEFORE stopping track to keep sender.track reference reliable
+        if (pc) {
+          const sender = senders.find((candidate) => candidate.track && candidate.track.id === track.id);
+          if (sender) {
+            try {
+              pc.removeTrack(sender);
+            } catch (cause) {
+              console.warn("Failed to remove RTCRtpSender", cause);
+            }
+          }
+        }
         try {
           track.stop();
         } catch (cause) {
           console.warn("Failed to stop local media track", cause);
-        }
-        if (!pc) {
-          continue;
-        }
-        const sender = senders.find((candidate) => candidate.track && candidate.track.id === track.id);
-        if (sender) {
-          try {
-            pc.removeTrack(sender);
-          } catch (cause) {
-            console.warn("Failed to remove RTCRtpSender", cause);
-          }
         }
       }
       localStreamRef.current = null;
